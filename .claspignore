@@ -1,20 +1,5 @@
-# Khong push cac file/folder quan tri len Apps Script
-.clasp.json
-.claspignore
-.gitignore
-.gitattributes
-.git/**
-.git/*
-.git
-node_modules/**
-node_modules/*
-node_modules
-docs/**
-docs/*
-docs
-README.md
-*.md
-*.log
-.env
-.DS_Store
-Thumbs.db
+_backup_*/
+_backup*/
+_backup*/**
+**/_backup*/**
+*.ps1

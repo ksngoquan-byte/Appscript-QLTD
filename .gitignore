@@ -6,3 +6,5 @@ Thumbs.db
 .env_backup_local/
 *.bak_*
 _backup_local/
+*.ps1
+_backup*/
