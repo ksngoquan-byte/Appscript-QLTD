@@ -1,27 +1,17 @@
-# 1. Chan tat ca file/folder mac dinh
-**/**
-
-# 2. Chi cho phep file Apps Script duoc push len Apps Script
-!appsscript.json
-!*.js
-!*.gs
-!*.ts
-!*.html
-!**/*.js
-!**/*.gs
-!**/*.ts
-!**/*.html
-
-# 3. Chan thu muc/he thong quan ly code
-.git/**
-node_modules/**
-docs/**
-
-# 4. Chan file cau hinh/tai lieu noi bo
+# Khong push cac file/folder quan tri len Apps Script
 .clasp.json
 .claspignore
 .gitignore
 .gitattributes
+.git/**
+.git/*
+.git
+node_modules/**
+node_modules/*
+node_modules
+docs/**
+docs/*
+docs
 README.md
 *.md
 *.log
