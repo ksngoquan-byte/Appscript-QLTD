@@ -1,0 +1,11 @@
+.git/**
+.gitignore
+.gitattributes
+.clasp.json
+.claspignore
+README.md
+docs/**
+*.md
+*.log
+.env
+node_modules/**
