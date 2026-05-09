@@ -1,4 +1,4 @@
-const SCHEDULE_ENGINE_V1 = {
+﻿const SCHEDULE_ENGINE_V1 = {
   SHEET_TASK: 'Cong_viec',
   SHEET_CONFIG: 'Cau_hinh',
   START_ROW: 5,
@@ -63,14 +63,33 @@ function xuLySuaScheduleEngineV1(e) {
     if (sheetName !== cfg.SHEET_TASK) return;
     if (e.range.getRow() < cfg.START_ROW) return;
 
-    const editedCol = e.range.getColumn();
+    // Auto cap Ma cong viec cho dong moi neu cot O dang trong.
+    // Chi cap ma cho vung dang sua; khong cap lai cac dong da co ma.
+    if (typeof capMaCongViecChoVungNeuThieuV1_ === 'function') {
+      capMaCongViecChoVungNeuThieuV1_(sheet, e.range);
+    }
+const editedCol = e.range.getColumn();
+    const editedLastCol = editedCol + e.range.getNumColumns() - 1;
+
+    // Muc tieu 4:
+    // Neu nguoi dung nhap cot K - Cong viec lien ket, tu dong doi sang cong thuc dong
+    // tham chieu truc tiep toi cot G cua cong viec dich.
+    if (
+      editedCol <= cfg.COL.PREDECESSOR &&
+      editedLastCol >= cfg.COL.PREDECESSOR &&
+      typeof chuyenVungNhapThanhCongThucLienKetDongV1_ === 'function'
+    ) {
+      chuyenVungNhapThanhCongThucLienKetDongV1_(sheet, e.range, cfg.COL.PREDECESSOR);
+      SpreadsheetApp.flush();
+    }
     const watchedCols = [
       cfg.COL.TASK_NAME,
       cfg.COL.DURATION,
       cfg.COL.PREDECESSOR
     ];
 
-    if (watchedCols.indexOf(editedCol) === -1) return;
+    const isWatchedEdit = watchedCols.some(col => editedCol <= col && editedLastCol >= col);
+    if (!isWatchedEdit) return;
 
     chayScheduleEngineV1();
   } catch (err) {
@@ -258,7 +277,7 @@ function tinhLichCongViecV1_(tasks, taskByRef, anchorDate) {
 
     if (task.duration && task.duration > 0) {
       endCandidates.forEach(endMin => {
-        const candidate = congNgayV1_(endMin, -task.duration + 1);
+        const candidate = tinhNgayBatDauTheoDurationV1_(endMin, task.duration);
         startCandidates.push(candidate);
         startConstraintCandidates.push(candidate);
       });
@@ -281,7 +300,7 @@ function tinhLichCongViecV1_(tasks, taskByRef, anchorDate) {
     }
 
     if (actualFinish && task.duration && task.duration > 0) {
-      const startFromActualFinish = congNgayV1_(actualFinish, -task.duration + 1);
+      const startFromActualFinish = tinhNgayBatDauTheoDurationV1_(actualFinish, task.duration);
       startCandidates.push(startFromActualFinish);
     }
 
@@ -298,10 +317,10 @@ function tinhLichCongViecV1_(tasks, taskByRef, anchorDate) {
       }
 
       task.start = start;
-      task.end = actualFinish || congNgayV1_(task.start, task.duration - 1);
+      task.end = actualFinish || tinhNgayKetThucTheoDurationV1_(task.start, task.duration);
 
       if (actualFinish) {
-        const expectedStart = congNgayV1_(actualFinish, -task.duration + 1);
+        const expectedStart = tinhNgayBatDauTheoDurationV1_(actualFinish, task.duration);
         if (task.start.getTime() > expectedStart.getTime()) {
           task.errors.push('ERR_ACTUAL_CONFLICT');
           task.start = expectedStart;
@@ -540,6 +559,38 @@ function tinhSoNgayBaoGomV1_(startDate, endDate) {
   return count;
 }
 
+
+function tinhNgayKetThucTheoDurationV1_(startDate, duration) {
+  const n = Number(duration || 0);
+  const ngayNghiSet = layNgayNghiSetScheduleV1_();
+
+  if (!n || n <= 0) return null;
+
+  // Nếu chưa có thư viện lịch làm việc thì fallback về cách tính ngày lịch cũ.
+  if (typeof cal_addNgayLamViec_ !== 'function') {
+    const date = boGioV1_(startDate);
+    date.setDate(date.getDate() + n - 1);
+    return date;
+  }
+
+  return boGioV1_(cal_addNgayLamViec_(startDate, n, ngayNghiSet));
+}
+
+function tinhNgayBatDauTheoDurationV1_(endDate, duration) {
+  const n = Number(duration || 0);
+  const ngayNghiSet = layNgayNghiSetScheduleV1_();
+
+  if (!n || n <= 0) return null;
+
+  // Nếu chưa có thư viện lịch làm việc thì fallback về cách tính ngày lịch cũ.
+  if (typeof cal_subtractNgayLamViec_ !== 'function') {
+    const date = boGioV1_(endDate);
+    date.setDate(date.getDate() - n + 1);
+    return date;
+  }
+
+  return boGioV1_(cal_subtractNgayLamViec_(endDate, n, ngayNghiSet));
+}
 function congNgayV1_(value, days) {
   const n = Number(days || 0);
   const ngayNghiSet = layNgayNghiSetScheduleV1_();
@@ -760,3 +811,6 @@ function layNgayNghiSetScheduleV1_() {
 
   return SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_;
 }
+
+
+

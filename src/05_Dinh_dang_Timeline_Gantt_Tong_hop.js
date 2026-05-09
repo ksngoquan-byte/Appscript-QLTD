@@ -1,4 +1,4 @@
-/*******************************************************
+﻿/*******************************************************
  * FILE: 05_Dinh_dang_Timeline_Gantt_Tong_hop.gs
  *
  * MỤC TIÊU
@@ -42,21 +42,9 @@ function dinhDangTimelineGanttTongHopV1() {
 
   // 1. Thông số tổng quan A:H
   capNhatThongSoTongQuanGantt_(sheet, firstWeekStart, lastWeekEnd, cfg.WEEK_COUNT);
-
-  // 2. Xóa merge/header cũ trong vùng layout
-  sheet
-    .getRange(3, 1, 1, requiredColumns)
-    .breakApart()
-    .clearContent();
-
-  sheet
-    .getRange(4, cfg.GANTT_START_COL, 1, cfg.WEEK_COUNT)
-    .clearContent();
-
-  sheet.showColumns(1, requiredColumns);
-  anCotThuaSauLayoutGanttV1_(sheet, requiredColumns);
-
-  // 3. Tuần logic bắt đầu Thứ Hai, nhãn hiển thị lấy ngày Thứ Bảy.
+  // 2. Dọn layout Gantt cũ trước khi vẽ lại
+  donDepLayoutGanttTruocKhiVeLaiV1_(sheet, cfg, requiredColumns, MAX_ROW);
+// 3. Tuần logic bắt đầu Thứ Hai, nhãn hiển thị lấy ngày Thứ Bảy.
   const weekStarts = [];
   const weekSaturdays = [];
   const weekSaturdayLabels = [];
@@ -252,6 +240,49 @@ function dinhDangTimelineGanttTongHopV1() {
 /**
  * Cập nhật vùng thông số A:H ở hàng 1–2.
  */
+
+function donDepLayoutGanttTruocKhiVeLaiV1_(sheet, cfg, requiredColumns, maxRow) {
+  const maxColumns = sheet.getMaxColumns();
+  const safeMaxRow = Math.max(maxRow || cfg.MAX_ROW || sheet.getMaxRows(), cfg.HEADER_WEEK_ROW);
+
+  const existingFilter = sheet.getFilter();
+  if (existingFilter) {
+    existingFilter.remove();
+  }
+
+  // Hiện tạm toàn bộ cột để có thể dọn merge/format cũ, sau đó sẽ ẩn lại cột thừa.
+  try {
+    sheet.showColumns(1, maxColumns);
+  } catch (err) {
+    Logger.log('Khong show duoc toan bo cot truoc khi don Gantt: ' + err.message);
+  }
+
+  // Gỡ merge + xóa nội dung header tháng/tuần cũ trên toàn bộ số cột hiện có.
+  // Đây là điểm xử lý lỗi khi giảm GANTT_HORIZON_YEARS từ 5 năm xuống 2/3 năm.
+  sheet
+    .getRange(cfg.HEADER_MONTH_ROW, 1, 2, maxColumns)
+    .breakApart()
+    .clearContent();
+
+  // Gỡ merge còn sót trong vùng Gantt từ cột I trở đi, không động vào bảng trái A:H.
+  if (maxColumns >= cfg.GANTT_START_COL) {
+    const ganttWidth = maxColumns - cfg.GANTT_START_COL + 1;
+    const ganttHeight = safeMaxRow - cfg.HEADER_MONTH_ROW + 1;
+
+    sheet
+      .getRange(cfg.HEADER_MONTH_ROW, cfg.GANTT_START_COL, ganttHeight, ganttWidth)
+      .breakApart();
+
+    sheet
+      .getRange(cfg.HEADER_MONTH_ROW, cfg.GANTT_START_COL, ganttHeight, ganttWidth)
+      .clearFormat();
+  }
+
+  // Hiện vùng layout mới và ẩn toàn bộ cột thừa sau layout mới.
+  sheet.showColumns(1, Math.min(requiredColumns, maxColumns));
+  anCotThuaSauLayoutGanttV1_(sheet, requiredColumns);
+}
+
 function capNhatThongSoTongQuanGantt_(sheet, firstWeekStart, lastWeekEnd, weekCount) {
   const now = new Date();
 
@@ -481,8 +512,8 @@ function dinhDangBangTraiGantt_(sheet, maxRow) {
       'Ref',
       'Công việc / Phạm vi',
       'Chủ trì',
-      'Bắt đầu gốc',
-      'Kết thúc gốc',
+      'Số ngày kế hoạch',
+      'Công việc liên kết',
       'Bắt đầu hiện hành',
       'Kết thúc hiện hành',
       'Cảnh báo'
@@ -528,7 +559,9 @@ function dinhDangBangTraiGantt_(sheet, maxRow) {
   sheet.getRange(5, 1, bodyRowCount, 1).setHorizontalAlignment('center');
   sheet.getRange(5, 2, bodyRowCount, 1).setHorizontalAlignment('left').setVerticalAlignment('top').setWrap(true);
   sheet.getRange(5, 3, bodyRowCount, 1).setHorizontalAlignment('center');
-  sheet.getRange(5, 4, bodyRowCount, 4).setNumberFormat('dd/MM/yyyy').setHorizontalAlignment('center');
+  sheet.getRange(5, 4, bodyRowCount, 1).setNumberFormat('0').setHorizontalAlignment('center');
+  sheet.getRange(5, 5, bodyRowCount, 1).setNumberFormat('@').setHorizontalAlignment('center');
+  sheet.getRange(5, 6, bodyRowCount, 2).setNumberFormat('dd/MM/yyyy').setHorizontalAlignment('center');
   sheet.getRange(5, 8, bodyRowCount, 1).setHorizontalAlignment('left').setWrap(true);
 
   const filter = sheet.getFilter();
@@ -655,3 +688,5 @@ function anCotThuaSauLayoutGanttV1_(sheet, requiredColumns) {
     Logger.log('Khong an duoc cot thua sau layout Gantt: ' + err.message);
   }
 }
+
+

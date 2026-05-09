@@ -1,4 +1,4 @@
-/*******************************************************
+﻿/*******************************************************
  * FILE: 06_Do_du_lieu_Tien_do_Tong_hop.gs
  *
  * MỤC TIÊU
@@ -27,31 +27,34 @@ function doDuLieuBangTraiTienDoTongHopV1() {
   const techOutput = [];
 
   currentRows.forEach(currentRow => {
-    const taskName = String(currentRow[7] || '').trim();  // H
-    const taskCode = String(currentRow[14] || '').trim(); // O
+    const values = currentRow.values;
+    const displays = currentRow.displays;
+    const taskName = String(values[7] || '').trim();  // H
+    const taskCode = String(values[14] || '').trim(); // O
 
-    if (!taskName || !taskCode) return;
+    if (!taskCode) return;
 
     const baseline = baselineByTaskCode[taskCode] || null;
+    if (!taskName && !(baseline && baseline[1])) return;
 
     output.push([
-  chuanHoaTextMotDongTongHopV1_(currentRow[6] || (baseline ? baseline[0] : '')), // A - Ref
-  taoCongViecPhamViTongHopV1_(currentRow, baseline),
-  chuanHoaTextMotDongTongHopV1_(currentRow[8] || (baseline ? baseline[2] : '')), // C - Chủ trì
-  currentRow[9] || '',                            // D - Số ngày kế hoạch từ Cong_viec!J
-  chuanHoaTextMotDongTongHopV1_(currentRow[10]),  // E - Công việc liên kết từ Cong_viec!K
-  currentRow[11] || '',                           // F - BĐ hiện hành từ Cong_viec!L
-  currentRow[12] || '',                           // G - KT hiện hành từ Cong_viec!M
-  taoCanhBaoLechTongHopV1_(currentRow, baseline)
+  chuanHoaTextMotDongTongHopV1_(values[6] || (baseline ? baseline[0] : '')), // A - Ref
+  taoCongViecPhamViTongHopV1_(values, baseline),
+  chuanHoaTextMotDongTongHopV1_(values[8] || (baseline ? baseline[2] : '')), // C - Chủ trì
+  values[9] || '',                            // D - Số ngày kế hoạch từ Cong_viec!J
+  chuanHoaLienKetTienNhiemTongHopV1_(values[10], displays[10]),  // E - Công việc liên kết từ Cong_viec!K
+  values[11] || '',                           // F - BĐ hiện hành từ Cong_viec!L
+  values[12] || '',                           // G - KT hiện hành từ Cong_viec!M
+  taoCanhBaoLechTongHopV1_(values, baseline)
 ]);
     const baselineStartForTech = baseline ? baseline[3] : ''; // Ke_hoach_goc!D - Bắt đầu gốc
     const baselineEndForTech = baseline ? baseline[4] : '';   // Ke_hoach_goc!E - Kết thúc gốc
 
     techOutput.push([
       taskCode,                                      // 1 - Mã công việc - Cong_viec!O
-      currentRow[18] || '',                         // 2 - Actual Start - Cong_viec!S
-      currentRow[19] || '',                         // 3 - Actual Finish - Cong_viec!T
-      chuanHoaTextMotDongTongHopV1_(currentRow[17]),// 4 - Trạng thái - Cong_viec!R
+      values[18] || '',                             // 2 - Actual Start - Cong_viec!S
+      values[19] || '',                             // 3 - Actual Finish - Cong_viec!T
+      chuanHoaTextMotDongTongHopV1_(values[17]),    // 4 - Trạng thái - Cong_viec!R
       baselineStartForTech,                         // 5 - Baseline Start - Ke_hoach_goc!D
       baselineEndForTech                            // 6 - Baseline End - Ke_hoach_goc!E
     ]);
@@ -73,9 +76,16 @@ function doDuLieuBangTraiTienDoTongHopV1() {
     .clearContent();
 
   if (output.length > 0) {
+    // Ép định dạng trước khi ghi để cột E không tự chuyển số tiền nhiệm thành ngày 1900.
+    targetSheet.getRange(5, 4, output.length, 1).setNumberFormat('0');          // D - Số ngày
+    targetSheet.getRange(5, 5, output.length, 1).setNumberFormat('@');          // E - Công việc liên kết
+    targetSheet.getRange(5, 6, output.length, 2).setNumberFormat('dd/MM/yyyy'); // F:G - Ngày
+
     targetSheet
       .getRange(5, 1, output.length, 8)
       .setValues(output);
+
+    targetSheet.getRange(5, 5, output.length, 1).setNumberFormat('@');
 
     targetSheet
       .getRange(5, cfg.TECH_START_COL, techOutput.length, 6)
@@ -166,9 +176,14 @@ function docDuLieuCongViecChoTongHopV1_(ss) {
     return [];
   }
 
-  return sheet
-    .getRange(startRow, 1, lastRow - startRow + 1, 23)
-    .getValues();
+  const range = sheet.getRange(startRow, 1, lastRow - startRow + 1, 23);
+  const values = range.getValues();
+  const displays = range.getDisplayValues();
+
+  return values.map((row, index) => ({
+    values: row,
+    displays: displays[index]
+  }));
 }
 
 
@@ -217,15 +232,15 @@ function taoMapBaselineTheoMaCongViecV1_(baselineRows) {
 
 
 function taoCongViecPhamViTongHopV1_(currentRow, baseline) {
-  if (baseline && baseline[1]) {
-    return chuanHoaTextMotDongTongHopV1_(baseline[1]);
-  }
-
   const taskName = currentRow[7] || '';   // H
   const zone = currentRow[2];             // C
   const congTrinh = currentRow[4];        // E
   const hangMucTang = currentRow[5];      // F
   const scopeParts = [];
+
+  if (!taskName && baseline && baseline[1]) {
+    return chuanHoaTextMotDongTongHopV1_(baseline[1]);
+  }
 
   if (zone) scopeParts.push(chuanHoaTextMotDongTongHopV1_(zone));
   if (congTrinh) scopeParts.push(chuanHoaTextMotDongTongHopV1_(congTrinh));
@@ -315,4 +330,30 @@ function chuanHoaTextMotDongTongHopV1_(value) {
     .replace(/(\s*\|\s*){2,}/g, ' | ')
     .replace(/^\s*\|\s*|\s*\|\s*$/g, '')
     .trim();
+}
+
+
+function chuanHoaLienKetTienNhiemTongHopV1_(value, displayValue) {
+  if (value === null || value === '' || typeof value === 'undefined') return '';
+
+  if (laNgayHopLeTongHopV1_(value) && value.getFullYear() === 1900 && value.getMonth() === 0) {
+    return String(value.getDate());
+  }
+
+  if (typeof value === 'number' && isFinite(value)) {
+    return String(Math.floor(value));
+  }
+
+  let text = chuanHoaTextMotDongTongHopV1_(displayValue || value);
+
+  // Sửa các giá trị đã từng bị biến thành ngày 1900:
+  // 10/01/1900 -> 10
+  // 11/01/1900 -> 11
+  // 24/01/1900 -> 24
+  const m = text.match(/^(\d{1,2})[\/\-]01[\/\-]1900$/);
+  if (m) {
+    return String(Number(m[1]));
+  }
+
+  return text;
 }

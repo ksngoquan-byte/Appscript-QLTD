@@ -18,15 +18,19 @@ function capNhatSoNgayVaLienKet_TienDoTongHop_() {
   const dataCV = shCV
     .getRange(START_ROW, 7, lastRowCV - START_ROW + 1, 5)
     .getValues();
+  const displayCV = shCV
+    .getRange(START_ROW, 7, lastRowCV - START_ROW + 1, 5)
+    .getDisplayValues();
 
   const mapCV = new Map();
 
-  dataCV.forEach(row => {
+  dataCV.forEach((row, index) => {
+    const displayRow = displayCV[index] || [];
     const ref = String(row[0] || '').trim(); // G
     if (!ref) return;
 
     const soNgayKeHoach = chuanHoaSoNgayKeHoach_(row[3]); // J
-    const congViecLienKet = String(row[4] || '').trim();  // K
+    const congViecLienKet = chuanHoaLienKetTienNhiemTongHopV1_(row[4], displayRow[4]);  // K
 
     mapCV.set(ref, [soNgayKeHoach, congViecLienKet]);
   });
@@ -42,6 +46,14 @@ function capNhatSoNgayVaLienKet_TienDoTongHop_() {
   });
 
   // Ghi vào Tien_do_tong_hop: D:E
+  shTD
+    .getRange(START_ROW, 4, output.length, 1)
+    .setNumberFormat('0');
+
+  shTD
+    .getRange(START_ROW, 5, output.length, 1)
+    .setNumberFormat('@');
+
   shTD
     .getRange(START_ROW, 4, output.length, 2)
     .setValues(output);

@@ -1,4 +1,4 @@
-function taoMenu() {
+﻿function taoMenu() {
   const ui = SpreadsheetApp.getUi();
 
   ui.createMenu('Quản lý tiến độ dự án')
@@ -48,6 +48,8 @@ function menuCapNhatTongHopGanttV1() {
     'toMauGanttTongHopV2',
     'toMauGanttTongHopTheoTuanV1'
   ], 'Tô màu Gantt');
+
+  chuanHoaBangTraiTienDoTongHopV1();
 
   ss.toast('Đã cập nhật tổng hợp + Gantt.', 'Quản lý tiến độ', 5);
 }
@@ -207,3 +209,58 @@ function menuLayHamTheoTenV1_(functionNames) {
 
   return null;
 }
+
+
+// === FIX_LEFT_TABLE_TIEN_DO_TONG_HOP_V1_START ===
+
+/**
+ * Chuan hoa header va dinh dang bang trai sheet Tien_do_tong_hop.
+ * A: Ref
+ * B: Cong viec / Pham vi
+ * C: Chu tri
+ * D: So ngay ke hoach
+ * E: Cong viec lien ket
+ * F: Bat dau hien hanh
+ * G: Ket thuc hien hanh
+ * H: Canh bao
+ */
+function chuanHoaBangTraiTienDoTongHopV1() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Tien_do_tong_hop');
+  if (!sheet) throw new Error('Khong tim thay sheet Tien_do_tong_hop');
+
+  const headerRow = 4;
+  const dataStartRow = 5;
+  const lastRow = Math.max(sheet.getLastRow(), dataStartRow);
+
+  sheet.getRange(headerRow, 1, 1, 8).setValues([[
+    'Ref',
+    'Công việc / Phạm vi',
+    'Chủ trì',
+    'Số ngày kế hoạch',
+    'Công việc liên kết',
+    'Bắt đầu hiện hành',
+    'Kết thúc hiện hành',
+    'Cảnh báo'
+  ]]);
+
+  const numRows = lastRow - dataStartRow + 1;
+
+  if (numRows > 0) {
+    sheet.getRange(dataStartRow, 1, numRows, 1).setNumberFormat('0');             // A - Ref
+    sheet.getRange(dataStartRow, 4, numRows, 1).setNumberFormat('0');             // D - So ngay ke hoach
+    sheet.getRange(dataStartRow, 5, numRows, 1).setNumberFormat('@');             // E - Cong viec lien ket
+    sheet.getRange(dataStartRow, 6, numRows, 2).setNumberFormat('dd/MM/yyyy');    // F:G - Ngay
+    sheet.getRange(dataStartRow, 2, numRows, 1).setWrap(true);                    // B - Ten viec
+    sheet.getRange(dataStartRow, 8, numRows, 1).setWrap(true);                    // H - Canh bao
+  }
+
+  SpreadsheetApp.flush();
+
+  const message = 'Da chuan hoa header va dinh dang bang trai Tien_do_tong_hop.';
+  Logger.log(message);
+  return message;
+}
+
+// === FIX_LEFT_TABLE_TIEN_DO_TONG_HOP_V1_END ===
+

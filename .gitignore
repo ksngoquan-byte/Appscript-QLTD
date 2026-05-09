@@ -3,4 +3,6 @@ node_modules/
 .DS_Store
 Thumbs.db
 .clasprc.json
-.env
+.env_backup_local/
+*.bak_*
+_backup_local/
