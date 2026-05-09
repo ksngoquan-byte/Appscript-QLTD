@@ -27,7 +27,7 @@ function chotBaselineDieuChinhV1() {
 
 
 /**
- * Giữ tên hàm cũ để tránh mất tương thích.
+ * Giu ten ham cu de tranh mat tuong thich.
  * Nếu chưa có baseline thì hiểu là LAN_DAU.
  * Nếu đã có baseline thì hiểu là DIEU_CHINH.
  */
@@ -53,7 +53,6 @@ function chotKeHoachGocCoreV1_(baselineType) {
 
   const targetSheet = taoHoacLaySheetKeHoachGocV1_();
   const hasCurrentBaseline = coBaselineHienTaiKeHoachGocV1_(targetSheet);
-  const hasAnyExistingData = coDuLieuTrongSheetKeHoachGocV1_(targetSheet);
 
   if (baselineType === 'LAN_DAU' && hasCurrentBaseline) {
     throw new Error(
@@ -63,8 +62,7 @@ function chotKeHoachGocCoreV1_(baselineType) {
   }
 
   const now = new Date();
-  const tz = Session.getScriptTimeZone();
-  const baselineVersion = 'BL_' + Utilities.formatDate(now, tz, 'yyyyMMdd_HHmmss');
+  const baselineVersion = taoBaselineVersionTuanTuKeHoachGocV1_(ss);
 
   const startRow = 5;
   const lastRow = sourceSheet.getLastRow();
@@ -101,7 +99,7 @@ function chotKeHoachGocCoreV1_(baselineType) {
     if (!tenCongViec) return;
 
     if (!maCongViec) {
-      errors.push('Dòng ' + sourceRow + ': thiếu Mã công việc tại cột O.');
+      errors.push('D\u00f2ng ' + sourceRow + ': thi\u1ebfu M\u00e3 c\u00f4ng vi\u1ec7c t\u1ea1i c\u1ed9t O.');
     }
 
     if (!batDau || !ketThuc) {
@@ -126,7 +124,7 @@ function chotKeHoachGocCoreV1_(baselineType) {
       lienKet,                // G - Liên kết gốc
       maMocHeThong,           // H - Mốc/Gate
       ghiChuKeHoach,          // I - Ghi chú gốc
-      maCongViec,             // J - Mã công việc
+      maCongViec,             // J - Ma cong viec
       baselineVersion,        // K - Baseline version
       baselineType,           // L - Baseline type
       'ACTIVE',               // M - Baseline status
@@ -146,15 +144,10 @@ function chotKeHoachGocCoreV1_(baselineType) {
     throw new Error(message);
   }
 
-  moKhoaSheetKeHoachGocV1_(targetSheet);
+  const historySheet = taoHoacLaySheetKeHoachGocHistoryV1_();
+  capNhatBaselineDangApDungThanhDaThayTheV1_(historySheet);
 
-  if (hasCurrentBaseline) {
-    const historySheet = taoHoacLaySheetKeHoachGocHistoryV1_();
-    luuBaselineHienTaiVaoHistoryV1_(targetSheet, historySheet, now);
-    taoBackupSheetKeHoachGocV1_(targetSheet, now);
-  } else if (hasAnyExistingData) {
-    taoBackupSheetKeHoachGocV1_(targetSheet, now);
-  }
+  moKhoaSheetKeHoachGocV1_(targetSheet);
 
   thietLapKhungKeHoachGocV1_(targetSheet);
 
@@ -172,6 +165,15 @@ function chotKeHoachGocCoreV1_(baselineType) {
   dinhDangSheetKeHoachGocV1_(targetSheet);
   khoaSheetKeHoachGocV1_(targetSheet);
 
+  const snapshotName = taoSnapshotSheetTheoBaselineVersionV1_(targetSheet, baselineVersion, now);
+  ghiDongDangKyBaselineHistoryV1_(historySheet, {
+    baselineVersion,
+    snapshotName,
+    createdAt: now,
+    taskCount: output.length,
+    note: ''
+  });
+
   SpreadsheetApp.flush();
 
   const message =
@@ -188,6 +190,303 @@ function chotKeHoachGocCoreV1_(baselineType) {
 /**
  * Tạo text tĩnh cho cột B - Công việc / Phạm vi.
  */
+
+/**
+ * PHASE 2 - Baseline versioning.
+ * Ke_hoach_goc_history = registry 6 cot.
+ */
+function taoBaselineVersionTuanTuKeHoachGocV1_(ss) {
+  const maxFromSheets = laySoBaselineLonNhatTuTenSheetV1_(ss);
+  const maxFromHistory = laySoBaselineLonNhatTuHistoryV1_(ss);
+  const maxFromActive = laySoBaselineLonNhatTuActiveV1_(ss);
+  const next = Math.max(maxFromSheets, maxFromHistory, maxFromActive) + 1;
+  return 'BL' + String(next).padStart(3, '0');
+}
+
+function laySoBaselineLonNhatTuTenSheetV1_(ss) {
+  let max = 0;
+  ss.getSheets().forEach(sheet => {
+    const name = sheet.getName();
+    let match = name.match(/^KH_goc_BL(\d{3,})_\d{8}$/);
+    if (!match) match = name.match(/^KH_goc_BL(\d{3,})$/);
+    if (!match) return;
+    const n = Number(match[1]);
+    if (isFinite(n) && n > max) max = n;
+  });
+  return max;
+}
+
+function laySoBaselineLonNhatTuHistoryV1_(ss) {
+  const sheet = ss.getSheetByName('Ke_hoach_goc_history');
+  if (!sheet || sheet.getLastRow() < 2) return 0;
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  let max = 0;
+
+  values.forEach(row => {
+    const n = laySoThuTuTuBaselineVersionV1_(row[0]);
+    if (n > max) max = n;
+  });
+
+  return max;
+}
+
+function laySoBaselineLonNhatTuActiveV1_(ss) {
+  const sheet = ss.getSheetByName('Ke_hoach_goc');
+  if (!sheet) return 0;
+
+  let max = 0;
+
+  try {
+    const row2 = sheet.getRange(2, 1, 1, Math.min(sheet.getLastColumn(), 14)).getValues()[0];
+    row2.forEach(value => {
+      const n = laySoThuTuTuBaselineVersionV1_(value);
+      if (n > max) max = n;
+    });
+  } catch (err) {
+    Logger.log('Khong doc duoc row2 Ke_hoach_goc: ' + err.message);
+  }
+
+  if (sheet.getLastRow() >= 5 && sheet.getLastColumn() >= 11) {
+    try {
+      const values = sheet.getRange(5, 11, sheet.getLastRow() - 4, 1).getValues();
+      values.forEach(row => {
+        const n = laySoThuTuTuBaselineVersionV1_(row[0]);
+        if (n > max) max = n;
+      });
+    } catch (err) {
+      Logger.log('Khong doc duoc cot K Ke_hoach_goc: ' + err.message);
+    }
+  }
+
+  return max;
+}
+
+function laySoThuTuTuBaselineVersionV1_(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^BL(\d{3,})$/);
+  return match ? Number(match[1]) : 0;
+}
+
+function taoHoacLaySheetKeHoachGocHistoryV1_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('Ke_hoach_goc_history');
+
+  if (!sheet) {
+    sheet = ss.insertSheet('Ke_hoach_goc_history');
+  }
+
+  thietLapHeaderHistoryKeHoachGocV1_(sheet);
+  dinhDangSheetHistoryKeHoachGocV1_(sheet);
+
+  try {
+    sheet.hideSheet();
+  } catch (err) {
+    Logger.log('Khong an duoc Ke_hoach_goc_history: ' + err.message);
+  }
+
+  return sheet;
+}
+
+function thietLapHeaderHistoryKeHoachGocV1_(sheet) {
+  const HEADER_MA_BASELINE = 'M\u00e3 baseline';
+  const HEADER_TEN_SHEET = 'T\u00ean sheet l\u01b0u tr\u1eef';
+  const HEADER_TRANG_THAI = 'Tr\u1ea1ng th\u00e1i';
+  const HEADER_NGAY_LUU = 'Ng\u00e0y l\u01b0u';
+  const HEADER_SO_DONG = 'S\u1ed1 d\u00f2ng c\u00f4ng vi\u1ec7c';
+  const HEADER_GHI_CHU = 'Ghi ch\u00fa';
+
+  const headers = [[
+    HEADER_MA_BASELINE,
+    HEADER_TEN_SHEET,
+    HEADER_TRANG_THAI,
+    HEADER_NGAY_LUU,
+    HEADER_SO_DONG,
+    HEADER_GHI_CHU
+  ]];
+
+  const currentA1 = String(sheet.getRange('A1').getValue() || '').trim();
+  const lastColumn = sheet.getLastColumn();
+  const headerWidthToRead = Math.max(1, Math.min(lastColumn, 6));
+  const currentHeaders = sheet.getRange(1, 1, 1, headerWidthToRead).getValues()[0];
+  const hasExactHeader = headers[0].every((header, index) => String(currentHeaders[index] || '').trim() === header);
+
+  if (currentA1 !== HEADER_MA_BASELINE || !hasExactHeader || lastColumn > 6) {
+    const filter = sheet.getFilter();
+    if (filter) filter.remove();
+
+    sheet.clear();
+
+    const maxColumns = sheet.getMaxColumns();
+    if (maxColumns < 6) {
+      sheet.insertColumnsAfter(maxColumns, 6 - maxColumns);
+    }
+  }
+
+  sheet.getRange(1, 1, 1, 6).setValues(headers);
+  sheet.setFrozenRows(1);
+
+  try {
+    if (sheet.getMaxColumns() > 6) {
+      sheet.deleteColumns(7, sheet.getMaxColumns() - 6);
+    }
+  } catch (err) {
+    Logger.log('Khong xoa duoc cot thua trong Ke_hoach_goc_history: ' + err.message);
+  }
+}
+
+function dinhDangSheetHistoryKeHoachGocV1_(sheet) {
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+
+  sheet.getRange(1, 1, 1, 6)
+    .setBackground('#1F4E78')
+    .setFontColor('#FFFFFF')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true);
+
+  if (lastRow >= 2) {
+    sheet.getRange(2, 1, lastRow - 1, 6)
+      .setFontSize(10)
+      .setVerticalAlignment('middle')
+      .setBorder(true, true, true, true, true, true, '#D7E1EA', SpreadsheetApp.BorderStyle.SOLID);
+
+    sheet.getRange(2, 4, lastRow - 1, 1).setNumberFormat('dd/MM/yyyy HH:mm');
+    sheet.getRange(2, 5, lastRow - 1, 1).setNumberFormat('0');
+  }
+
+  sheet.setColumnWidth(1, 100);
+  sheet.setColumnWidth(2, 230);
+  sheet.setColumnWidth(3, 120);
+  sheet.setColumnWidth(4, 145);
+  sheet.setColumnWidth(5, 130);
+  sheet.setColumnWidth(6, 260);
+  sheet.setRowHeight(1, 36);
+}
+
+function capNhatBaselineDangApDungThanhDaThayTheV1_(historySheet) {
+  thietLapHeaderHistoryKeHoachGocV1_(historySheet);
+
+  const STATUS_ACTIVE = '\u0110ang \u00e1p d\u1ee5ng';
+  const STATUS_REPLACED = '\u0110\u00e3 thay th\u1ebf';
+
+  const lastRow = historySheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const range = historySheet.getRange(2, 3, lastRow - 1, 1);
+  const values = range.getValues();
+
+  let changed = false;
+
+  for (let i = 0; i < values.length; i++) {
+    const status = String(values[i][0] || '').trim();
+    if (status === STATUS_ACTIVE) {
+      values[i][0] = STATUS_REPLACED;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    range.setValues(values);
+  }
+}
+
+function ghiDongDangKyBaselineHistoryV1_(historySheet, info) {
+  thietLapHeaderHistoryKeHoachGocV1_(historySheet);
+
+  const STATUS_ACTIVE = '\u0110ang \u00e1p d\u1ee5ng';
+
+  const row = [[
+    info.baselineVersion || '',
+    info.snapshotName || '',
+    STATUS_ACTIVE,
+    info.createdAt || new Date(),
+    info.taskCount || '',
+    info.note || ''
+  ]];
+
+  historySheet
+    .getRange(historySheet.getLastRow() + 1, 1, 1, row[0].length)
+    .setValues(row);
+
+  dinhDangSheetHistoryKeHoachGocV1_(historySheet);
+
+  try {
+    historySheet.hideSheet();
+  } catch (err) {
+    Logger.log('Khong an duoc history sau khi ghi dong moi: ' + err.message);
+  }
+}
+
+function taoSnapshotSheetTheoBaselineVersionV1_(sourceSheet, baselineVersion, createdAt) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const safeVersion = String(baselineVersion || '').trim();
+
+  if (!/^BL\d{3,}$/.test(safeVersion)) {
+    Logger.log('Khong tao snapshot vi baselineVersion sai: ' + safeVersion);
+    return '';
+  }
+
+  const dateSource = createdAt || new Date();
+  const tz = Session.getScriptTimeZone();
+  const dateText = Utilities.formatDate(dateSource, tz, 'ddMMyyyy');
+
+  let snapshotName = 'KH_goc_' + safeVersion + '_' + dateText;
+
+  if (snapshotName.length > 99) {
+    snapshotName = snapshotName.slice(0, 99);
+  }
+
+  const existed = ss.getSheetByName(snapshotName);
+  if (existed) {
+    Logger.log('Snapshot da ton tai: ' + snapshotName);
+    return snapshotName;
+  }
+
+  const protections = sourceSheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+  protections.forEach(p => {
+    try {
+      p.remove();
+    } catch (err) {
+      Logger.log('Khong go duoc protection truoc khi copy snapshot: ' + err.message);
+    }
+  });
+
+  const snapshot = sourceSheet.copyTo(ss).setName(snapshotName);
+
+  try {
+    const protection = snapshot.protect();
+    protection.setDescription(snapshotName + ' la snapshot baseline. Khong chinh sua tay.');
+
+    try {
+      protection.removeEditors(protection.getEditors());
+    } catch (err) {
+      Logger.log('Khong remove editors snapshot: ' + err.message);
+    }
+
+    if (protection.canDomainEdit()) {
+      protection.setDomainEdit(false);
+    }
+  } catch (err) {
+    Logger.log('Khong khoa duoc snapshot baseline: ' + err.message);
+  }
+
+  try {
+    snapshot.hideSheet();
+  } catch (err) {
+    Logger.log('Khong an duoc snapshot baseline: ' + err.message);
+  }
+
+  try {
+    khoaSheetKeHoachGocV1_(sourceSheet);
+  } catch (err) {
+    Logger.log('Khong khoa lai Ke_hoach_goc: ' + err.message);
+  }
+
+  return snapshotName;
+}
+
 function taoCongViecPhamViBaselineV1_(data) {
   const ten = data.tenCongViec || '';
 
@@ -219,25 +518,6 @@ function taoHoacLaySheetKeHoachGocV1_() {
   return sheet;
 }
 
-
-/**
- * Tạo/lấy sheet lịch sử baseline.
- */
-function taoHoacLaySheetKeHoachGocHistoryV1_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('Ke_hoach_goc_history');
-
-  if (!sheet) {
-    sheet = ss.insertSheet('Ke_hoach_goc_history');
-  }
-
-  thietLapHeaderHistoryKeHoachGocV1_(sheet);
-  sheet.hideSheet();
-
-  return sheet;
-}
-
-
 /**
  * Kiểm tra Ke_hoach_goc có baseline hiện tại hay không.
  */
@@ -246,23 +526,9 @@ function coBaselineHienTaiKeHoachGocV1_(sheet) {
   if (sheet.getLastRow() < 5) return false;
 
   const headerA4 = String(sheet.getRange('A4').getValue()).trim();
-  if (headerA4 !== 'Mã công việc' && headerA4 !== 'Ref gốc') return false;
+  if (headerA4 !== 'M\u00e3 c\u00f4ng vi\u1ec7c' && headerA4 !== 'Ref g\u1ed1c') return false;
 
   const values = sheet.getRange(5, 1, sheet.getLastRow() - 4, Math.min(sheet.getLastColumn(), 14)).getValues();
-  return values.some(row => row.some(cell => cell !== '' && cell !== null));
-}
-
-
-/**
- * Kiểm tra sheet có dữ liệu bất kỳ để backup trước khi clear.
- */
-function coDuLieuTrongSheetKeHoachGocV1_(sheet) {
-  if (!sheet) return false;
-  const lastRow = sheet.getLastRow();
-  const lastColumn = sheet.getLastColumn();
-  if (lastRow < 1 || lastColumn < 1) return false;
-
-  const values = sheet.getRange(1, 1, lastRow, lastColumn).getValues();
   return values.some(row => row.some(cell => cell !== '' && cell !== null));
 }
 
@@ -311,7 +577,7 @@ function thietLapKhungKeHoachGocV1_(sheet) {
     'Liên kết gốc',
     'Mốc/Gate',
     'Ghi chú gốc',
-    'Mã công việc',
+    'M\u00e3 c\u00f4ng vi\u1ec7c',
     'Baseline version',
     'Baseline type',
     'Baseline status',
@@ -348,58 +614,6 @@ function capNhatThongTinDauSheetKeHoachGocV1_(sheet, info) {
 
   sheet.getRange('D2').setNumberFormat('dd/MM/yyyy');
 }
-
-
-/**
- * Lưu baseline hiện tại sang history trước khi ghi baseline mới.
- */
-function luuBaselineHienTaiVaoHistoryV1_(sheet, historySheet, archivedAt) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 5) return;
-
-  thietLapHeaderHistoryKeHoachGocV1_(historySheet);
-
-  const metadata = docMetadataBaselineKeHoachGocV1_(sheet);
-  const width = Math.min(sheet.getLastColumn(), 17);
-  const values = sheet.getRange(5, 1, lastRow - 4, width).getValues();
-  const historyRows = [];
-  const layoutType = docLoaiLayoutKeHoachGocV1_(sheet);
-
-  values.forEach(row => {
-    const visibleRow = row.slice(0, layoutType === 'NEW_AI_JN' ? 9 : 10);
-    const hasData = visibleRow.some(cell => cell !== '' && cell !== null);
-    if (!hasData) return;
-
-    const mapped = chuyenDongKeHoachGocSangHistoryV1_(row, metadata, layoutType);
-
-    historyRows.push([
-      mapped.baselineVersion,
-      mapped.baselineType,
-      String(mapped.baselineStatus).trim() === 'ACTIVE' ? 'INACTIVE' : mapped.baselineStatus,
-      mapped.createdAt,
-      archivedAt,
-      mapped.maCongViec,
-      mapped.refGoc,
-      mapped.congViecPhamVi,
-      mapped.chuTri,
-      mapped.batDauGoc,
-      mapped.ketThucGoc,
-      mapped.ngayGoc,
-      mapped.lienKetGoc,
-      mapped.mocGate,
-      mapped.ghiChuGoc
-    ]);
-  });
-
-  if (historyRows.length > 0) {
-    historySheet
-      .getRange(historySheet.getLastRow() + 1, 1, historyRows.length, historyRows[0].length)
-      .setValues(historyRows);
-  }
-
-  historySheet.hideSheet();
-}
-
 
 /**
  * Định dạng sheet Ke_hoach_goc.
@@ -590,159 +804,6 @@ function dinhDangSheetKeHoachGocV1_(sheet) {
   sheet.setRowHeight(2, 30);
   sheet.setRowHeight(3, 7);
   sheet.setRowHeight(4, 40);
-}
-
-
-/**
- * Header cố định cho history.
- */
-function thietLapHeaderHistoryKeHoachGocV1_(sheet) {
-  const headers = [[
-    'baseline_version',
-    'baseline_type',
-    'baseline_status',
-    'created_at',
-    'archived_at',
-    'ma_cong_viec',
-    'ref_goc',
-    'cong_viec_pham_vi',
-    'chu_tri',
-    'bat_dau_goc',
-    'ket_thuc_goc',
-    'ngay_goc',
-    'lien_ket_goc',
-    'moc_gate',
-    'ghi_chu_goc'
-  ]];
-
-  const firstCell = String(sheet.getRange('A1').getValue()).trim();
-  if (firstCell !== 'baseline_version') {
-    sheet.getRange(1, 1, 1, headers[0].length).setValues(headers);
-    sheet.setFrozenRows(1);
-  }
-}
-
-
-/**
- * Đọc metadata baseline hiện tại, hỗ trợ cả layout cũ và layout mới.
- */
-function docMetadataBaselineKeHoachGocV1_(sheet) {
-  const row2 = sheet.getRange(2, 1, 1, 10).getValues()[0];
-  const headerWidth = Math.min(sheet.getLastColumn(), 17);
-  const headers = sheet.getRange(4, 1, 1, headerWidth).getValues()[0];
-
-  let baselineVersion = '';
-  let baselineType = '';
-  let baselineStatus = 'ACTIVE';
-  let createdAt = '';
-
-  if (String(row2[0]).trim() === 'Phiên bản') {
-    baselineVersion = row2[1];
-    createdAt = row2[3];
-    baselineType = row2[5];
-    baselineStatus = String(row2[8]).trim() === 'Trạng thái'
-      ? row2[9] || 'ACTIVE'
-      : row2[8] || row2[9] || 'ACTIVE';
-  } else {
-    baselineVersion = row2[1];
-    baselineType = row2[3];
-    createdAt = row2[5];
-    baselineStatus = row2[9] || 'ACTIVE';
-  }
-
-  const versionIndex = headers.indexOf('Baseline version');
-  const typeIndex = headers.indexOf('Baseline type');
-  const statusIndex = headers.indexOf('Baseline status');
-  const createdIndex = headers.indexOf('Created at');
-
-  return {
-    baselineVersion,
-    baselineType,
-    baselineStatus,
-    createdAt,
-    versionIndex,
-    typeIndex,
-    statusIndex,
-    createdIndex
-  };
-}
-
-
-/**
- * Nhận diện layout để archive đúng cả bản cũ và bản mới.
- */
-function docLoaiLayoutKeHoachGocV1_(sheet) {
-  const headerA = String(sheet.getRange('A4').getValue()).trim();
-  const headerB = String(sheet.getRange('B4').getValue()).trim();
-
-  if (headerA === 'Ref gốc' && headerB === 'Công việc / Phạm vi') {
-    return 'NEW_AI_JN';
-  }
-
-  return 'OLD_AJ_KQ';
-}
-
-
-/**
- * Map một dòng Ke_hoach_goc sang cấu trúc history.
- */
-function chuyenDongKeHoachGocSangHistoryV1_(row, metadata, layoutType) {
-  if (layoutType === 'NEW_AI_JN') {
-    return {
-      baselineVersion: row[10] || metadata.baselineVersion,
-      baselineType: row[11] || metadata.baselineType,
-      baselineStatus: row[12] || metadata.baselineStatus || 'ACTIVE',
-      createdAt: row[13] || metadata.createdAt,
-      maCongViec: row[9],
-      refGoc: row[0],
-      congViecPhamVi: row[1],
-      chuTri: row[2],
-      batDauGoc: row[3],
-      ketThucGoc: row[4],
-      ngayGoc: row[5],
-      lienKetGoc: row[6],
-      mocGate: row[7],
-      ghiChuGoc: row[8]
-    };
-  }
-
-  return {
-    baselineVersion: row[10] || metadata.baselineVersion,
-    baselineType: row[11] || metadata.baselineType,
-    baselineStatus: row[12] || metadata.baselineStatus || 'ACTIVE',
-    createdAt: row[13] || metadata.createdAt,
-    maCongViec: row[0],
-    refGoc: row[1],
-    congViecPhamVi: row[2],
-    chuTri: row[3],
-    batDauGoc: row[4],
-    ketThucGoc: row[5],
-    ngayGoc: row[6],
-    lienKetGoc: row[7],
-    mocGate: row[8],
-    ghiChuGoc: row[9]
-  };
-}
-
-
-/**
- * Tạo bản sao ẩn để bảo toàn dữ liệu layout cũ trước khi clear.
- */
-function taoBackupSheetKeHoachGocV1_(sourceSheet, now) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const tz = Session.getScriptTimeZone();
-  let name = 'Ke_hoach_goc_backup_' + Utilities.formatDate(now, tz, 'yyyyMMdd_HHmmss');
-
-  if (name.length > 99) {
-    name = name.slice(0, 99);
-  }
-
-  if (ss.getSheetByName(name)) {
-    name = ('Ke_hoach_goc_backup_' + now.getTime()).slice(0, 99);
-  }
-
-  const backupSheet = sourceSheet.copyTo(ss).setName(name);
-  backupSheet.hideSheet();
 }
 
 
