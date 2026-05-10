@@ -544,7 +544,7 @@ function dinhDangBangTraiGantt_(sheet, maxRow) {
       'Công việc liên kết',
       'Bắt đầu hiện hành',
       'Kết thúc hiện hành',
-      'Cảnh báo'
+      'Tình trạng'
     ]])
     .setBackground('#DDE9F2')
     .setFontWeight('bold')

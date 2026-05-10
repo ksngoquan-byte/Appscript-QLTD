@@ -39,7 +39,9 @@ function menuCapNhatMaCongViecV1() {
 }
 
 function menuChayTinhLaiTienDoV1() {
-  return menuChayHamBatBuocV1_(['chayScheduleEngineV1'], 'Chạy tính lại tiến độ');
+  const result = menuChayHamBatBuocV1_(['chayScheduleEngineV1'], 'Chạy tính lại tiến độ');
+  menuChayHamNeuCoV1_(['capNhatTrangThaiThucHienCongViecV1'], 'Cập nhật trạng thái thực hiện');
+  return result;
 }
 
 function menuCapNhatTongHopGanttV1() {
@@ -215,7 +217,7 @@ function menuLayHamTheoTenV1_(functionNames) {
  * E: Cong viec lien ket
  * F: Bat dau hien hanh
  * G: Ket thuc hien hanh
- * H: Canh bao
+ * H: Tinh trang
  */
 function chuanHoaBangTraiTienDoTongHopV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -234,7 +236,7 @@ function chuanHoaBangTraiTienDoTongHopV1() {
     'Công việc liên kết',
     'Bắt đầu hiện hành',
     'Kết thúc hiện hành',
-    'Cảnh báo'
+    'Tình trạng'
   ]]);
 
   const numRows = lastRow - dataStartRow + 1;
@@ -245,7 +247,7 @@ function chuanHoaBangTraiTienDoTongHopV1() {
     sheet.getRange(dataStartRow, 5, numRows, 1).setNumberFormat('@');             // E - Cong viec lien ket
     sheet.getRange(dataStartRow, 6, numRows, 2).setNumberFormat('dd/MM/yyyy');    // F:G - Ngay
     sheet.getRange(dataStartRow, 2, numRows, 1).setWrap(true);                    // B - Ten viec
-    sheet.getRange(dataStartRow, 8, numRows, 1).setWrap(true);                    // H - Canh bao
+    sheet.getRange(dataStartRow, 8, numRows, 1).setWrap(true);                    // H - Tinh trang
   }
 
   SpreadsheetApp.flush();

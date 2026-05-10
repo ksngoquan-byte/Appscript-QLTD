@@ -29,7 +29,9 @@ const LINK_FORMULA_V1 = {
     START: 12,    // L
     END: 13,      // M
     TASK_ID: 15,  // O - Mã công việc cố định
-    ERROR: 17     // Q
+    ERROR: 17,    // Q
+    ACTUAL_START: 19, // S
+    ACTUAL_FINISH: 20 // T
   },
   LOOKUP_END_ROW: 999
 };
@@ -136,6 +138,18 @@ function scheduleLinkFormulaOnEditV1(e) {
 
     if (typeof capMaCongViecChoVungNeuThieuV1_ === 'function') {
       capMaCongViecChoVungNeuThieuV1_(sheet, range);
+    }
+
+    const touchedActualDate =
+      LINK_FORMULA_V1.COL.ACTUAL_START <= colEnd &&
+      LINK_FORMULA_V1.COL.ACTUAL_FINISH >= colStart;
+
+    if (touchedActualDate && typeof capNhatTrangThaiThucHienChoVungCongViecV1_ === 'function') {
+      capNhatTrangThaiThucHienChoVungCongViecV1_(
+        sheet,
+        Math.max(rowStart, LINK_FORMULA_V1.START_ROW),
+        rowEnd - Math.max(rowStart, LINK_FORMULA_V1.START_ROW) + 1
+      );
     }
 
     const touchedLink = LINK_FORMULA_V1.COL.LINK >= colStart && LINK_FORMULA_V1.COL.LINK <= colEnd;

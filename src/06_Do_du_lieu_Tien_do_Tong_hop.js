@@ -19,6 +19,10 @@ function doDuLieuBangTraiTienDoTongHopV1() {
     throw new Error('Thiếu getGanttLayoutConfigV1_. Kiểm tra file 05_Dinh_dang_Timeline_Gantt_Tong_hop.gs');
   }
 
+  if (typeof capNhatTrangThaiThucHienCongViecV1 === 'function') {
+    capNhatTrangThaiThucHienCongViecV1();
+  }
+
   const cfg = getGanttLayoutConfigV1_(ss);
   const currentRows = docDuLieuCongViecChoTongHopV1_(ss);
   const baselineRows = docBaselineActiveChoTongHopV1_(ss);
@@ -50,7 +54,7 @@ function doDuLieuBangTraiTienDoTongHopV1() {
   chuanHoaLienKetTienNhiemTongHopV1_(values[10], displays[10]),  // E - Công việc liên kết từ Cong_viec!K
   values[11] || '',                           // F - BĐ hiện hành từ Cong_viec!L
   values[12] || '',                           // G - KT hiện hành từ Cong_viec!M
-  taoCanhBaoLechTongHopV1_(values, baseline)
+  isDetailTask ? chuanHoaTextMotDongTongHopV1_(values[17]) : ''
 ]);
     const baselineStartForTech = baseline ? baseline[3] : ''; // Ke_hoach_goc!D - Bắt đầu gốc
     const baselineEndForTech = baseline ? baseline[4] : '';   // Ke_hoach_goc!E - Kết thúc gốc
@@ -150,10 +154,13 @@ targetSheet
     
     // Cập nhật lại tiêu đề D:E của bảng trái
   targetSheet
-    .getRange(4, 4, 1, 2)
+    .getRange(4, 4, 1, 5)
     .setValues([[
       'Số ngày kế hoạch',
-      'Công việc liên kết'
+      'Công việc liên kết',
+      'Bắt đầu hiện hành',
+      'Kết thúc hiện hành',
+      'Tình trạng'
     ]])
     .setHorizontalAlignment('center')
     .setVerticalAlignment('middle')
@@ -261,55 +268,6 @@ function taoCongViecPhamViTongHopV1_(currentRow, baseline) {
   }
 
   return chuanHoaTextMotDongTongHopV1_(taskName + ' | ' + scopeParts.join(' · '));
-}
-
-
-function taoCanhBaoLechTongHopV1_(currentRow, baseline) {
-  const linkError = String(currentRow[16] || '').trim();    // Q
-  const progressWarning = String(currentRow[22] || '').trim(); // W
-  const warningParts = [];
-
-  if (linkError) {
-    warningParts.push('⚠ Link');
-  }
-
-  if (progressWarning) {
-    warningParts.push(chuanHoaTextMotDongTongHopV1_(progressWarning));
-  }
-
-  if (warningParts.length > 0) {
-    return chuanHoaTextMotDongTongHopV1_(warningParts.join(' | '));
-  }
-
-  if (!baseline) {
-    return '';
-  }
-
-  const baselineStart = baseline[3]; // D
-  const baselineFinish = baseline[4]; // E
-  const forecastStart = currentRow[11]; // L
-  const forecastFinish = currentRow[12]; // M
-  const diffParts = [];
-
-  if (laNgayHopLeTongHopV1_(baselineStart) && laNgayHopLeTongHopV1_(forecastStart)) {
-    const startDiff = soNgayLechTongHopV1_(baselineStart, forecastStart);
-    if (startDiff !== 0) {
-      diffParts.push('BĐ ' + (startDiff > 0 ? '+' : '') + startDiff);
-    }
-  }
-
-  if (laNgayHopLeTongHopV1_(baselineFinish) && laNgayHopLeTongHopV1_(forecastFinish)) {
-    const finishDiff = soNgayLechTongHopV1_(baselineFinish, forecastFinish);
-    if (finishDiff !== 0) {
-      diffParts.push('KT ' + (finishDiff > 0 ? '+' : '') + finishDiff);
-    }
-  }
-
-  if (diffParts.length === 0) {
-    return '';
-  }
-
-  return chuanHoaTextMotDongTongHopV1_(diffParts.join(' / '));
 }
 
 

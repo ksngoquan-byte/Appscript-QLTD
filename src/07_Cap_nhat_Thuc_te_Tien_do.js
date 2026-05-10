@@ -173,6 +173,10 @@ function xuLyCapNhatThucTeTienDoOnEditV1(e) {
     .setValues(updateDates)
     .setNumberFormat('dd/MM/yyyy');
 
+  if (touchedActualDate) {
+    capNhatTrangThaiThucHienChoVungCongViecV1_(sheet, actualStartRow, numRows);
+  }
+
   if (!touchedActualDate) {
     for (let i = 0; i < numRows; i++) {
       capNhatCanhBaoMotDongTienDo_(sheet, actualStartRow + i);
@@ -253,6 +257,7 @@ function capNhatCanhBaoTienDoCongViecV1() {
   }
 
   const lastRow = Math.max(sheet.getLastRow(), 5);
+  capNhatTrangThaiThucHienCongViecV1(sheet);
 
   for (let row = 5; row <= lastRow; row++) {
     capNhatCanhBaoMotDongTienDo_(sheet, row);
@@ -267,6 +272,95 @@ function capNhatCanhBaoTienDoCongViecV1() {
   const message = 'Đã cập nhật cảnh báo tiến độ cho Cong_viec.';
   Logger.log(message);
   return message;
+}
+
+function capNhatTrangThaiThucHienCongViecV1(sheet) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const targetSheet = sheet || ss.getSheetByName('Cong_viec');
+
+  if (!targetSheet) {
+    throw new Error('Không tìm thấy sheet Cong_viec');
+  }
+
+  const startRow = 5;
+  const lastRow = targetSheet.getLastRow();
+
+  if (lastRow < startRow) {
+    return 'Không có dữ liệu để cập nhật trạng thái thực hiện.';
+  }
+
+  const changed = capNhatTrangThaiThucHienChoVungCongViecV1_(
+    targetSheet,
+    startRow,
+    lastRow - startRow + 1
+  );
+
+  const message = 'Đã cập nhật trạng thái thực hiện cho Cong_viec. Số ô đổi: ' + changed;
+  Logger.log(message);
+  return message;
+}
+
+function capNhatTrangThaiThucHienChoVungCongViecV1_(sheet, startRow, numRows) {
+  if (!sheet || sheet.getName() !== 'Cong_viec' || numRows <= 0) return 0;
+
+  const width = Math.max(sheet.getLastColumn(), 20);
+  const values = sheet.getRange(startRow, 1, numRows, width).getValues();
+  const statusRange = sheet.getRange(startRow, 18, numRows, 1);
+  const statusValues = statusRange.getValues();
+  let changed = 0;
+
+  values.forEach(function(row, index) {
+    const maCauTruc = row[1];       // B
+    const tenCongViec = row[7];     // H
+    const currentStatus = String(statusValues[index][0] || '').trim();
+    const actualStart = row[18];    // S
+    const actualFinish = row[19];   // T
+
+    const isDetailTask = typeof isDongCongViecChiTietV1_ === 'function'
+      ? isDongCongViecChiTietV1_(maCauTruc, tenCongViec)
+      : (!maCauTruc && !!tenCongViec);
+
+    if (!isDetailTask) return;
+
+    const nextStatus = tinhTrangThaiThucHienTuNgayThucTeV1_(
+      currentStatus,
+      actualStart,
+      actualFinish
+    );
+
+    if (nextStatus !== currentStatus) {
+      statusValues[index][0] = nextStatus;
+      changed++;
+    }
+  });
+
+  if (changed > 0) {
+    statusRange.setValues(statusValues);
+  }
+
+  return changed;
+}
+
+function tinhTrangThaiThucHienTuNgayThucTeV1_(currentStatus, actualStart, actualFinish) {
+  const status = String(currentStatus || '').trim();
+
+  if (coGiaTriTrangThaiThucHienV1_(actualFinish)) {
+    return 'Hoàn thành';
+  }
+
+  if (status === 'Tạm dừng') {
+    return 'Tạm dừng';
+  }
+
+  if (coGiaTriTrangThaiThucHienV1_(actualStart)) {
+    return 'Đang làm';
+  }
+
+  return 'Chưa bắt đầu';
+}
+
+function coGiaTriTrangThaiThucHienV1_(value) {
+  return value !== null && value !== '' && typeof value !== 'undefined';
 }
 
 
