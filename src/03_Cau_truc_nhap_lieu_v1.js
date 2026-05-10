@@ -9,16 +9,9 @@ const CAU_TRUC_NHAP_LIEU_V1 = {
     HANG_MUC: 6,
     TEN_CV: 8
   },
-  TASK_NAME_SOURCE_SHEETS: [
-    'Danh_muc_cong_viec',
-    'DM_Goi_y_master'
-  ],
-  TASK_NAME_HEADER_KEYWORDS: [
-    'ten cong viec',
-    'ten cv',
-    'cong viec',
-    'task name'
-  ],
+  TASK_NAME_SOURCE_SHEET: 'Danh_muc_cong_viec',
+  TASK_NAME_SOURCE_START_ROW: 5,
+  TASK_NAME_SOURCE_COL: 2,
   TASK_NAME_VALIDATION_HELP_TEXT: 'Giá trị tùy biến phù hợp.'
 };
 
@@ -118,16 +111,24 @@ function capNhatDataValidationTenCongViecMauV1_(ss, sheet) {
     : CAU_TRUC_NHAP_LIEU_V1.START_ROW;
   const maxRows = sheet.getMaxRows();
   const numRows = Math.max(1, maxRows - startRow + 1);
-  const source = timNguonDanhMucTenCongViecMauV1_(ss);
+  const sourceSheet = ss.getSheetByName(CAU_TRUC_NHAP_LIEU_V1.TASK_NAME_SOURCE_SHEET);
 
-  if (!source) {
-    const message = '[THIEU DU LIEU] Khong tim thay nguon dropdown ten cong viec mau.';
+  if (!sourceSheet) {
+    const message = '[THIEU DU LIEU] Khong tim thay sheet Danh_muc_cong_viec.';
     Logger.log(message);
     throw new Error(message);
   }
 
+  const sourceNumRows = Math.max(1, sourceSheet.getMaxRows() - CAU_TRUC_NHAP_LIEU_V1.TASK_NAME_SOURCE_START_ROW + 1);
+  const sourceRange = sourceSheet.getRange(
+    CAU_TRUC_NHAP_LIEU_V1.TASK_NAME_SOURCE_START_ROW,
+    CAU_TRUC_NHAP_LIEU_V1.TASK_NAME_SOURCE_COL,
+    sourceNumRows,
+    1
+  );
+
   const rule = SpreadsheetApp.newDataValidation()
-    .requireValueInRange(source.range, true)
+    .requireValueInRange(sourceRange, true)
     .setAllowInvalid(true)
     .setHelpText(CAU_TRUC_NHAP_LIEU_V1.TASK_NAME_VALIDATION_HELP_TEXT)
     .build();
@@ -138,71 +139,12 @@ function capNhatDataValidationTenCongViecMauV1_(ss, sheet) {
 
   const message =
     'Da cai dropdown mem cot H tu ' +
-    source.sheetName +
+    CAU_TRUC_NHAP_LIEU_V1.TASK_NAME_SOURCE_SHEET +
     '!' +
-    source.a1Notation +
+    sourceRange.getA1Notation() +
     '.';
   Logger.log(message);
   return message;
-}
-
-function timNguonDanhMucTenCongViecMauV1_(ss) {
-  for (let i = 0; i < CAU_TRUC_NHAP_LIEU_V1.TASK_NAME_SOURCE_SHEETS.length; i++) {
-    const sheetName = CAU_TRUC_NHAP_LIEU_V1.TASK_NAME_SOURCE_SHEETS[i];
-    const sheet = ss.getSheetByName(sheetName);
-    if (!sheet) continue;
-
-    const sourceRange = timCotTenCongViecMauTrongSheetV1_(sheet);
-    if (!sourceRange) continue;
-
-    return {
-      sheetName: sheetName,
-      range: sourceRange,
-      a1Notation: sourceRange.getA1Notation()
-    };
-  }
-
-  return null;
-}
-
-function timCotTenCongViecMauTrongSheetV1_(sheet) {
-  const lastRow = sheet.getLastRow();
-  const lastCol = sheet.getLastColumn();
-
-  if (lastRow < 2 || lastCol < 1) return null;
-
-  const values = sheet.getRange(1, 1, Math.min(lastRow, 20), lastCol).getValues();
-
-  for (let r = 0; r < values.length; r++) {
-    for (let c = 0; c < values[r].length; c++) {
-      const header = chuanHoaTextKeyCauTrucNhapLieuV1_(values[r][c]);
-      if (!header) continue;
-
-      const matched = CAU_TRUC_NHAP_LIEU_V1.TASK_NAME_HEADER_KEYWORDS.some(function(keyword) {
-        return header === keyword || header.indexOf(keyword) !== -1;
-      });
-
-      if (!matched) continue;
-
-      const startRow = r + 2;
-      const numRows = lastRow - startRow + 1;
-      if (numRows <= 0) return null;
-
-      return sheet.getRange(startRow, c + 1, numRows, 1);
-    }
-  }
-
-  return null;
-}
-
-function chuanHoaTextKeyCauTrucNhapLieuV1_(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/đ/g, 'd')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function coGiaTriCauTrucNhapLieuV1_(value) {
