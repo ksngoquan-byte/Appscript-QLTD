@@ -163,6 +163,9 @@ function chayScheduleEngineV1() {
     danhDauLoiVongLapV1_(tasks, taskByRef);
     tinhLichCongViecV1_(tasks, taskByRef, anchorDate);
     ghiKetQuaScheduleV1_(sheet, tasks, numRows);
+    if (typeof normalizeCongViecRowBackgrounds_ === 'function') {
+      normalizeCongViecRowBackgrounds_(sheet);
+    }
   });
 }
 

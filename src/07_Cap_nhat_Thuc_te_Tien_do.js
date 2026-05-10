@@ -258,6 +258,10 @@ function capNhatCanhBaoTienDoCongViecV1() {
     capNhatCanhBaoMotDongTienDo_(sheet, row);
   }
 
+  if (typeof normalizeCongViecRowBackgrounds_ === 'function') {
+    normalizeCongViecRowBackgrounds_(sheet);
+  }
+
   SpreadsheetApp.flush();
 
   const message = 'Đã cập nhật cảnh báo tiến độ cho Cong_viec.';
@@ -279,18 +283,26 @@ function capNhatCanhBaoTienDoCongViecV1() {
  * W = Cảnh báo tiến độ
  */
 function capNhatCanhBaoMotDongTienDo_(sheet, row) {
-  const tenCongViec = sheet.getRange(row, 8).getValue();   // H
-  if (!tenCongViec) {
-    sheet.getRange(row, 23).clearContent();
+  const width = Math.max(sheet.getLastColumn(), 27);
+  const rowValues = sheet.getRange(row, 1, 1, width).getValues()[0];
+
+  if (typeof isCongViecActiveRow_ === 'function' && !isCongViecActiveRow_(rowValues, null)) {
+    const warningCell = sheet.getRange(row, 23);
+    if (!warningCell.getFormula()) {
+      warningCell.clearContent();
+    }
+    clearCongViecRowBackgroundIfInactive_(sheet, row, width, rowValues);
     return;
   }
 
-  const forecastFinish = sheet.getRange(row, 13).getValue(); // M
-  const loiTienNhiem = sheet.getRange(row, 17).getValue();   // Q
+  const tenCongViec = rowValues[7];   // H
 
-  const status = String(sheet.getRange(row, 18).getValue() || '').trim(); // R
-  const actualStart = sheet.getRange(row, 19).getValue();  // S
-  const actualFinish = sheet.getRange(row, 20).getValue(); // T
+  const forecastFinish = rowValues[12]; // M
+  const loiTienNhiem = rowValues[16];   // Q
+
+  const status = String(rowValues[17] || '').trim(); // R
+  const actualStart = rowValues[18];  // S
+  const actualFinish = rowValues[19]; // T
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);

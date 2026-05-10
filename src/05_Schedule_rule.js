@@ -80,6 +80,10 @@ function danhDauDuongGang() {
       sheet.getRange(rowIndex, 1, 1, numCols).setBackground('#f4cccc');
     });
 
+    if (typeof normalizeCongViecRowBackgrounds_ === 'function') {
+      normalizeCongViecRowBackgrounds_(sheet);
+    }
+
     ghiLogThongTin_('Critical path length: ' + criticalSet.size);
   } catch (err) {
     ghiLogLoi_('danhDauDuongGang: ' + err);

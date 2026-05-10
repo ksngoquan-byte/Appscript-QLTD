@@ -136,37 +136,13 @@ function xuLyDoiVungChon(e) {
       }
     }
 
-    let firstCol;
-    let lastCol;
-
     if (sheetName === CONFIG.SHEET.CONG_VIEC) {
-      firstCol = 1;
-      lastCol = 23; // A:W
-    } else if (sheetName === 'Tien_do_tong_hop') {
-      firstCol = 1;
-      lastCol = 8; // A:H, khong phu vung Gantt
-    } else {
-      return;
+      const width = Math.max(sheet.getLastColumn(), 27);
+      clearCongViecRowBackgroundIfInactive_(sheet, row, width);
     }
 
-    const width = lastCol - firstCol + 1;
-    const targetRange = sheet.getRange(row, firstCol, 1, width);
-    const oldBackgrounds = targetRange.getBackgrounds();
-
-    targetRange.setBackground('#FFF2CC');
-
-    if (cache) {
-      cache.setProperty(
-        'LAST_ROW_HIGHLIGHT_SAFE_V1',
-        JSON.stringify({
-          sheetName: sheetName,
-          row: row,
-          firstCol: firstCol,
-          lastCol: lastCol,
-          backgrounds: oldBackgrounds
-        })
-      );
-    }
+    // Khong highlight selection nua de tranh ghi truc tiep #FFF2CC vao dong trong.
+    return;
   } catch (err) {
     Logger.log('xuLyDoiVungChon: ' + err);
   }
@@ -184,34 +160,39 @@ function onSelectionChange(e) {
  */
 function xoaMauHighlightCongViecV1() {
   const cache = layCache_ && typeof layCache_ === 'function' ? layCache_() : null;
-  if (!cache) return;
 
-  const prevRaw = cache.getProperty('LAST_ROW_HIGHLIGHT_SAFE_V1');
-  if (prevRaw) {
-    const prev = JSON.parse(prevRaw);
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const prevSheet = ss.getSheetByName(prev.sheetName);
+  if (cache) {
+    const prevRaw = cache.getProperty('LAST_ROW_HIGHLIGHT_SAFE_V1');
+    if (prevRaw) {
+      const prev = JSON.parse(prevRaw);
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const prevSheet = ss.getSheetByName(prev.sheetName);
 
-    if (
-      prevSheet &&
-      prev.row &&
-      prev.firstCol &&
-      prev.lastCol &&
-      prev.backgrounds &&
-      prev.backgrounds.length
-    ) {
-      const width = prev.lastCol - prev.firstCol + 1;
-      prevSheet
-        .getRange(prev.row, prev.firstCol, 1, width)
-        .setBackgrounds(prev.backgrounds);
+      if (
+        prevSheet &&
+        prev.row &&
+        prev.firstCol &&
+        prev.lastCol &&
+        prev.backgrounds &&
+        prev.backgrounds.length
+      ) {
+        const width = prev.lastCol - prev.firstCol + 1;
+        prevSheet
+          .getRange(prev.row, prev.firstCol, 1, width)
+          .setBackgrounds(prev.backgrounds);
+      }
     }
+
+    cache.deleteProperty('LAST_HIGHLIGHT');
+    cache.deleteProperty('LAST_ROW_HIGHLIGHT_CONG_VIEC');
+    cache.deleteProperty('LAST_ROW_HIGHLIGHT_ANY_SHEET_V1');
+    cache.deleteProperty('LAST_CELL_HIGHLIGHT_ANY_SHEET_V1');
+    cache.deleteProperty('LAST_ROW_HIGHLIGHT_SAFE_V1');
   }
 
-  cache.deleteProperty('LAST_HIGHLIGHT');
-  cache.deleteProperty('LAST_ROW_HIGHLIGHT_CONG_VIEC');
-  cache.deleteProperty('LAST_ROW_HIGHLIGHT_ANY_SHEET_V1');
-  cache.deleteProperty('LAST_CELL_HIGHLIGHT_ANY_SHEET_V1');
-  cache.deleteProperty('LAST_ROW_HIGHLIGHT_SAFE_V1');
+  if (typeof normalizeCongViecRowBackgrounds_ === 'function') {
+    normalizeCongViecRowBackgrounds_();
+  }
 
   SpreadsheetApp.flush();
 
