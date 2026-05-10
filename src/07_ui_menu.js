@@ -1,32 +1,37 @@
 ﻿function taoMenu() {
   const ui = SpreadsheetApp.getUi();
 
-  ui.createMenu('Quản lý tiến độ dự án')
+  ui.createMenu('📊 QL tiến độ dự án')
     .addSubMenu(
-      ui.createMenu('1. Vận hành tiến độ')
-        .addItem('Cấp/cập nhật mã công việc', 'menuCapNhatMaCongViecV1')
-        .addItem('Chạy tính lại tiến độ', 'menuChayTinhLaiTienDoV1')
-        .addItem('Cập nhật tổng hợp + Gantt', 'menuCapNhatTongHopGanttV1')
+      ui.createMenu('▶️ 1. Vận hành tiến độ')
+        .addItem('🔄 Chạy tính lại tiến độ', 'menuChayTinhLaiTienDoV1')
+        .addItem('📈 Cập nhật tổng hợp + Gantt', 'menuCapNhatTongHopGanttV1')
+        .addItem('✅ Kiểm tra lỗi dữ liệu đầu vào', 'menuKiemTraDuLieuDauVaoV1')
     )
     .addSubMenu(
-      ui.createMenu('2. Kế hoạch gốc / Baseline')
-        .addItem('Lưu/khóa kế hoạch gốc', 'menuLuuKhoaKeHoachGocV1')
-        .addItem('Hiện/ẩn đường găng kế hoạch gốc', 'menuToggleDuongGangKeHoachGocV1')
+      ui.createMenu('🏗️ 2. Thiết lập dự án mới')
+        .addItem('🧨 Bước 1 - Xóa dữ liệu dự án cũ', 'xoaDuLieuDuAnCuV1')
+        .addItem('🧱 Bước 2 - Dựng sheet từ mẫu chuẩn', 'taoSheetVanHanhTuTemplateV1')
+        .addItem('🧩 Bước 3 - Chuẩn hóa nhập liệu mã cấu trúc', 'chuanHoaNhapLieuMaCauTrucV1')
     )
     .addSubMenu(
-      ui.createMenu('3. Thiết lập hệ thống')
-        .addItem('Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
-        .addItem('Cài / cài lại trigger vận hành', 'menuCaiDatTriggerVanHanhTienDoV1')
-        .addItem('Chuẩn hóa nhập liệu mã cấu trúc', 'chuanHoaNhapLieuMaCauTrucV1')
-        .addItem('Xóa màu nền vùng nhập liệu', 'lamSachDinhDangVungNhapLieuCongViecV1')
-        .addSubMenu(
-          ui.createMenu('Thiết lập dự án mới từ mẫu chuẩn')
-            .addItem('Bước 1 - Xóa dữ liệu dự án cũ', 'xoaDuLieuDuAnCuV1')
-            .addItem('Bước 2 - Dựng sheet từ mẫu chuẩn', 'taoSheetVanHanhTuTemplateV1')
-        )
+      ui.createMenu('📌 3. Kế hoạch gốc / Baseline')
+        .addItem('🔒 Lưu/khóa kế hoạch gốc', 'menuLuuKhoaKeHoachGocV1')
+        .addItem('👁️ Hiện/ẩn kế hoạch gốc trên Gantt', 'menuToggleDuongGangKeHoachGocV1')
     )
-    .addSeparator()
-    .addItem('Kiểm tra lỗi dữ liệu đầu vào', 'menuKiemTraDuLieuDauVaoV1')
+    .addSubMenu(
+      ui.createMenu('👁️ 4. Chế độ hiển thị')
+        .addItem('🧭 Chỉ hiện sheet vận hành', 'batCheDoChiHienSheetVanHanhV1')
+        .addItem('🔓 Hiện lại toàn bộ sheet', 'hienLaiTatCaSheetV1')
+    )
+    .addSubMenu(
+      ui.createMenu('⚙️ 5. Quản trị hệ thống')
+        .addItem('🆔 Đồng bộ lại mã công việc', 'menuCapNhatMaCongViecV1')
+        .addItem('📅 Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
+        .addItem('🔧 Cài lại trigger tự động', 'menuCaiDatTriggerVanHanhTienDoV1')
+        .addItem('🧹 Xóa màu nền vùng nhập liệu', 'lamSachDinhDangVungNhapLieuCongViecV1')
+        .addItem('🧪 Kiểm tra trigger vận hành', 'kiemTraTriggerVanHanhTienDoV1')
+    )
     .addToUi();
 }
 
@@ -129,6 +134,38 @@ function menuCaiDatTriggerVanHanhTienDoV1() {
     ['caiDatTriggerVanHanhTienDoV1'],
     'Cài / cài lại trigger vận hành'
   );
+}
+
+function kiemTraTriggerVanHanhTienDoV1() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const watchedHandlers = [
+    'scheduleLinkFormulaOnEditV1',
+    'scheduleLinkFormulaOnChangeV1',
+    'xuLyCapNhatThucTeTienDoOnEditV1',
+    'scheduleAutoOnEditV1',
+    'xuLySuaScheduleEngineV1',
+    'scheduleEngineOnEditV1'
+  ];
+  const counts = {};
+
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    const handler = trigger.getHandlerFunction();
+    counts[handler] = (counts[handler] || 0) + 1;
+  });
+
+  const lines = watchedHandlers.map(function(handler) {
+    return handler + ': ' + (counts[handler] || 0);
+  });
+  const message = 'Kiểm tra trigger vận hành:\n' + lines.join('\n');
+
+  Logger.log(message);
+  try {
+    ss.toast('Đã kiểm tra trigger vận hành.', 'Quản trị hệ thống', 5);
+  } catch (err) {
+    Logger.log('Không hiển thị được toast: ' + err.message);
+  }
+
+  return message;
 }
 
 function menuKiemTraDuLieuDauVaoV1() {
