@@ -82,13 +82,14 @@ function onSelectionChange(e) {
 }
 
 
-// === DISABLE_SELECTION_HIGHLIGHT_V1_START ===
+const SELECTION_HIGHLIGHT_CACHE_KEY_V1 = 'LAST_ROW_HIGHLIGHT_SAFE_V1';
+const SELECTION_HIGHLIGHT_COLOR_V1 = '#FFF2CC';
 
 /**
- * Highlight dong dang chon.
+ * Highlight tam thoi dong dang chon.
  *
  * Cong_viec:
- * - To vang ca hang A:W.
+ * - To vang tam thoi vung A:W.
  *
  * Tien_do_tong_hop:
  * - Chi to vang vung thong tin A:H.
@@ -101,50 +102,89 @@ function xuLyDoiVungChon(e) {
     const sheet = e.range.getSheet();
     const sheetName = sheet.getName();
     const row = e.range.getRow();
-
-    if (row < 5) return;
-
     const cache = layCache_ && typeof layCache_ === 'function' ? layCache_() : null;
 
-    // Khoi phuc highlight cu.
+    khoiPhucSelectionHighlightCuV1_(cache);
+
+    if (row < CONFIG.SYSTEM.START_ROW) return;
+
+    const highlightRangeInfo = layVungSelectionHighlightV1_(sheet, sheetName);
+    if (!highlightRangeInfo) return;
+
+    const targetRange = sheet.getRange(
+      row,
+      highlightRangeInfo.startColumn,
+      1,
+      highlightRangeInfo.numColumns
+    );
+    const oldBackgrounds = targetRange.getBackgrounds();
+
+    targetRange.setBackground(SELECTION_HIGHLIGHT_COLOR_V1);
+
     if (cache) {
-      const prevRaw = cache.getProperty('LAST_ROW_HIGHLIGHT_SAFE_V1');
-      if (prevRaw) {
-        try {
-          const prev = JSON.parse(prevRaw);
-          const ss = SpreadsheetApp.getActiveSpreadsheet();
-          const prevSheet = ss.getSheetByName(prev.sheetName);
-
-          if (
-            prevSheet &&
-            prev.row &&
-            prev.firstCol &&
-            prev.lastCol &&
-            prev.backgrounds &&
-            prev.backgrounds.length
-          ) {
-            const width = prev.lastCol - prev.firstCol + 1;
-            prevSheet
-              .getRange(prev.row, prev.firstCol, 1, width)
-              .setBackgrounds(prev.backgrounds);
-          }
-        } catch (restoreErr) {
-          Logger.log('Khoi phuc highlight cu loi: ' + restoreErr);
-        }
-
-        cache.deleteProperty('LAST_ROW_HIGHLIGHT_SAFE_V1');
-      }
+      cache.setProperty(
+        SELECTION_HIGHLIGHT_CACHE_KEY_V1,
+        JSON.stringify({
+          sheetName: sheetName,
+          row: row,
+          startColumn: highlightRangeInfo.startColumn,
+          numColumns: highlightRangeInfo.numColumns,
+          backgrounds: oldBackgrounds
+        })
+      );
     }
-
-    if (sheetName === CONFIG.SHEET.CONG_VIEC) {
-      const width = Math.max(sheet.getLastColumn(), 27);
-      clearCongViecRowBackgroundIfInactive_(sheet, row, width);
-    }
-
-    // Khong highlight selection nua de tranh ghi truc tiep #FFF2CC vao dong trong.
-    return;
   } catch (err) {
     Logger.log('xuLyDoiVungChon: ' + err);
+  }
+}
+
+function layVungSelectionHighlightV1_(sheet, sheetName) {
+  if (sheetName === CONFIG.SHEET.CONG_VIEC) {
+    return {
+      startColumn: 1,
+      numColumns: 23
+    };
+  }
+
+  if (sheetName === 'Tien_do_tong_hop') {
+    return {
+      startColumn: 1,
+      numColumns: 8
+    };
+  }
+
+  return null;
+}
+
+function khoiPhucSelectionHighlightCuV1_(cache) {
+  if (!cache) return;
+
+  const prevRaw = cache.getProperty(SELECTION_HIGHLIGHT_CACHE_KEY_V1);
+  if (!prevRaw) return;
+
+  try {
+    const prev = JSON.parse(prevRaw);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const prevSheet = ss.getSheetByName(prev.sheetName);
+    const startColumn = prev.startColumn || prev.firstCol;
+    const numColumns = prev.numColumns || (prev.lastCol && startColumn ? prev.lastCol - startColumn + 1 : 0);
+
+    if (
+      prevSheet &&
+      prev.row &&
+      startColumn &&
+      numColumns &&
+      prev.backgrounds &&
+      prev.backgrounds.length
+    ) {
+      prevSheet
+        .getRange(prev.row, startColumn, 1, numColumns)
+        .setBackgrounds(prev.backgrounds);
+    }
+  } catch (restoreErr) {
+    Logger.log('Khoi phuc highlight cu loi: ' + restoreErr);
+  } finally {
+    cache.deleteProperty(SELECTION_HIGHLIGHT_CACHE_KEY_V1);
   }
 }
 
@@ -162,32 +202,13 @@ function xoaMauHighlightCongViecV1() {
   const cache = layCache_ && typeof layCache_ === 'function' ? layCache_() : null;
 
   if (cache) {
-    const prevRaw = cache.getProperty('LAST_ROW_HIGHLIGHT_SAFE_V1');
-    if (prevRaw) {
-      const prev = JSON.parse(prevRaw);
-      const ss = SpreadsheetApp.getActiveSpreadsheet();
-      const prevSheet = ss.getSheetByName(prev.sheetName);
-
-      if (
-        prevSheet &&
-        prev.row &&
-        prev.firstCol &&
-        prev.lastCol &&
-        prev.backgrounds &&
-        prev.backgrounds.length
-      ) {
-        const width = prev.lastCol - prev.firstCol + 1;
-        prevSheet
-          .getRange(prev.row, prev.firstCol, 1, width)
-          .setBackgrounds(prev.backgrounds);
-      }
-    }
+    khoiPhucSelectionHighlightCuV1_(cache);
 
     cache.deleteProperty('LAST_HIGHLIGHT');
     cache.deleteProperty('LAST_ROW_HIGHLIGHT_CONG_VIEC');
     cache.deleteProperty('LAST_ROW_HIGHLIGHT_ANY_SHEET_V1');
     cache.deleteProperty('LAST_CELL_HIGHLIGHT_ANY_SHEET_V1');
-    cache.deleteProperty('LAST_ROW_HIGHLIGHT_SAFE_V1');
+    cache.deleteProperty(SELECTION_HIGHLIGHT_CACHE_KEY_V1);
   }
 
   if (typeof normalizeCongViecRowBackgrounds_ === 'function') {
@@ -200,6 +221,4 @@ function xoaMauHighlightCongViecV1() {
   Logger.log(message);
   return message;
 }
-
-// === DISABLE_SELECTION_HIGHLIGHT_V1_END ===
 

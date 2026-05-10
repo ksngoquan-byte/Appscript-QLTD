@@ -77,9 +77,24 @@ function normalizeCongViecRowBackgrounds_(sheet) {
   const range = targetSheet.getRange(startRow, 1, numRows, width);
   const values = range.getValues();
   const backgrounds = range.getBackgrounds();
+  let highlightedRow = null;
   let changed = 0;
 
+  try {
+    const cache = PropertiesService.getDocumentProperties();
+    const prevRaw = cache.getProperty('LAST_ROW_HIGHLIGHT_SAFE_V1');
+    if (prevRaw) {
+      const prev = JSON.parse(prevRaw);
+      if (prev && prev.sheetName === targetSheet.getName() && prev.row) {
+        highlightedRow = Number(prev.row);
+      }
+    }
+  } catch (err) {
+    Logger.log('normalizeCongViecRowBackgrounds_: khong doc duoc cache highlight: ' + err);
+  }
+
   for (let i = 0; i < values.length; i++) {
+    if (highlightedRow === startRow + i) continue;
     if (isCongViecActiveRow_(values[i], null)) continue;
 
     for (let c = 0; c < width; c++) {
