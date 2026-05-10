@@ -4,7 +4,6 @@
   ui.createMenu('Quản lý tiến độ dự án')
     .addSubMenu(
       ui.createMenu('1. Vận hành tiến độ')
-        .addItem('Chuẩn hóa nhập liệu mã cấu trúc', 'chuanHoaNhapLieuMaCauTrucV1')
         .addItem('Cấp/cập nhật mã công việc', 'menuCapNhatMaCongViecV1')
         .addItem('Chạy tính lại tiến độ', 'menuChayTinhLaiTienDoV1')
         .addItem('Cập nhật tổng hợp + Gantt', 'menuCapNhatTongHopGanttV1')
@@ -18,6 +17,7 @@
       ui.createMenu('3. Thiết lập hệ thống')
         .addItem('Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
         .addItem('Cài / cài lại trigger vận hành', 'menuCaiDatTriggerVanHanhTienDoV1')
+        .addItem('Chuẩn hóa nhập liệu mã cấu trúc', 'chuanHoaNhapLieuMaCauTrucV1')
         .addSubMenu(
           ui.createMenu('Thiết lập dự án mới từ mẫu chuẩn')
             .addItem('Bước 1 - Xóa dữ liệu dự án cũ', 'xoaDuLieuDuAnCuV1')
@@ -255,4 +255,5 @@ function chuanHoaBangTraiTienDoTongHopV1() {
 }
 
 // === FIX_LEFT_TABLE_TIEN_DO_TONG_HOP_V1_END ===
+
 
