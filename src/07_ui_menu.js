@@ -16,7 +16,12 @@
     .addSubMenu(
       ui.createMenu('3. Thiết lập hệ thống')
         .addItem('Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
-        .addItem('Thiết lập dự án mới từ bản sao', 'menuThietLapDuAnMoiTuBanSaoV1')
+        .addItem('Cài / cài lại trigger vận hành', 'menuCaiDatTriggerVanHanhTienDoV1')
+        .addSubMenu(
+          ui.createMenu('Thiết lập dự án mới từ mẫu chuẩn')
+            .addItem('Bước 1 - Xóa dữ liệu dự án cũ', 'xoaDuLieuDuAnCuV1')
+            .addItem('Bước 2 - Dựng sheet từ mẫu chuẩn', 'taoSheetVanHanhTuTemplateV1')
+        )
     )
     .addSeparator()
     .addItem('Kiểm tra lỗi dữ liệu đầu vào', 'menuKiemTraDuLieuDauVaoV1')
@@ -39,19 +44,13 @@ function menuCapNhatTongHopGanttV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.toast('Đang cập nhật tổng hợp + Gantt...', 'Quản lý tiến độ', 5);
 
-  menuChayHamBatBuocV1_(['capNhatTienDoTongHopV1'], 'Cập nhật tiến độ tổng hợp');
-  menuChayHamBatBuocV1_(['dinhDangTimelineGanttTongHopV1'], 'Định dạng timeline Gantt');
-
-  menuChayHamNeuCoV1_([
-    'toMauGanttTongHopV1',
-    'toMauGanttTongHop',
-    'toMauGanttTongHopV2',
-    'toMauGanttTongHopTheoTuanV1'
-  ], 'Tô màu Gantt');
-
-  chuanHoaBangTraiTienDoTongHopV1();
+  const result = menuChayHamBatBuocV1_(
+    ['capNhatTienDoTongHopV1'],
+    'Cập nhật tổng hợp + Gantt'
+  );
 
   ss.toast('Đã cập nhật tổng hợp + Gantt.', 'Quản lý tiến độ', 5);
+  return result;
 }
 
 function menuLuuKhoaKeHoachGocV1() {
@@ -111,33 +110,21 @@ function menuTaoLaiNgayNghiLeTetV1() {
   return menuChayHamBatBuocV1_(['taoNgayNghiTuDong'], 'Tạo lại ngày nghỉ/lễ/tết');
 }
 
-function menuThietLapDuAnMoiTuBanSaoV1() {
+function menuCaiDatTriggerVanHanhTienDoV1() {
   const ui = SpreadsheetApp.getUi();
 
   const confirm = ui.alert(
-    'Thiết lập dự án mới từ bản sao',
-    'Chức năng này chỉ dùng trên BẢN SAO của file mẫu.\n\nDữ liệu dự án hiện tại, kế hoạch gốc, lịch sử baseline và các sheet backup baseline cũ sẽ bị xóa.\n\nAnh có chắc chắn tiếp tục không?',
+    'Cài / cài lại trigger vận hành',
+    'Chức năng này sẽ xóa các trigger vận hành cũ và cài lại trigger cần thiết cho phần mềm tiến độ. Anh có chắc chắn tiếp tục không?',
     ui.ButtonSet.YES_NO
   );
 
   if (confirm !== ui.Button.YES) return;
 
-  const fn = menuLayHamTheoTenV1_([
-    'thietLapDuAnMoiTuBanSaoV1',
-    'xoaDuLieuDuAnCuDeLapMoiV1',
-    'xoaTrangDuLieuDuAnV1'
-  ]);
-
-  if (!fn) {
-    ui.alert(
-      'Chức năng chưa được cài',
-      'Menu đã được tạo, nhưng logic xóa dữ liệu dự án cũ chưa được cài an toàn. Ta sẽ cài ở bước tiếp theo.',
-      ui.ButtonSet.OK
-    );
-    return;
-  }
-
-  return fn.func();
+  return menuChayHamBatBuocV1_(
+    ['caiDatTriggerVanHanhTienDoV1'],
+    'Cài / cài lại trigger vận hành'
+  );
 }
 
 function menuKiemTraDuLieuDauVaoV1() {
@@ -149,7 +136,11 @@ function menuKiemTraDuLieuDauVaoV1() {
   const fn2 = menuLayHamTheoTenV1_(['kiemTraVongLapDependency']);
   if (fn2) results.push(fn2.func());
 
-  const fn3 = menuLayHamTheoTenV1_(['capNhatCanhBaoTienDo', 'capNhatCanhBaoTienDoV1']);
+  const fn3 = menuLayHamTheoTenV1_([
+    'capNhatCanhBaoTienDoCongViecV1',
+    'capNhatCanhBaoTienDoV1',
+    'capNhatCanhBaoTienDo'
+  ]);
   if (fn3) results.push(fn3.func());
 
   SpreadsheetApp.getActiveSpreadsheet().toast('Đã chạy kiểm tra dữ liệu đầu vào.', 'Quản lý tiến độ', 5);

@@ -36,6 +36,8 @@ function dinhDangTimelineGanttTongHopV1() {
     sheet.insertColumnsAfter(sheet.getMaxColumns(), requiredColumns - sheet.getMaxColumns());
   }
 
+  clearTienDoTongHopTimelineBeforeRender_(sheet);
+
   const firstWeekStart = cfg.START_DATE;
   const lastWeekStart = addDaysGantt_(firstWeekStart, (cfg.WEEK_COUNT - 1) * 7);
   const lastWeekEnd = addDaysGantt_(lastWeekStart, 6);
@@ -236,6 +238,30 @@ function dinhDangTimelineGanttTongHopV1() {
   return message;
 }
 
+function clearTienDoTongHopTimelineBeforeRender_(sheet) {
+  if (!sheet) return;
+
+  const FIRST_TIMELINE_ROW = 3;
+  const FIRST_TIMELINE_COL = 9; // I
+  const lastRow = sheet.getMaxRows();
+  const lastCol = sheet.getMaxColumns();
+
+  if (lastRow < FIRST_TIMELINE_ROW || lastCol < FIRST_TIMELINE_COL) return;
+
+  const range = sheet.getRange(
+    FIRST_TIMELINE_ROW,
+    FIRST_TIMELINE_COL,
+    lastRow - FIRST_TIMELINE_ROW + 1,
+    lastCol - FIRST_TIMELINE_COL + 1
+  );
+
+  range.clearContent();
+  range.clearNote();
+  range.setBackground(null);
+
+  Logger.log('[GANTT] Cleared old timeline area before render: I3:lastColumn');
+}
+
 
 /**
  * Cập nhật vùng thông số A:H ở hàng 1–2.
@@ -257,12 +283,18 @@ function donDepLayoutGanttTruocKhiVeLaiV1_(sheet, cfg, requiredColumns, maxRow) 
     Logger.log('Khong show duoc toan bo cot truoc khi don Gantt: ' + err.message);
   }
 
-  // Gỡ merge + xóa nội dung header tháng/tuần cũ trên toàn bộ số cột hiện có.
+  // Gỡ merge + xóa nội dung header tháng/tuần cũ trong timeline từ cột I trở đi.
   // Đây là điểm xử lý lỗi khi giảm GANTT_HORIZON_YEARS từ 5 năm xuống 2/3 năm.
-  sheet
-    .getRange(cfg.HEADER_MONTH_ROW, 1, 2, maxColumns)
-    .breakApart()
-    .clearContent();
+  if (maxColumns >= cfg.GANTT_START_COL) {
+    const ganttWidth = maxColumns - cfg.GANTT_START_COL + 1;
+
+    sheet
+      .getRange(cfg.HEADER_MONTH_ROW, cfg.GANTT_START_COL, 2, ganttWidth)
+      .breakApart()
+      .clearContent()
+      .clearNote()
+      .setBackground(null);
+  }
 
   // Gỡ merge còn sót trong vùng Gantt từ cột I trở đi, không động vào bảng trái A:H.
   if (maxColumns >= cfg.GANTT_START_COL) {
@@ -272,10 +304,6 @@ function donDepLayoutGanttTruocKhiVeLaiV1_(sheet, cfg, requiredColumns, maxRow) 
     sheet
       .getRange(cfg.HEADER_MONTH_ROW, cfg.GANTT_START_COL, ganttHeight, ganttWidth)
       .breakApart();
-
-    sheet
-      .getRange(cfg.HEADER_MONTH_ROW, cfg.GANTT_START_COL, ganttHeight, ganttWidth)
-      .clearFormat();
   }
 
   // Hiện vùng layout mới và ẩn toàn bộ cột thừa sau layout mới.
