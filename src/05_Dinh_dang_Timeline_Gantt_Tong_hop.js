@@ -537,14 +537,14 @@ function dinhDangBangTraiGantt_(sheet, maxRow) {
 
   sheet.getRange('A4:H4')
     .setValues([[
-      'Ref',
+      'ID',
       'Công việc / Phạm vi',
       'Chủ trì',
-      'Số ngày kế hoạch',
-      'Công việc liên kết',
-      'Bắt đầu hiện hành',
-      'Kết thúc hiện hành',
-      'Tình trạng'
+      'Thời lượng',
+      'Tiền nhiệm',
+      'Bắt đầu',
+      'Kết thúc',
+      'Trạng thái'
     ]])
     .setBackground('#DDE9F2')
     .setFontWeight('bold')

@@ -10,9 +10,10 @@
 const GANTT_BAR_TONG_HOP_V1 = {
   COLOR_EMPTY_ODD: '#FFFFFF',
   COLOR_EMPTY_EVEN: '#F8FAFC',
-  COLOR_BASELINE: '#D9DEE7',
-  COLOR_FORECAST: '#7FB3D5',
-  COLOR_ACTUAL: '#58D68D',
+  COLOR_BASELINE: '#E5E7EB',
+  COLOR_FORECAST: '#3B82F6',
+  COLOR_OVERDUE: '#EF4444',
+  COLOR_ACTUAL: '#22C55E',
   CHUNK_SIZE: 100,
   PROP_LAST_PAINTED_ROWS: 'GANTT_TONG_HOP_V1_LAST_PAINTED_ROWS',
   PROP_SHOW_BASELINE: 'GANTT_TONG_HOP_V1_SHOW_BASELINE'
@@ -117,6 +118,7 @@ function toMauGanttBarTienDoTongHopV1() {
       const forecastEnd = row[6];       // G - Kết thúc hiện hành
       const actualStart = techRow[1];   // Actual Start - Cong_viec!S
       const actualEnd = techRow[2];     // Actual Finish - Cong_viec!T
+      const status = chuanHoaTrangThaiGanttTongHopV1_(techRow[3]); // Cong_viec!R
 
       if (showBaseline) {
         toMauKhoangNgayLenBackgroundsV1_(
@@ -131,13 +133,17 @@ function toMauGanttBarTienDoTongHopV1() {
         );
       }
 
+      const forecastColor = laCongViecQuaHanChuaHoanThanhGanttTongHopV1_(forecastEnd, status, actualEnd)
+        ? GANTT_BAR_TONG_HOP_V1.COLOR_OVERDUE
+        : GANTT_BAR_TONG_HOP_V1.COLOR_FORECAST;
+
       toMauKhoangNgayLenBackgroundsV1_(
         backgrounds,
         index,
         forecastStart,
         forecastEnd,
         weekRanges,
-        GANTT_BAR_TONG_HOP_V1.COLOR_FORECAST,
+        forecastColor,
         sheetRow,
         'forecast'
       );
@@ -205,6 +211,28 @@ function toMauActualCompletedLenBackgroundsV1_(
     sheetRow,
     'actual'
   );
+}
+
+function chuanHoaTrangThaiGanttTongHopV1_(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .replace(/\s+/g, ' ');
+}
+
+function laCongViecQuaHanChuaHoanThanhGanttTongHopV1_(forecastEnd, status, actualEnd) {
+  if (!laNgayHopLeGanttBarTongHopV1_(forecastEnd)) return false;
+  if (laNgayHopLeGanttBarTongHopV1_(actualEnd)) return false;
+  if (status === 'hoan thanh' || status.startsWith('hoan thanh ')) return false;
+
+  const today = boGioGanttBarTongHopV1_(new Date());
+  const finish = boGioGanttBarTongHopV1_(forecastEnd);
+
+  return finish.getTime() < today.getTime();
 }
 
 

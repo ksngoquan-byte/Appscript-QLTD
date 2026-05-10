@@ -76,6 +76,8 @@ function doDuLieuBangTraiTienDoTongHopV1() {
     targetSheet.insertRowsAfter(targetSheet.getMaxRows(), requiredRows - targetSheet.getMaxRows());
   }
 
+  targetSheet.getRange(5, 2, clearRows, 1).breakApart();
+
   targetSheet
     .getRange(5, 1, clearRows, 8)
     .clearContent();
@@ -152,15 +154,18 @@ targetSheet
     .getRange(5, 3, formatRows, 1)
     .setHorizontalAlignment('center');
     
-    // Cập nhật lại tiêu đề D:E của bảng trái
+    // Cập nhật lại tiêu đề A:H của bảng trái
   targetSheet
-    .getRange(4, 4, 1, 5)
+    .getRange(4, 1, 1, 8)
     .setValues([[
-      'Số ngày kế hoạch',
-      'Công việc liên kết',
-      'Bắt đầu hiện hành',
-      'Kết thúc hiện hành',
-      'Tình trạng'
+      'ID',
+      'Công việc / Phạm vi',
+      'Chủ trì',
+      'Thời lượng',
+      'Tiền nhiệm',
+      'Bắt đầu',
+      'Kết thúc',
+      'Trạng thái'
     ]])
     .setHorizontalAlignment('center')
     .setVerticalAlignment('middle')

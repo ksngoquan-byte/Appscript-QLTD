@@ -210,14 +210,14 @@ function menuLayHamTheoTenV1_(functionNames) {
 
 /**
  * Chuan hoa header va dinh dang bang trai sheet Tien_do_tong_hop.
- * A: Ref
+ * A: ID
  * B: Cong viec / Pham vi
  * C: Chu tri
- * D: So ngay ke hoach
- * E: Cong viec lien ket
- * F: Bat dau hien hanh
- * G: Ket thuc hien hanh
- * H: Tinh trang
+ * D: Thoi luong
+ * E: Tien nhiem
+ * F: Bat dau
+ * G: Ket thuc
+ * H: Trang thai
  */
 function chuanHoaBangTraiTienDoTongHopV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -229,25 +229,25 @@ function chuanHoaBangTraiTienDoTongHopV1() {
   const lastRow = Math.max(sheet.getLastRow(), dataStartRow);
 
   sheet.getRange(headerRow, 1, 1, 8).setValues([[
-    'Ref',
+    'ID',
     'Công việc / Phạm vi',
     'Chủ trì',
-    'Số ngày kế hoạch',
-    'Công việc liên kết',
-    'Bắt đầu hiện hành',
-    'Kết thúc hiện hành',
-    'Tình trạng'
+    'Thời lượng',
+    'Tiền nhiệm',
+    'Bắt đầu',
+    'Kết thúc',
+    'Trạng thái'
   ]]);
 
   const numRows = lastRow - dataStartRow + 1;
 
   if (numRows > 0) {
     sheet.getRange(dataStartRow, 1, numRows, 1).setNumberFormat('0');             // A - Ref
-    sheet.getRange(dataStartRow, 4, numRows, 1).setNumberFormat('0');             // D - So ngay ke hoach
-    sheet.getRange(dataStartRow, 5, numRows, 1).setNumberFormat('@');             // E - Cong viec lien ket
+    sheet.getRange(dataStartRow, 4, numRows, 1).setNumberFormat('0');             // D - Thoi luong
+    sheet.getRange(dataStartRow, 5, numRows, 1).setNumberFormat('@');             // E - Tien nhiem
     sheet.getRange(dataStartRow, 6, numRows, 2).setNumberFormat('dd/MM/yyyy');    // F:G - Ngay
     sheet.getRange(dataStartRow, 2, numRows, 1).setWrap(true);                    // B - Ten viec
-    sheet.getRange(dataStartRow, 8, numRows, 1).setWrap(true);                    // H - Tinh trang
+    sheet.getRange(dataStartRow, 8, numRows, 1).setWrap(true);                    // H - Trang thai
   }
 
   SpreadsheetApp.flush();
