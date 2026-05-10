@@ -2,9 +2,8 @@
  * FILE: 19_Lam_sach_Dinh_dang_Cong_viec.js
  *
  * MUC TIEU
- * - Lam sach dinh dang bi dinh do copy/paste tren Cong_viec.
- * - Chi xu ly vung nhap lieu A5:N, khong cham sheet khac.
- * - Khong xoa du lieu, cong thuc, note, validation hay conditional format.
+ * - Xoa mau nen bi dinh do copy/paste tren Cong_viec.
+ * - Chi xu ly vung A5:W, khong cham dong 1:4 va khong cham sheet khac.
  *******************************************************/
 
 const LAM_SACH_DINH_DANG_CONG_VIEC_V1 = {
@@ -12,11 +11,7 @@ const LAM_SACH_DINH_DANG_CONG_VIEC_V1 = {
   TEMPLATE_SHEET_NAME: '_TEMPLATE_Cong_viec',
   START_ROW: 5,
   START_COL: 1,
-  NUM_COLS: 14,
-  FONT_FAMILY: 'Arial',
-  FONT_SIZE: 10,
-  FONT_COLOR: '#111827',
-  BORDER_COLOR: '#E5E7EB'
+  NUM_COLS: 23
 };
 
 function lamSachDinhDangVungNhapLieuCongViecV1() {
@@ -34,150 +29,66 @@ function lamSachDinhDangVungNhapLieuCongViecV1() {
   const maxRows = sheet.getMaxRows();
 
   if (maxRows < startRow) {
-    return 'Cong_viec khong co vung du lieu de lam sach dinh dang.';
-  }
-
-  const activeRange = ss.getActiveRange();
-  const activeRow = activeRange && activeRange.getSheet().getName() === cfg.SHEET_NAME
-    ? activeRange.getRow()
-    : null;
-  const cache = typeof layCache_ === 'function' ? layCache_() : null;
-
-  if (typeof khoiPhucSelectionHighlightCuV1_ === 'function') {
-    khoiPhucSelectionHighlightCuV1_(cache);
+    return 'Cong_viec khong co vung du lieu de xoa mau nen.';
   }
 
   const numRows = maxRows - startRow + 1;
-  const range = sheet.getRange(startRow, cfg.START_COL, numRows, cfg.NUM_COLS);
 
-  // Khong dung clearFormat de tranh mat validation/dropdown dang co.
-  range
-    .setBackground(null)
-    .setFontColor(cfg.FONT_COLOR)
-    .setFontFamily(cfg.FONT_FAMILY)
-    .setFontSize(cfg.FONT_SIZE)
-    .setFontWeight('normal')
-    .setFontStyle('normal')
-    .setFontLine('none')
-    .setVerticalAlignment('middle')
-    .setWrap(false)
-    .setBorder(
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      cfg.BORDER_COLOR,
-      SpreadsheetApp.BorderStyle.SOLID
-    );
-
-  apDungCanLeChuanCongViecV1_(sheet, startRow, numRows);
-  apDungDinhDangSoNgayChuanCongViecV1_(sheet, startRow, numRows);
-  khoiPhucValidationCongViecSauLamSachV1_(ss, sheet, startRow, numRows);
-  apDungLaiSelectionHighlightCongViecV1_(sheet, activeRow, cache);
+  sheet
+    .getRange(startRow, cfg.START_COL, numRows, cfg.NUM_COLS)
+    .setBackground(null);
 
   SpreadsheetApp.flush();
 
   const message =
-    'Da lam sach dinh dang vung nhap lieu Cong_viec!A' +
+    'Da xoa mau nen vung Cong_viec!A' +
     startRow +
-    ':N' +
+    ':W' +
     maxRows +
-    '. Du lieu, cong thuc, note va conditional formatting khong bi xoa.';
+    '. Khong thay doi du lieu, cong thuc, note, dropdown, border hay dinh dang so.';
 
   Logger.log(message);
   return message;
 }
 
-function apDungCanLeChuanCongViecV1_(sheet, startRow, numRows) {
-  sheet.getRange(startRow, 1, numRows, 14).setHorizontalAlignment('left');
-
-  [1, 2, 7, 10, 11, 12, 13].forEach(function(col) {
-    sheet.getRange(startRow, col, numRows, 1).setHorizontalAlignment('center');
-  });
-
-  sheet.getRange(startRow, 8, numRows, 1).setWrap(true);
-  sheet.getRange(startRow, 14, numRows, 1).setWrap(true);
-}
-
-function apDungDinhDangSoNgayChuanCongViecV1_(sheet, startRow, numRows) {
-  sheet.getRange(startRow, 1, numRows, 9).setNumberFormat('@');
-  sheet.getRange(startRow, 10, numRows, 1).setNumberFormat('0');
-  sheet.getRange(startRow, 11, numRows, 1).setNumberFormat('@');
-  sheet.getRange(startRow, 12, numRows, 2).setNumberFormat('dd/MM/yyyy');
-  sheet.getRange(startRow, 14, numRows, 1).setNumberFormat('@');
-}
-
-function khoiPhucValidationCongViecSauLamSachV1_(ss, sheet, startRow, numRows) {
+function khoiPhucDinhDangChuanCongViecTuTemplateV1() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(LAM_SACH_DINH_DANG_CONG_VIEC_V1.SHEET_NAME);
   const templateSheet = ss.getSheetByName(LAM_SACH_DINH_DANG_CONG_VIEC_V1.TEMPLATE_SHEET_NAME);
 
-  if (templateSheet && templateSheet.getMaxRows() >= startRow) {
-    const templateValidations = templateSheet
-      .getRange(startRow, 1, 1, LAM_SACH_DINH_DANG_CONG_VIEC_V1.NUM_COLS)
-      .getDataValidations()[0];
-    const validations = new Array(numRows).fill(null).map(function() {
-      return templateValidations.slice();
-    });
-
-    sheet
-      .getRange(startRow, 1, numRows, LAM_SACH_DINH_DANG_CONG_VIEC_V1.NUM_COLS)
-      .setDataValidations(validations);
-  } else {
-    Logger.log('Khong tim thay _TEMPLATE_Cong_viec de khoi phuc validation A:N.');
-    apDungValidationMaCauTrucCongViecV1_(sheet, startRow, numRows);
+  if (!sheet) {
+    throw new Error('Khong tim thay sheet Cong_viec.');
   }
 
-  if (typeof capNhatDataValidationTenCongViecMauV1_ === 'function') {
-    capNhatDataValidationTenCongViecMauV1_(ss, sheet);
+  if (!templateSheet) {
+    throw new Error('Khong tim thay sheet _TEMPLATE_Cong_viec.');
   }
-}
 
-function apDungValidationMaCauTrucCongViecV1_(sheet, startRow, numRows) {
-  const rule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['0', '1', '2', '3', '4'], true)
-    .setAllowInvalid(false)
-    .setHelpText('Ma cau truc hop le: 0, 1, 2, 3, 4.')
-    .build();
+  const cfg = LAM_SACH_DINH_DANG_CONG_VIEC_V1;
+  const startRow = typeof CONFIG !== 'undefined' && CONFIG.SYSTEM
+    ? CONFIG.SYSTEM.START_ROW
+    : cfg.START_ROW;
+  const maxRows = sheet.getMaxRows();
 
-  sheet.getRange(startRow, 2, numRows, 1).setDataValidation(rule);
-}
+  if (maxRows < startRow) {
+    return 'Cong_viec khong co vung du lieu de khoi phuc dinh dang.';
+  }
 
-function apDungLaiSelectionHighlightCongViecV1_(sheet, activeRow, cache) {
-  if (!activeRow || activeRow < LAM_SACH_DINH_DANG_CONG_VIEC_V1.START_ROW) return;
-
-  const rangeInfo = typeof layVungSelectionHighlightV1_ === 'function'
-    ? layVungSelectionHighlightV1_(sheet, sheet.getName())
-    : { startColumn: 1, numColumns: 23 };
-
-  if (!rangeInfo) return;
-
-  const targetRange = sheet.getRange(
-    activeRow,
-    rangeInfo.startColumn,
-    1,
-    rangeInfo.numColumns
+  const numRows = maxRows - startRow + 1;
+  const templateRows = Math.max(1, templateSheet.getMaxRows() - startRow + 1);
+  const templateRange = templateSheet.getRange(
+    startRow,
+    cfg.START_COL,
+    Math.min(numRows, templateRows),
+    cfg.NUM_COLS
   );
-  const oldBackgrounds = targetRange.getBackgrounds();
+  const targetRange = sheet.getRange(startRow, cfg.START_COL, Math.min(numRows, templateRows), cfg.NUM_COLS);
 
-  targetRange.setBackground(
-    typeof SELECTION_HIGHLIGHT_COLOR_V1 !== 'undefined'
-      ? SELECTION_HIGHLIGHT_COLOR_V1
-      : '#FFF2CC'
-  );
+  templateRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
 
-  if (cache) {
-    cache.setProperty(
-      typeof SELECTION_HIGHLIGHT_CACHE_KEY_V1 !== 'undefined'
-        ? SELECTION_HIGHLIGHT_CACHE_KEY_V1
-        : 'LAST_ROW_HIGHLIGHT_SAFE_V1',
-      JSON.stringify({
-        sheetName: sheet.getName(),
-        row: activeRow,
-        startColumn: rangeInfo.startColumn,
-        numColumns: rangeInfo.numColumns,
-        backgrounds: oldBackgrounds
-      })
-    );
-  }
+  SpreadsheetApp.flush();
+
+  const message = 'Da khoi phuc dinh dang chuan tu _TEMPLATE_Cong_viec!A5:W.';
+  Logger.log(message);
+  return message;
 }

@@ -18,7 +18,7 @@
         .addItem('Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
         .addItem('Cài / cài lại trigger vận hành', 'menuCaiDatTriggerVanHanhTienDoV1')
         .addItem('Chuẩn hóa nhập liệu mã cấu trúc', 'chuanHoaNhapLieuMaCauTrucV1')
-        .addItem('Làm sạch định dạng vùng nhập liệu', 'lamSachDinhDangVungNhapLieuCongViecV1')
+        .addItem('Xóa màu nền vùng nhập liệu', 'lamSachDinhDangVungNhapLieuCongViecV1')
         .addSubMenu(
           ui.createMenu('Thiết lập dự án mới từ mẫu chuẩn')
             .addItem('Bước 1 - Xóa dữ liệu dự án cũ', 'xoaDuLieuDuAnCuV1')
