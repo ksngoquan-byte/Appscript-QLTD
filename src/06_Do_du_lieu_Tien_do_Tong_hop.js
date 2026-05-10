@@ -29,12 +29,17 @@ function doDuLieuBangTraiTienDoTongHopV1() {
   currentRows.forEach(currentRow => {
     const values = currentRow.values;
     const displays = currentRow.displays;
+    const maCauTruc = values[1];                  // B
     const taskName = String(values[7] || '').trim();  // H
     const taskCode = String(values[14] || '').trim(); // O
+    const isGroupRow = typeof isDongNhomCauTrucV1_ === 'function' && isDongNhomCauTrucV1_(maCauTruc);
+    const isDetailTask = typeof isDongCongViecChiTietV1_ === 'function'
+      ? isDongCongViecChiTietV1_(maCauTruc, taskName)
+      : (!maCauTruc && !!taskName);
 
-    if (!taskCode) return;
+    if (!isGroupRow && !isDetailTask) return;
 
-    const baseline = baselineByTaskCode[taskCode] || null;
+    const baseline = isDetailTask && taskCode ? (baselineByTaskCode[taskCode] || null) : null;
     if (!taskName && !(baseline && baseline[1])) return;
 
     output.push([
@@ -50,14 +55,14 @@ function doDuLieuBangTraiTienDoTongHopV1() {
     const baselineStartForTech = baseline ? baseline[3] : ''; // Ke_hoach_goc!D - Bắt đầu gốc
     const baselineEndForTech = baseline ? baseline[4] : '';   // Ke_hoach_goc!E - Kết thúc gốc
 
-    techOutput.push([
+    techOutput.push(isDetailTask ? [
       taskCode,                                      // 1 - Mã công việc - Cong_viec!O
       values[18] || '',                             // 2 - Actual Start - Cong_viec!S
       values[19] || '',                             // 3 - Actual Finish - Cong_viec!T
       chuanHoaTextMotDongTongHopV1_(values[17]),    // 4 - Trạng thái - Cong_viec!R
       baselineStartForTech,                         // 5 - Baseline Start - Ke_hoach_goc!D
       baselineEndForTech                            // 6 - Baseline End - Ke_hoach_goc!E
-    ]);
+    ] : ['', '', '', '', '', '']);
   });
 
   const clearRows = Math.max(targetSheet.getLastRow() - 4, output.length, 1000);
@@ -232,6 +237,7 @@ function taoMapBaselineTheoMaCongViecV1_(baselineRows) {
 
 
 function taoCongViecPhamViTongHopV1_(currentRow, baseline) {
+  const maCauTruc = currentRow[1];    // B
   const taskName = currentRow[7] || '';   // H
   const zone = currentRow[2];             // C
   const congTrinh = currentRow[4];        // E
@@ -240,6 +246,10 @@ function taoCongViecPhamViTongHopV1_(currentRow, baseline) {
 
   if (!taskName && baseline && baseline[1]) {
     return chuanHoaTextMotDongTongHopV1_(baseline[1]);
+  }
+
+  if (typeof isDongNhomCauTrucV1_ === 'function' && isDongNhomCauTrucV1_(maCauTruc)) {
+    return chuanHoaTextMotDongTongHopV1_(taskName);
   }
 
   if (zone) scopeParts.push(chuanHoaTextMotDongTongHopV1_(zone));

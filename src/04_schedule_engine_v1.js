@@ -14,6 +14,8 @@
   ],
   COL: {
     MA_CONG_VIEC_MAU: 1,
+    MA_CAU_TRUC: 2,
+    HANG_MUC: 6,
     REF: 7,
     TASK_NAME: 8,
     DURATION: 10,
@@ -63,13 +65,25 @@ function xuLySuaScheduleEngineV1(e) {
     if (sheetName !== cfg.SHEET_TASK) return;
     if (e.range.getRow() < cfg.START_ROW) return;
 
-    // Auto cap Ma cong viec cho dong moi neu cot O dang trong.
-    // Chi cap ma cho vung dang sua; khong cap lai cac dong da co ma.
+    const editedCol = e.range.getColumn();
+    const editedLastCol = editedCol + e.range.getNumColumns() - 1;
+
+    if (
+      editedCol <= cfg.COL.HANG_MUC &&
+      editedLastCol >= cfg.COL.MA_CAU_TRUC &&
+      typeof capNhatTenCongViecTheoMaCauTrucV1_ === 'function'
+    ) {
+      for (let row = Math.max(e.range.getRow(), cfg.START_ROW); row <= e.range.getLastRow(); row++) {
+        capNhatTenCongViecTheoMaCauTrucV1_(sheet, row);
+      }
+      SpreadsheetApp.flush();
+    }
+
+    // Auto cap Ma cong viec cho dong chi tiet neu cot O dang trong.
+    // Dong nhom ma cau truc 0-4 se khong duoc cap ma.
     if (typeof capMaCongViecChoVungNeuThieuV1_ === 'function') {
       capMaCongViecChoVungNeuThieuV1_(sheet, e.range);
     }
-const editedCol = e.range.getColumn();
-    const editedLastCol = editedCol + e.range.getNumColumns() - 1;
 
     // Muc tieu 4:
     // Neu nguoi dung nhap cot K - Cong viec lien ket, tu dong doi sang cong thuc dong
@@ -83,6 +97,7 @@ const editedCol = e.range.getColumn();
       SpreadsheetApp.flush();
     }
     const watchedCols = [
+      cfg.COL.MA_CAU_TRUC,
       cfg.COL.TASK_NAME,
       cfg.COL.DURATION,
       cfg.COL.PREDECESSOR
@@ -478,9 +493,11 @@ function timGiaTriNgayNeoTrenDongV1_(row, startIndex) {
 
 function laDongCongViecScheduleV1_(row) {
   const col = SCHEDULE_ENGINE_V1.COL;
-  return coGiaTriV1_(row[col.TASK_NAME - 1]) ||
-    coGiaTriV1_(row[col.MA_CONG_VIEC_MAU - 1]) ||
-    coGiaTriV1_(row[col.REF - 1]);
+  if (typeof isDongCongViecChiTietV1_ === 'function') {
+    return isDongCongViecChiTietV1_(row[col.MA_CAU_TRUC - 1], row[col.TASK_NAME - 1]);
+  }
+
+  return !coGiaTriV1_(row[col.MA_CAU_TRUC - 1]) && coGiaTriV1_(row[col.TASK_NAME - 1]);
 }
 
 function docSoNgayV1_(value) {

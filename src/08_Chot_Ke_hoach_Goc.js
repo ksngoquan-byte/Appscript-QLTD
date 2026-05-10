@@ -82,6 +82,7 @@ function chotKeHoachGocCoreV1_(baselineType) {
   sourceValues.forEach((row, index) => {
     const sourceRow = startRow + index;
 
+    const maCauTruc = row[1];         // B
     const zone = row[2];              // C
     const congTrinh = row[4];         // E
     const hangMucTang = row[5];       // F
@@ -95,19 +96,24 @@ function chotKeHoachGocCoreV1_(baselineType) {
     const ghiChuKeHoach = row[13];    // N
     const maCongViec = row[14];       // O
     const maMocHeThong = row[15];     // P
+    const isGroupRow = typeof isDongNhomCauTrucV1_ === 'function' && isDongNhomCauTrucV1_(maCauTruc);
+    const isDetailTask = typeof isDongCongViecChiTietV1_ === 'function'
+      ? isDongCongViecChiTietV1_(maCauTruc, tenCongViec)
+      : (!maCauTruc && !!tenCongViec);
 
-    if (!tenCongViec) return;
+    if (!isGroupRow && !isDetailTask) return;
 
-    if (!maCongViec) {
+    if (isDetailTask && !maCongViec) {
       errors.push('D\u00f2ng ' + sourceRow + ': thi\u1ebfu M\u00e3 c\u00f4ng vi\u1ec7c t\u1ea1i c\u1ed9t O.');
     }
 
-    if (!batDau || !ketThuc) {
+    if (isDetailTask && (!batDau || !ketThuc)) {
       if (!batDau) errors.push('Dòng ' + sourceRow + ': thiếu Bắt đầu forecast tại cột L.');
       if (!ketThuc) errors.push('Dòng ' + sourceRow + ': thiếu Kết thúc forecast tại cột M.');
     }
 
     const congViecPhamVi = taoCongViecPhamViBaselineV1_({
+      maCauTruc,
       tenCongViec,
       zone,
       congTrinh,
@@ -489,6 +495,10 @@ function taoSnapshotSheetTheoBaselineVersionV1_(sourceSheet, baselineVersion, cr
 
 function taoCongViecPhamViBaselineV1_(data) {
   const ten = data.tenCongViec || '';
+
+  if (typeof isDongNhomCauTrucV1_ === 'function' && isDongNhomCauTrucV1_(data.maCauTruc)) {
+    return ten;
+  }
 
   const contextParts = [];
 

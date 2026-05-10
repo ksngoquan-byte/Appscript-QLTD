@@ -20,6 +20,8 @@ const LINK_FORMULA_V1 = {
   CONFIG_SHEET: 'Cau_hinh',
   START_ROW: 5,
   COL: {
+    MA_CAU_TRUC: 2, // B - Ma cau truc 0-4
+    HANG_MUC: 6,   // F
     REF: 7,       // G - Số tham chiếu
     NAME: 8,      // H - Tên công việc
     DURATION: 10, // J - Số ngày kế hoạch
@@ -121,8 +123,24 @@ function scheduleLinkFormulaOnEditV1(e) {
 
     if (rowEnd < LINK_FORMULA_V1.START_ROW) return;
 
+    if (
+      colStart <= LINK_FORMULA_V1.COL.HANG_MUC &&
+      colEnd >= LINK_FORMULA_V1.COL.MA_CAU_TRUC &&
+      typeof capNhatTenCongViecTheoMaCauTrucV1_ === 'function'
+    ) {
+      for (let row = Math.max(rowStart, LINK_FORMULA_V1.START_ROW); row <= rowEnd; row++) {
+        capNhatTenCongViecTheoMaCauTrucV1_(sheet, row);
+      }
+      SpreadsheetApp.flush();
+    }
+
+    if (typeof capMaCongViecChoVungNeuThieuV1_ === 'function') {
+      capMaCongViecChoVungNeuThieuV1_(sheet, range);
+    }
+
     const touchedLink = LINK_FORMULA_V1.COL.LINK >= colStart && LINK_FORMULA_V1.COL.LINK <= colEnd;
     const touchedScheduleInput = [
+      LINK_FORMULA_V1.COL.MA_CAU_TRUC,
       LINK_FORMULA_V1.COL.NAME,
       LINK_FORMULA_V1.COL.DURATION,
       LINK_FORMULA_V1.COL.LINK
@@ -337,6 +355,11 @@ function taoMapRefToTaskIdLienKetV1_(sheet) {
     .getDisplayValues();
 
   values.forEach((row, i) => {
+    if (typeof isDongCongViecChiTietV1_ === 'function' &&
+      !isDongCongViecChiTietV1_(row[LINK_FORMULA_V1.COL.MA_CAU_TRUC - 1], row[LINK_FORMULA_V1.COL.NAME - 1])) {
+      return;
+    }
+
     const refText = String(row[LINK_FORMULA_V1.COL.REF - 1] || '').trim();
     if (!refText) return;
 

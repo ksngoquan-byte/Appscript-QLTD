@@ -334,13 +334,18 @@ function capMaCongViecChoVungNeuThieuV1_(sheet, editedRange) {
 
     for (let i = 0; i < data.length; i++) {
       const currentMa = maValues[i][0];
+      const canAssign = laDongCanTuDongCapMaCongViecV1_(data[i], col);
 
-      if (currentMa) {
+      if (!canAssign) {
+        if (currentMa) {
+          maValues[i][0] = '';
+          changed = true;
+        }
         skipped++;
         continue;
       }
 
-      if (!laDongCanTuDongCapMaCongViecV1_(data[i], col)) {
+      if (currentMa) {
         skipped++;
         continue;
       }
@@ -362,6 +367,7 @@ function capMaCongViecChoVungNeuThieuV1_(sheet, editedRange) {
 }
 
 function laDongCanTuDongCapMaCongViecV1_(row, col) {
+  const maCauTrucCol = col.MA_CAU_TRUC || 2;
   const tenCol = col.TEN_CV || col.TASK_NAME || 8;
   const soNgayCol = col.SO_NGAY || col.DURATION || 10;
   const refCol = col.SO_THAM_CHIEU || col.REF || 7;
@@ -369,12 +375,21 @@ function laDongCanTuDongCapMaCongViecV1_(row, col) {
   const phongBanCol = col.PHONG_BAN || 9;
   const predecessorCol = col.PREDECESSOR || 11;
 
+  const maCauTruc = row[maCauTrucCol - 1];
   const ten = row[tenCol - 1];
   const soNgay = row[soNgayCol - 1];
   const predecessor = row[predecessorCol - 1];
   const ref = row[refCol - 1];
   const maMau = row[maMauCol - 1];
   const phongBan = row[phongBanCol - 1];
+
+  if (typeof isDongNhomCauTrucV1_ === 'function' && isDongNhomCauTrucV1_(maCauTruc)) {
+    return false;
+  }
+
+  if (typeof isDongCongViecChiTietV1_ === 'function') {
+    return isDongCongViecChiTietV1_(maCauTruc, ten);
+  }
 
   // Tranh cap ma cho dong nhom chi co tieu de.
   // Dong cong viec that thuong co ten + it nhat mot dau hieu van hanh: so ngay, lien ket, phong ban, ref, ma mau.

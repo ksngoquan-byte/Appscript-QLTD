@@ -4,6 +4,7 @@
   ui.createMenu('Quản lý tiến độ dự án')
     .addSubMenu(
       ui.createMenu('1. Vận hành tiến độ')
+        .addItem('Chuẩn hóa nhập liệu mã cấu trúc', 'chuanHoaNhapLieuMaCauTrucV1')
         .addItem('Cấp/cập nhật mã công việc', 'menuCapNhatMaCongViecV1')
         .addItem('Chạy tính lại tiến độ', 'menuChayTinhLaiTienDoV1')
         .addItem('Cập nhật tổng hợp + Gantt', 'menuCapNhatTongHopGanttV1')
