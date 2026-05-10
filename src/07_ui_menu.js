@@ -213,8 +213,8 @@ function menuLayHamTheoTenV1_(functionNames) {
  * A: ID
  * B: Cong viec / Pham vi
  * C: Chu tri
- * D: Thoi luong
- * E: Tien nhiem
+ * D: So ngay
+ * E: Cong viec lien ket
  * F: Bat dau
  * G: Ket thuc
  * H: Trang thai
@@ -232,8 +232,8 @@ function chuanHoaBangTraiTienDoTongHopV1() {
     'ID',
     'Công việc / Phạm vi',
     'Chủ trì',
-    'Thời lượng',
-    'Tiền nhiệm',
+    'Số ngày',
+    'Công việc liên kết',
     'Bắt đầu',
     'Kết thúc',
     'Trạng thái'
@@ -243,8 +243,8 @@ function chuanHoaBangTraiTienDoTongHopV1() {
 
   if (numRows > 0) {
     sheet.getRange(dataStartRow, 1, numRows, 1).setNumberFormat('0');             // A - Ref
-    sheet.getRange(dataStartRow, 4, numRows, 1).setNumberFormat('0');             // D - Thoi luong
-    sheet.getRange(dataStartRow, 5, numRows, 1).setNumberFormat('@');             // E - Tien nhiem
+    sheet.getRange(dataStartRow, 4, numRows, 1).setNumberFormat('0');             // D - So ngay
+    sheet.getRange(dataStartRow, 5, numRows, 1).setNumberFormat('@');             // E - Cong viec lien ket
     sheet.getRange(dataStartRow, 6, numRows, 2).setNumberFormat('dd/MM/yyyy');    // F:G - Ngay
     sheet.getRange(dataStartRow, 2, numRows, 1).setWrap(true);                    // B - Ten viec
     sheet.getRange(dataStartRow, 8, numRows, 1).setWrap(true);                    // H - Trang thai

@@ -161,8 +161,8 @@ targetSheet
       'ID',
       'Công việc / Phạm vi',
       'Chủ trì',
-      'Thời lượng',
-      'Tiền nhiệm',
+      'Số ngày',
+      'Công việc liên kết',
       'Bắt đầu',
       'Kết thúc',
       'Trạng thái'
