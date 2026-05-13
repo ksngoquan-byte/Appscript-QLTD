@@ -57,62 +57,25 @@ function xuLySuaScheduleEngineV1(e) {
     const sheetName = sheet.getName();
     const cfg = SCHEDULE_ENGINE_V1;
 
+    const row = e.range.getRow();
+    const editedCol = e.range.getColumn();
+    const editedLastCol = editedCol + e.range.getNumColumns() - 1;
+
     if (sheetName === cfg.SHEET_CONFIG) {
-      chayScheduleEngineV1();
+      handleCauHinhEditLight_(e, sheet, row, editedCol, editedLastCol);
       return;
     }
 
     if (sheetName !== cfg.SHEET_TASK) return;
-    if (e.range.getRow() < cfg.START_ROW) return;
+    if (row < cfg.START_ROW) return;
 
-    const editedCol = e.range.getColumn();
-    const editedLastCol = editedCol + e.range.getNumColumns() - 1;
-
-    if (
-      editedCol <= cfg.COL.HANG_MUC &&
-      editedLastCol >= cfg.COL.MA_CAU_TRUC &&
-      typeof capNhatTenCongViecTheoMaCauTrucV1_ === 'function'
-    ) {
-      for (let row = Math.max(e.range.getRow(), cfg.START_ROW); row <= e.range.getLastRow(); row++) {
-        capNhatTenCongViecTheoMaCauTrucV1_(sheet, row);
-      }
-      SpreadsheetApp.flush();
-    }
-
-    // Auto cap Ma cong viec cho dong chi tiet neu cot O dang trong.
-    // Dong nhom ma cau truc 0-4 se khong duoc cap ma.
-    if (typeof capMaCongViecChoVungNeuThieuV1_ === 'function') {
-      capMaCongViecChoVungNeuThieuV1_(sheet, e.range);
-    }
-
-    // Muc tieu 4:
-    // Neu nguoi dung nhap cot K - Cong viec lien ket, tu dong doi sang cong thuc dong
-    // tham chieu truc tiep toi cot G cua cong viec dich.
-    if (
-      editedCol <= cfg.COL.PREDECESSOR &&
-      editedLastCol >= cfg.COL.PREDECESSOR &&
-      typeof chuyenVungNhapThanhCongThucLienKetDongV1_ === 'function'
-    ) {
-      chuyenVungNhapThanhCongThucLienKetDongV1_(sheet, e.range, cfg.COL.PREDECESSOR);
-      SpreadsheetApp.flush();
-    }
-    const watchedCols = [
-      cfg.COL.MA_CAU_TRUC,
-      cfg.COL.TASK_NAME,
-      cfg.COL.DURATION,
-      cfg.COL.PREDECESSOR
-    ];
-
-    const isWatchedEdit = watchedCols.some(col => editedCol <= col && editedLastCol >= col);
-    if (!isWatchedEdit) return;
-
-    chayScheduleEngineV1();
+    handleCongViecEditLight_(e, sheet, row, editedCol, editedLastCol);
   } catch (err) {
     Logger.log('xuLySuaScheduleEngineV1: ' + err);
   }
 }
-
-function chayScheduleEngineV1() {
+function chayScheduleEngineV1(options) {
+  options = options || {};
   return chayCoKhoa_(() => {
     const ss = SpreadsheetApp.getActive();
     const sheet = ss.getSheetByName(SCHEDULE_ENGINE_V1.SHEET_TASK);
@@ -178,7 +141,7 @@ function chayScheduleEngineV1() {
     danhDauLoiVongLapV1_(tasks, taskByRef);
     tinhLichCongViecV1_(tasks, taskByRef, anchorDate);
     ghiKetQuaScheduleV1_(sheet, tasks, numRows);
-    if (typeof normalizeCongViecRowBackgrounds_ === 'function') {
+    if (options.normalizeFormat === true && typeof normalizeCongViecRowBackgrounds_ === 'function') {
       normalizeCongViecRowBackgrounds_(sheet);
     }
   });
@@ -856,6 +819,7 @@ function layNgayNghiSetScheduleV1_() {
 
   return SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_;
 }
+
 
 
 
