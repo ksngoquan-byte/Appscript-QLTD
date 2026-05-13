@@ -229,16 +229,17 @@ function taoBanDoSoThamChieuSangDongV1_(sheet) {
   }
 
   const numRows = lastRow - startRow + 1;
-  const numCols = Math.max(refCol, maCongViecCol);
-  const values = sheet.getRange(startRow, 1, numRows, numCols).getValues();
 
-  for (let i = 0; i < values.length; i++) {
+  // Toi uu: chi doc cot G va cot O, khong doc ca vung A:O.
+  const refValues = sheet.getRange(startRow, refCol, numRows, 1).getValues();
+  const maValues = sheet.getRange(startRow, maCongViecCol, numRows, 1).getValues();
+
+  for (let i = 0; i < numRows; i++) {
     const rowIndex = startRow + i;
-    const row = values[i];
-    const ref = chuanHoaSoThamChieuLienKetDongV1_(row[refCol - 1]);
-    const maCongViec = row[maCongViecCol - 1];
+    const ref = chuanHoaSoThamChieuLienKetDongV1_(refValues[i][0]);
+    const maCongViec = maValues[i][0];
 
-    // Chi map cac dong co so tham chieu va ma cong viec de tranh dong nhom/blank.
+    // Chi map dong co so tham chieu va ma cong viec de tranh dong nhom/blank.
     if (ref && maCongViec) {
       map[ref] = rowIndex;
     }
@@ -246,7 +247,6 @@ function taoBanDoSoThamChieuSangDongV1_(sheet) {
 
   return map;
 }
-
 function taoCongThucLienKetDongTuTextV1_(text, refMap) {
   const raw = String(text || '').trim();
   if (!raw) return '';
@@ -565,5 +565,6 @@ function suaCongThucLienKetDongTraVeTextV1() {
 }
 
 // === FIX_PREDECESSOR_TEXT_FORMULA_V1_END ===
+
 
 
