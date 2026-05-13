@@ -212,17 +212,8 @@ function hienTrangThaiTinhLaiTienDoV1() {
 }
 
 function taoMenuToiUuTienDoV1_() {
-  SpreadsheetApp.getUi()
-    .createMenu('QL tien do')
-    .addItem('Chay tinh lai tien do', 'chayTinhLaiTienDoThuCongV1')
-    .addItem('Chay tinh lai tien do + don dinh dang', 'chayTinhLaiTienDoThuCongFullV1')
-    .addItem('Xem trang thai can tinh lai', 'hienTrangThaiTinhLaiTienDoV1')
-    .addSeparator()
-    .addItem('Don nen dong trong', 'chayDonNenCongViecThuCongV1')
-    .addSeparator()
-    .addItem('Cai trigger nen 10 phut', 'caiTriggerTinhLaiTienDoNenV1')
-    .addItem('Xoa trigger nen', 'xoaTriggerTinhLaiTienDoNenV1')
-    .addToUi();
+  // Deprecated: menu da duoc gom ve taoMenu() trong 07_ui_menu.js.
+  return;
 }
 
 function benchmarkScheduleEngineV1() {
@@ -280,3 +271,4 @@ function xoaTriggerThayDoiCauTrucScheduleV1() {
 
   return 'Da xoa trigger onChange cau truc. So trigger xoa: ' + deleted;
 }
+

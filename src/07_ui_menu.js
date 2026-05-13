@@ -36,7 +36,6 @@
 }
 
 function onOpen() {
-  taoMenuToiUuTienDoV1_();
   taoMenu();
 }
 
@@ -296,6 +295,7 @@ function chuanHoaBangTraiTienDoTongHopV1() {
 }
 
 // === FIX_LEFT_TABLE_TIEN_DO_TONG_HOP_V1_END ===
+
 
 
 
