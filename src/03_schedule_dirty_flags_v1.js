@@ -234,3 +234,49 @@ function benchmarkScheduleEngineV1() {
 
   return logPerfScheduleV1_('Benchmark chayScheduleEngineV1', started);
 }
+
+function xuLyThayDoiCauTrucScheduleV1(e) {
+  try {
+    if (!e || !e.changeType) return;
+
+    const watchedTypes = [
+      'INSERT_ROW',
+      'REMOVE_ROW',
+      'INSERT_COLUMN',
+      'REMOVE_COLUMN',
+      'OTHER'
+    ];
+
+    if (watchedTypes.indexOf(e.changeType) === -1) return;
+
+    danhDauCanTinhLaiTienDoV1_('STRUCTURE_CHANGE_' + e.changeType);
+  } catch (err) {
+    Logger.log('xuLyThayDoiCauTrucScheduleV1: ' + err);
+  }
+}
+
+function caiTriggerThayDoiCauTrucScheduleV1() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'xuLyThayDoiCauTrucScheduleV1')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  ScriptApp.newTrigger('xuLyThayDoiCauTrucScheduleV1')
+    .forSpreadsheet(SpreadsheetApp.getActive())
+    .onChange()
+    .create();
+
+  return 'Da cai trigger onChange cho thay doi cau truc hang/cot.';
+}
+
+function xoaTriggerThayDoiCauTrucScheduleV1() {
+  let deleted = 0;
+
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'xuLyThayDoiCauTrucScheduleV1')
+    .forEach(t => {
+      ScriptApp.deleteTrigger(t);
+      deleted++;
+    });
+
+  return 'Da xoa trigger onChange cau truc. So trigger xoa: ' + deleted;
+}
