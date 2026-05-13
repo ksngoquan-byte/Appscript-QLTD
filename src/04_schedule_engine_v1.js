@@ -76,6 +76,7 @@ function xuLySuaScheduleEngineV1(e) {
 }
 function chayScheduleEngineV1(options) {
   options = options || {};
+  const perf = options.debugPerf === true ? taoPerfScheduleV1_('chayScheduleEngineV1') : null;
   return chayCoKhoa_(() => {
     const ss = SpreadsheetApp.getActive();
     const sheet = ss.getSheetByName(SCHEDULE_ENGINE_V1.SHEET_TASK);
@@ -90,6 +91,7 @@ function chayScheduleEngineV1(options) {
     const data = sheet.getRange(cfg.START_ROW, 1, numRows, numCols).getValues();
     const anchorDate = layNgayNeoKeHoachV1_(ss);
     SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_ = null;
+    if (perf) perf.mark('01_doc_du_lieu_va_cau_hinh');
 
     const tasks = [];
     const taskByRef = {};
@@ -138,12 +140,18 @@ function chayScheduleEngineV1(options) {
       });
     });
 
+    if (perf) perf.mark('02_parse_task_va_tien_nhiem');
     danhDauLoiVongLapV1_(tasks, taskByRef);
+    if (perf) perf.mark('03_kiem_tra_vong_lap');
     tinhLichCongViecV1_(tasks, taskByRef, anchorDate);
+    if (perf) perf.mark('04_tinh_lich');
     ghiKetQuaScheduleV1_(sheet, tasks, numRows, data);
+    if (perf) perf.mark('05_ghi_ket_qua');
     if (options.normalizeFormat === true && typeof normalizeCongViecRowBackgrounds_ === 'function') {
       normalizeCongViecRowBackgrounds_(sheet);
+      if (perf) perf.mark('06_don_dinh_dang');
     }
+    if (perf) perf.done();
   });
 }
 
@@ -535,6 +543,35 @@ function bangGiaTriScheduleV1_(a, b) {
 
   return String(a) === String(b);
 }
+
+function taoPerfScheduleV1_(label) {
+  const startedAt = Date.now();
+  let lastAt = startedAt;
+
+  return {
+    mark: function(stepName) {
+      const now = Date.now();
+      Logger.log(
+        '[PERF] ' + label +
+        ' | ' + stepName +
+        ' | step=' + (now - lastAt) + ' ms' +
+        ' | total=' + (now - startedAt) + ' ms'
+      );
+      lastAt = now;
+    },
+    done: function() {
+      const now = Date.now();
+      Logger.log('[PERF] ' + label + ' | TOTAL=' + (now - startedAt) + ' ms');
+    }
+  };
+}
+
+function benchmarkScheduleEngineChiTietV1() {
+  return chayScheduleEngineV1({
+    normalizeFormat: false,
+    debugPerf: true
+  });
+}
 function layNgayNeoKeHoachV1_(ss) {
   const cfg = SCHEDULE_ENGINE_V1;
   const sheet = ss.getSheetByName(cfg.SHEET_CONFIG);
@@ -854,8 +891,11 @@ function chayTestMangScheduleEngineV1_(tasks, anchorDate) {
     });
   });
 
-  danhDauLoiVongLapV1_(tasks, taskByRef);
+  if (perf) perf.mark('02_parse_task_va_tien_nhiem');
+    danhDauLoiVongLapV1_(tasks, taskByRef);
+    if (perf) perf.mark('03_kiem_tra_vong_lap');
   tinhLichCongViecV1_(tasks, taskByRef, anchorDate);
+    if (perf) perf.mark('04_tinh_lich');
 
   return taskByRef;
 }
@@ -890,6 +930,7 @@ function assertScheduleV1_(name, ok) {
 }
 
 var SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_ = null;
+    if (perf) perf.mark('01_doc_du_lieu_va_cau_hinh');
 
 function layNgayNghiSetScheduleV1_() {
   if (SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_) {
@@ -904,6 +945,7 @@ function layNgayNghiSetScheduleV1_() {
 
   return SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_;
 }
+
 
 
 
