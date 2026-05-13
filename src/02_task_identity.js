@@ -144,6 +144,7 @@ function chuyenVungLienKetDongV1_(sheet, range, includeExistingText) {
   let converted = 0;
   let skipped = 0;
   let errors = 0;
+  const pending = [];
 
   for (let i = 0; i < numRows; i++) {
     const rowIndex = rowStart + i;
@@ -156,7 +157,6 @@ function chuyenVungLienKetDongV1_(sheet, range, includeExistingText) {
     const currentFormula = formulas[i][0];
     const currentValue = values[i][0];
 
-    // Khong doi lai o da la cong thuc, tru khi includeExistingText = true va cong thuc trong cot K dang rong.
     if (currentFormula) {
       skipped++;
       continue;
@@ -174,15 +174,46 @@ function chuyenVungLienKetDongV1_(sheet, range, includeExistingText) {
       continue;
     }
 
-    sheet.getRange(rowIndex, predCol).setFormula(formula);
+    pending.push({
+      rowIndex: rowIndex,
+      formula: formula
+    });
+
     converted++;
   }
 
-  SpreadsheetApp.flush();
+  ghiCongThucLienKetDongTheoCumV1_(sheet, predCol, pending);
 
   return { converted, skipped, errors };
 }
 
+function ghiCongThucLienKetDongTheoCumV1_(sheet, predCol, pending) {
+  if (!pending || pending.length === 0) return;
+
+  pending.sort((a, b) => a.rowIndex - b.rowIndex);
+
+  let groupStart = pending[0].rowIndex;
+  let groupValues = [[pending[0].formula]];
+  let prevRow = pending[0].rowIndex;
+
+  for (let i = 1; i < pending.length; i++) {
+    const item = pending[i];
+
+    if (item.rowIndex === prevRow + 1) {
+      groupValues.push([item.formula]);
+      prevRow = item.rowIndex;
+      continue;
+    }
+
+    sheet.getRange(groupStart, predCol, groupValues.length, 1).setFormulas(groupValues);
+
+    groupStart = item.rowIndex;
+    groupValues = [[item.formula]];
+    prevRow = item.rowIndex;
+  }
+
+  sheet.getRange(groupStart, predCol, groupValues.length, 1).setFormulas(groupValues);
+}
 function taoBanDoSoThamChieuSangDongV1_(sheet) {
   const col = CONFIG.COLUMN.CONG_VIEC;
   const refCol = col.SO_THAM_CHIEU || col.REF;
@@ -298,12 +329,12 @@ function capMaCongViecChoVungNeuThieuV1_(sheet, editedRange) {
   return chayCoKhoa_(() => {
     const col = CONFIG.COLUMN.CONG_VIEC;
     const startRow = CONFIG.SYSTEM.START_ROW;
-    const lastRow = sheet.getLastRow();
 
-    if (!sheet || !editedRange || lastRow < startRow) {
+    if (!sheet || !editedRange || sheet.getLastRow() < startRow) {
       return { assigned: 0, skipped: 0 };
     }
 
+    const lastRow = sheet.getLastRow();
     const rangeStartRow = Math.max(editedRange.getRow(), startRow);
     const rangeEndRow = Math.min(editedRange.getLastRow(), lastRow);
 
@@ -311,22 +342,28 @@ function capMaCongViecChoVungNeuThieuV1_(sheet, editedRange) {
       return { assigned: 0, skipped: 0 };
     }
 
-    const allNumRows = lastRow - startRow + 1;
     const maxCol = Math.max(
       col.MA_CONG_VIEC || 15,
       col.PREDECESSOR || 11,
       col.SO_NGAY || col.DURATION || 10,
       col.TEN_CV || col.TASK_NAME || 8,
-      col.SO_THAM_CHIEU || col.REF || 7
+      col.SO_THAM_CHIEU || col.REF || 7,
+      col.MA_CV_MAU || col.MA_CONG_VIEC_MAU || 1,
+      col.PHONG_BAN || 9,
+      col.MA_CAU_TRUC || 2
     );
-
-    const allData = sheet.getRange(startRow, 1, allNumRows, maxCol).getValues();
-    let lastId = Math.max(layMaCongViecCuoi_(), layMaCongViecLonNhatTuSheet_(allData, col));
 
     const numRows = rangeEndRow - rangeStartRow + 1;
     const data = sheet.getRange(rangeStartRow, 1, numRows, maxCol).getValues();
     const maRange = sheet.getRange(rangeStartRow, col.MA_CONG_VIEC, numRows, 1);
     const maValues = maRange.getValues();
+
+    let lastId = layMaCongViecCuoi_();
+
+    // Chi scan cot ma khi property chua co, tranh doc toan sheet moi lan edit.
+    if (!lastId) {
+      lastId = layMaCongViecLonNhatTuCotMaV1_(sheet, col);
+    }
 
     let assigned = 0;
     let skipped = 0;
@@ -359,13 +396,50 @@ function capMaCongViecChoVungNeuThieuV1_(sheet, editedRange) {
     if (changed) {
       maRange.setValues(maValues);
       luuMaCongViecCuoi_(lastId);
-      SpreadsheetApp.flush();
     }
 
     return { assigned, skipped };
   });
 }
 
+function layMaCongViecLonNhatTuCotMaV1_(sheet, col) {
+  const startRow = CONFIG.SYSTEM.START_ROW;
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow < startRow) return 0;
+
+  const numRows = lastRow - startRow + 1;
+  const values = sheet.getRange(startRow, col.MA_CONG_VIEC, numRows, 1).getValues();
+
+  let maxId = 0;
+
+  values.forEach(row => {
+    const value = row[0];
+    if (!value) return;
+
+    const numberValue = Number(String(value).trim());
+    if (isFinite(numberValue) && numberValue > maxId) {
+      maxId = numberValue;
+    }
+  });
+
+  return maxId;
+}
+
+function dongBoMaCongViecCuoiV1() {
+  return chayCoKhoa_(() => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.SHEET.CONG_VIEC);
+    if (!sheet) throw new Error('Khong tim thay sheet Cong_viec');
+
+    const maxId = layMaCongViecLonNhatTuCotMaV1_(sheet, CONFIG.COLUMN.CONG_VIEC);
+    luuMaCongViecCuoi_(maxId);
+
+    const message = 'Da dong bo LAST_TASK_ID = ' + maxId;
+    Logger.log(message);
+    return message;
+  });
+}
 function laDongCanTuDongCapMaCongViecV1_(row, col) {
   const maCauTrucCol = col.MA_CAU_TRUC || 2;
   const tenCol = col.TEN_CV || col.TASK_NAME || 8;
@@ -491,4 +565,5 @@ function suaCongThucLienKetDongTraVeTextV1() {
 }
 
 // === FIX_PREDECESSOR_TEXT_FORMULA_V1_END ===
+
 
