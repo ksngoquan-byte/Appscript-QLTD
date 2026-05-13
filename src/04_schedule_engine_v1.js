@@ -1,5 +1,6 @@
 ﻿var perf = null;
 var SCHEDULE_DATE_CALC_MEMO_V1_ = null;
+var SCHEDULE_WORKDAY_INDEX_CACHE_V1_ = null;
 
 const SCHEDULE_ENGINE_V1 = {
   SHEET_TASK: 'Cong_viec',
@@ -144,7 +145,8 @@ function chayScheduleEngineV1(options) {
       });
     });
 
-    if (perf) perf.mark('02_parse_task_va_tien_nhiem');
+    SCHEDULE_WORKDAY_INDEX_CACHE_V1_ = taoWorkdayIndexCacheScheduleV1_(tasks, anchorDate);
+    if (perf) perf.mark('02_parse_task_va_tien_nhiem_va_cache_ngay');
     danhDauLoiVongLapV1_(tasks, taskByRef);
     if (perf) perf.mark('03_kiem_tra_vong_lap');
     tinhLichCongViecV1_(tasks, taskByRef, anchorDate);
@@ -688,121 +690,232 @@ function layMemoNgayLamViecScheduleV1_() {
 function keyNgayScheduleV1_(date) {
   return boGioV1_(date).getTime();
 }
+function taoWorkdayIndexCacheScheduleV1_(tasks, anchorDate) {
+  if (typeof cal_isNgayLamViec_ !== 'function') return null;
+
+  const ngayNghiSet = layNgayNghiSetScheduleV1_();
+  const dates = [boGioV1_(anchorDate)];
+  let durationSum = 0;
+  let maxLagAbs = 0;
+
+  (tasks || []).forEach(task => {
+    if (task.forecastStart) dates.push(boGioV1_(task.forecastStart));
+    if (task.forecastEnd) dates.push(boGioV1_(task.forecastEnd));
+    if (task.actualStart) dates.push(boGioV1_(task.actualStart));
+    if (task.actualFinish) dates.push(boGioV1_(task.actualFinish));
+
+    if (task.duration && task.duration > 0) {
+      durationSum += Number(task.duration);
+    }
+
+    (task.predecessors || []).forEach(pred => {
+      maxLagAbs = Math.max(maxLagAbs, Math.abs(Number(pred.lag || 0)));
+    });
+  });
+
+  const minTime = Math.min.apply(null, dates.map(d => d.getTime()));
+  const maxTime = Math.max.apply(null, dates.map(d => d.getTime()));
+
+  const beforeDays = 730;
+  const afterDays = Math.min(Math.max(3650, durationSum + maxLagAbs + 365), 8000);
+
+  const start = boGioV1_(new Date(minTime));
+  start.setDate(start.getDate() - beforeDays);
+
+  const end = boGioV1_(new Date(maxTime));
+  end.setDate(end.getDate() + afterDays);
+
+  const workdayTimes = [];
+  const workdayIndexByTime = {};
+
+  const d = boGioV1_(start);
+
+  while (d.getTime() <= end.getTime()) {
+    if (cal_isNgayLamViec_(d, ngayNghiSet)) {
+      const time = d.getTime();
+      workdayIndexByTime[time] = workdayTimes.length;
+      workdayTimes.push(time);
+    }
+
+    d.setDate(d.getDate() + 1);
+  }
+
+  return {
+    startTime: start.getTime(),
+    endTime: end.getTime(),
+    workdayTimes: workdayTimes,
+    workdayIndexByTime: workdayIndexByTime
+  };
+}
+
+function layWorkdayIndexCacheScheduleV1_() {
+  return SCHEDULE_WORKDAY_INDEX_CACHE_V1_ || null;
+}
+
+function lowerBoundScheduleV1_(arr, value) {
+  let lo = 0;
+  let hi = arr.length;
+
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (arr[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+
+  return lo;
+}
+
+function upperBoundScheduleV1_(arr, value) {
+  let lo = 0;
+  let hi = arr.length;
+
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (arr[mid] <= value) lo = mid + 1;
+    else hi = mid;
+  }
+
+  return lo;
+}
+
+function layIndexNgayLamViecTaiHoacSauV1_(cache, time) {
+  const exact = cache.workdayIndexByTime[time];
+  if (typeof exact !== 'undefined') return exact;
+
+  const index = lowerBoundScheduleV1_(cache.workdayTimes, time);
+  return index < cache.workdayTimes.length ? index : -1;
+}
+
+function layIndexNgayLamViecTaiHoacTruocV1_(cache, time) {
+  const exact = cache.workdayIndexByTime[time];
+  if (typeof exact !== 'undefined') return exact;
+
+  const index = upperBoundScheduleV1_(cache.workdayTimes, time) - 1;
+  return index >= 0 ? index : -1;
+}
+
+function ngayTuWorkdayIndexV1_(cache, index) {
+  if (!cache || index < 0 || index >= cache.workdayTimes.length) return null;
+  return boGioV1_(new Date(cache.workdayTimes[index]));
+}
+
+function tinhSoNgayBaoGomFallbackV1_(start, end) {
+  const ngayNghiSet = layNgayNghiSetScheduleV1_();
+
+  if (typeof cal_isNgayLamViec_ !== 'function') {
+    return Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+  }
+
+  let count = 0;
+  const d = boGioV1_(start);
+
+  while (d.getTime() <= end.getTime()) {
+    if (cal_isNgayLamViec_(d, ngayNghiSet)) count++;
+    d.setDate(d.getDate() + 1);
+  }
+
+  return count;
+}
+
+function tinhNgayKetThucTheoDurationFallbackV1_(start, n) {
+  const ngayNghiSet = layNgayNghiSetScheduleV1_();
+
+  if (typeof cal_addNgayLamViec_ !== 'function') {
+    const date = boGioV1_(start);
+    date.setDate(date.getDate() + n - 1);
+    return date;
+  }
+
+  return boGioV1_(cal_addNgayLamViec_(start, n, ngayNghiSet));
+}
+
+function tinhNgayBatDauTheoDurationFallbackV1_(end, n) {
+  const ngayNghiSet = layNgayNghiSetScheduleV1_();
+
+  if (typeof cal_subtractNgayLamViec_ !== 'function') {
+    const date = boGioV1_(end);
+    date.setDate(date.getDate() - n + 1);
+    return date;
+  }
+
+  return boGioV1_(cal_subtractNgayLamViec_(end, n, ngayNghiSet));
+}
+
+function congNgayFallbackV1_(value, days) {
+  const ngayNghiSet = layNgayNghiSetScheduleV1_();
+
+  if (typeof cal_shiftNgayLamViec_ !== 'function') {
+    const date = boGioV1_(value);
+    date.setDate(date.getDate() + Number(days || 0));
+    return date;
+  }
+
+  return boGioV1_(cal_shiftNgayLamViec_(value, Number(days || 0), ngayNghiSet));
+}
 function tinhSoNgayBaoGomV1_(startDate, endDate) {
   const start = boGioV1_(startDate);
   const end = boGioV1_(endDate);
 
   if (!start || !end || end.getTime() < start.getTime()) return '';
 
-  const memo = layMemoNgayLamViecScheduleV1_();
-  const key = keyNgayScheduleV1_(start) + ':' + keyNgayScheduleV1_(end);
+  const cache = layWorkdayIndexCacheScheduleV1_();
 
-  if (Object.prototype.hasOwnProperty.call(memo.countInclusive, key)) {
-    return memo.countInclusive[key];
+  if (cache && start.getTime() >= cache.startTime && end.getTime() <= cache.endTime) {
+    const lo = lowerBoundScheduleV1_(cache.workdayTimes, start.getTime());
+    const hi = upperBoundScheduleV1_(cache.workdayTimes, end.getTime()) - 1;
+    return hi >= lo ? hi - lo + 1 : 0;
   }
 
-  const ngayNghiSet = layNgayNghiSetScheduleV1_();
-  let result;
-
-  if (typeof cal_isNgayLamViec_ !== 'function') {
-    result = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
-  } else {
-    let count = 0;
-    const d = boGioV1_(start);
-
-    while (d.getTime() <= end.getTime()) {
-      if (cal_isNgayLamViec_(d, ngayNghiSet)) {
-        count++;
-      }
-      d.setDate(d.getDate() + 1);
-    }
-
-    result = count;
-  }
-
-  memo.countInclusive[key] = result;
-  return result;
+  return tinhSoNgayBaoGomFallbackV1_(start, end);
 }
 
 function tinhNgayKetThucTheoDurationV1_(startDate, duration) {
   const n = Number(duration || 0);
-
   if (!n || n <= 0) return null;
 
   const start = boGioV1_(startDate);
-  const memo = layMemoNgayLamViecScheduleV1_();
-  const key = keyNgayScheduleV1_(start) + ':' + n;
+  const cache = layWorkdayIndexCacheScheduleV1_();
 
-  if (memo.addWorkdays[key]) {
-    return boGioV1_(memo.addWorkdays[key]);
+  if (cache && start.getTime() >= cache.startTime && start.getTime() <= cache.endTime) {
+    const startIndex = layIndexNgayLamViecTaiHoacSauV1_(cache, start.getTime());
+    const target = ngayTuWorkdayIndexV1_(cache, startIndex + n - 1);
+    if (target) return target;
   }
 
-  const ngayNghiSet = layNgayNghiSetScheduleV1_();
-  let result;
-
-  if (typeof cal_addNgayLamViec_ !== 'function') {
-    const date = boGioV1_(start);
-    date.setDate(date.getDate() + n - 1);
-    result = date;
-  } else {
-    result = boGioV1_(cal_addNgayLamViec_(start, n, ngayNghiSet));
-  }
-
-  memo.addWorkdays[key] = result;
-  return boGioV1_(result);
+  return tinhNgayKetThucTheoDurationFallbackV1_(start, n);
 }
 
 function tinhNgayBatDauTheoDurationV1_(endDate, duration) {
   const n = Number(duration || 0);
-
   if (!n || n <= 0) return null;
 
   const end = boGioV1_(endDate);
-  const memo = layMemoNgayLamViecScheduleV1_();
-  const key = keyNgayScheduleV1_(end) + ':' + n;
+  const cache = layWorkdayIndexCacheScheduleV1_();
 
-  if (memo.subtractWorkdays[key]) {
-    return boGioV1_(memo.subtractWorkdays[key]);
+  if (cache && end.getTime() >= cache.startTime && end.getTime() <= cache.endTime) {
+    const endIndex = layIndexNgayLamViecTaiHoacTruocV1_(cache, end.getTime());
+    const target = ngayTuWorkdayIndexV1_(cache, endIndex - n + 1);
+    if (target) return target;
   }
 
-  const ngayNghiSet = layNgayNghiSetScheduleV1_();
-  let result;
-
-  if (typeof cal_subtractNgayLamViec_ !== 'function') {
-    const date = boGioV1_(end);
-    date.setDate(date.getDate() - n + 1);
-    result = date;
-  } else {
-    result = boGioV1_(cal_subtractNgayLamViec_(end, n, ngayNghiSet));
-  }
-
-  memo.subtractWorkdays[key] = result;
-  return boGioV1_(result);
+  return tinhNgayBatDauTheoDurationFallbackV1_(end, n);
 }
 
 function congNgayV1_(value, days) {
   const n = Number(days || 0);
   const dateValue = boGioV1_(value);
-  const memo = layMemoNgayLamViecScheduleV1_();
-  const key = keyNgayScheduleV1_(dateValue) + ':' + n;
+  const cache = layWorkdayIndexCacheScheduleV1_();
 
-  if (memo.shiftWorkdays[key]) {
-    return boGioV1_(memo.shiftWorkdays[key]);
+  if (cache && dateValue.getTime() >= cache.startTime && dateValue.getTime() <= cache.endTime) {
+    const baseIndex = n >= 0
+      ? layIndexNgayLamViecTaiHoacSauV1_(cache, dateValue.getTime())
+      : layIndexNgayLamViecTaiHoacTruocV1_(cache, dateValue.getTime());
+
+    const target = ngayTuWorkdayIndexV1_(cache, baseIndex + n);
+    if (target) return target;
   }
 
-  const ngayNghiSet = layNgayNghiSetScheduleV1_();
-  let result;
-
-  if (typeof cal_shiftNgayLamViec_ !== 'function') {
-    const date = boGioV1_(dateValue);
-    date.setDate(date.getDate() + n);
-    result = date;
-  } else {
-    result = boGioV1_(cal_shiftNgayLamViec_(dateValue, n, ngayNghiSet));
-  }
-
-  memo.shiftWorkdays[key] = result;
-  return boGioV1_(result);
+  return congNgayFallbackV1_(dateValue, n);
 }
 function boGioV1_(value) {
   const date = new Date(value);
@@ -960,7 +1073,8 @@ function chayTestMangScheduleEngineV1_(tasks, anchorDate) {
     });
   });
 
-  if (perf) perf.mark('02_parse_task_va_tien_nhiem');
+  SCHEDULE_WORKDAY_INDEX_CACHE_V1_ = taoWorkdayIndexCacheScheduleV1_(tasks, anchorDate);
+    if (perf) perf.mark('02_parse_task_va_tien_nhiem_va_cache_ngay');
     danhDauLoiVongLapV1_(tasks, taskByRef);
     if (perf) perf.mark('03_kiem_tra_vong_lap');
   tinhLichCongViecV1_(tasks, taskByRef, anchorDate);
@@ -1015,6 +1129,7 @@ function layNgayNghiSetScheduleV1_() {
 
   return SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_;
 }
+
 
 
 
