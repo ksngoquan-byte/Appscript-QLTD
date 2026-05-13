@@ -1,4 +1,6 @@
-﻿const SCHEDULE_ENGINE_V1 = {
+﻿var perf = null;
+
+const SCHEDULE_ENGINE_V1 = {
   SHEET_TASK: 'Cong_viec',
   SHEET_CONFIG: 'Cau_hinh',
   START_ROW: 5,
@@ -945,6 +947,7 @@ function layNgayNghiSetScheduleV1_() {
 
   return SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_;
 }
+
 
 
 
