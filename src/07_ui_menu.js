@@ -1,54 +1,123 @@
 ﻿function taoMenu() {
-  const ui = SpreadsheetApp.getUi();
-
-  ui.createMenu('📊 QL tiến độ dự án')
-    .addSubMenu(
-      ui.createMenu('▶️ 1. Vận hành tiến độ')
-        .addItem('🔄 Chạy tính lại tiến độ', 'menuChayTinhLaiTienDoV1')
-        .addItem('📈 Cập nhật tổng hợp + Gantt', 'menuCapNhatTongHopGanttV1')
-        .addItem('✅ Kiểm tra lỗi dữ liệu đầu vào', 'menuKiemTraDuLieuDauVaoV1')
-    )
-    .addSubMenu(
-      ui.createMenu('🏗️ 2. Thiết lập dự án mới')
-        .addItem('🧨 Bước 1 - Xóa dữ liệu dự án cũ', 'xoaDuLieuDuAnCuV1')
-        .addItem('🧱 Bước 2 - Dựng sheet từ mẫu chuẩn', 'taoSheetVanHanhTuTemplateV1')
-        .addItem('🧩 Bước 3 - Chuẩn hóa nhập liệu mã cấu trúc', 'chuanHoaNhapLieuMaCauTrucV1')
-    )
-    .addSubMenu(
-      ui.createMenu('📌 3. Kế hoạch gốc / Baseline')
-        .addItem('🔒 Lưu/khóa kế hoạch gốc', 'menuLuuKhoaKeHoachGocV1')
-        .addItem('👁️ Hiện/ẩn kế hoạch gốc trên Gantt', 'menuToggleDuongGangKeHoachGocV1')
-    )
-    .addSubMenu(
-      ui.createMenu('👁️ 4. Chế độ hiển thị')
-        .addItem('🧭 Chỉ hiện sheet vận hành', 'batCheDoChiHienSheetVanHanhV1')
-        .addItem('🔓 Hiện lại toàn bộ sheet', 'hienLaiTatCaSheetV1')
-    )
-    .addSubMenu(
-      ui.createMenu('⚙️ 5. Quản trị hệ thống')
-        .addItem('🆔 Đồng bộ lại mã công việc', 'menuCapNhatMaCongViecV1')
-        .addItem('📅 Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
-        .addItem('🔧 Cài lại trigger tự động', 'menuCaiDatTriggerVanHanhTienDoV1')
-        .addItem('🧹 Xóa màu nền vùng nhập liệu', 'lamSachDinhDangVungNhapLieuCongViecV1')
-        .addItem('🧪 Kiểm tra trigger vận hành', 'kiemTraTriggerVanHanhTienDoV1')
-    )
-    .addToUi();
+  taoMenuThietLapQLTienDoV1_();
+  taoMenuVanHanhQLTienDoV1_();
 }
 
 function onOpen() {
   taoMenu();
 }
 
+function taoMenuThietLapQLTienDoV1_() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('🚀 Thiết lập QL tiến độ')
+    .addItem('1️⃣ Thiết lập nhanh bản sao mới', 'menuThietLapNhanhBanSaoMoiV1')
+    .addSeparator()
+    .addItem('🔧 Cài lại trigger tối ưu', 'menuCaiTriggerToiUuV1')
+    .addItem('🆔 Đồng bộ mã công việc cuối', 'menuDongBoMaCongViecCuoiV1')
+    .addItem('🔗 Khởi tạo lại công thức cột K', 'menuKhoiTaoCongThucLienKetCotKV1')
+    .addItem('📅 Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
+    .addSeparator()
+    .addItem('🟢 Bật trigger nền 10 phút', 'menuBatTriggerNenV1')
+    .addItem('🔴 Tắt trigger nền 10 phút', 'menuTatTriggerNenV1')
+    .addItem('🧪 Kiểm tra trigger', 'kiemTraTriggerVanHanhTienDoV1')
+    .addToUi();
+}
+
+function taoMenuVanHanhQLTienDoV1_() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('📊 Vận hành QL tiến độ')
+    .addItem('👁️ 1. Xem trạng thái cần tính lại', 'hienTrangThaiTinhLaiTienDoV1')
+    .addItem('🔄 2. Chạy tính lại tiến độ J/L/M/Q', 'menuChayTinhLaiTienDoV1')
+    .addItem('📈 3. Cập nhật tổng hợp + Gantt', 'menuCapNhatTongHopGanttV1')
+    .addItem('✅ 4. Kiểm tra lỗi dữ liệu đầu vào', 'menuKiemTraDuLieuDauVaoV1')
+    .addSeparator()
+    .addItem('🔒 5. Lưu/khóa kế hoạch gốc', 'menuLuuKhoaKeHoachGocV1')
+    .addItem('👁️ 6. Hiện/ẩn kế hoạch gốc trên Gantt', 'menuToggleDuongGangKeHoachGocV1')
+    .addSeparator()
+    .addItem('🧹 7. Dọn nền dòng trống', 'menuDonNenDongTrongV1')
+    .addItem('🧭 8. Chỉ hiện sheet vận hành', 'batCheDoChiHienSheetVanHanhV1')
+    .addItem('🔓 9. Hiện lại toàn bộ sheet', 'hienLaiTatCaSheetV1')
+    .addToUi();
+}
+
+function menuThietLapNhanhBanSaoMoiV1() {
+  const ui = SpreadsheetApp.getUi();
+
+  const confirm = ui.alert(
+    'Thiết lập nhanh bản sao mới',
+    'Chức năng này sẽ cài trigger tối ưu, đồng bộ mã công việc cuối, khởi tạo công thức cột K, tạo/cập nhật ngày nghỉ và chạy tính lại tiến độ. Tiếp tục?',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (confirm !== ui.Button.YES) return;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.toast('Đang thiết lập bản sao mới...', 'Thiết lập QL tiến độ', 5);
+
+  const results = [];
+
+  results.push(menuChayHamBatBuocV1_(['caiTriggerScheduleEngineV1'], 'Cài trigger onEdit tối ưu'));
+  results.push(menuChayHamBatBuocV1_(['caiTriggerThayDoiCauTrucScheduleV1'], 'Cài trigger onChange cấu trúc'));
+  results.push(menuChayHamNeuCoV1_(['dongBoMaCongViecCuoiV1'], 'Đồng bộ mã công việc cuối'));
+  results.push(menuChayHamNeuCoV1_(['khoiTaoCongThucLienKetDongV1'], 'Khởi tạo công thức cột K'));
+  results.push(menuChayHamNeuCoV1_(['taoNgayNghiTuDong'], 'Tạo lại ngày nghỉ/lễ/tết'));
+  results.push(menuChayHamBatBuocV1_(['chayTinhLaiTienDoThuCongV1'], 'Chạy tính lại tiến độ'));
+  results.push(menuChayHamNeuCoV1_(['capNhatTrangThaiThucHienCongViecV1'], 'Cập nhật trạng thái thực hiện'));
+
+  ss.toast('Đã thiết lập xong bản sao mới.', 'Thiết lập QL tiến độ', 5);
+  return results.join('\n');
+}
+
+function menuCaiTriggerToiUuV1() {
+  const results = [];
+  results.push(menuChayHamBatBuocV1_(['caiTriggerScheduleEngineV1'], 'Cài trigger onEdit tối ưu'));
+  results.push(menuChayHamBatBuocV1_(['caiTriggerThayDoiCauTrucScheduleV1'], 'Cài trigger onChange cấu trúc'));
+
+  SpreadsheetApp.getActiveSpreadsheet().toast('Đã cài lại trigger tối ưu.', 'Thiết lập QL tiến độ', 5);
+  return results.join('\n');
+}
+
+function menuDongBoMaCongViecCuoiV1() {
+  return menuChayHamBatBuocV1_(['dongBoMaCongViecCuoiV1'], 'Đồng bộ mã công việc cuối');
+}
+
+function menuKhoiTaoCongThucLienKetCotKV1() {
+  const ui = SpreadsheetApp.getUi();
+
+  const confirm = ui.alert(
+    'Khởi tạo lại công thức cột K',
+    'Chỉ nên chạy khi thiết lập bản sao mới hoặc cần sửa hàng loạt công việc liên kết. Tiếp tục?',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (confirm !== ui.Button.YES) return;
+
+  return menuChayHamBatBuocV1_(['khoiTaoCongThucLienKetDongV1'], 'Khởi tạo công thức cột K');
+}
+
+function menuBatTriggerNenV1() {
+  return menuChayHamBatBuocV1_(['caiTriggerTinhLaiTienDoNenV1'], 'Bật trigger nền 10 phút');
+}
+
+function menuTatTriggerNenV1() {
+  return menuChayHamBatBuocV1_(['xoaTriggerTinhLaiTienDoNenV1'], 'Tắt trigger nền 10 phút');
+}
+
+function menuDonNenDongTrongV1() {
+  return menuChayHamBatBuocV1_(['chayDonNenCongViecThuCongV1'], 'Dọn nền dòng trống');
+}
 function menuCapNhatMaCongViecV1() {
   return menuChayHamBatBuocV1_(['capMaCongViec'], 'Cấp/cập nhật mã công việc');
 }
 
 function menuChayTinhLaiTienDoV1() {
-  const result = menuChayHamBatBuocV1_(['chayScheduleEngineV1'], 'Chạy tính lại tiến độ');
+  const result = menuChayHamBatBuocV1_(['chayTinhLaiTienDoThuCongV1'], 'Chạy tính lại tiến độ J/L/M/Q');
   menuChayHamNeuCoV1_(['capNhatTrangThaiThucHienCongViecV1'], 'Cập nhật trạng thái thực hiện');
+  SpreadsheetApp.getActiveSpreadsheet().toast('Đã chạy tính lại tiến độ.', 'Vận hành QL tiến độ', 5);
   return result;
 }
-
 function menuCapNhatTongHopGanttV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.toast('Đang cập nhật tổng hợp + Gantt...', 'Quản lý tiến độ', 5);
@@ -295,6 +364,7 @@ function chuanHoaBangTraiTienDoTongHopV1() {
 }
 
 // === FIX_LEFT_TABLE_TIEN_DO_TONG_HOP_V1_END ===
+
 
 
 
