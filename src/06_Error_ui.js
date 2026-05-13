@@ -71,29 +71,11 @@ function laLoiTienNhiemCu_(text) {
     text.indexOf('Task có predecessor') !== -1;
 }
 
-function xuLyDoiVungChon(e) {
-  // Da tat highlight xanh/do khi doi vung chon de tranh nhay man hinh.
-  // Khong anh huong den onEdit, cap ma cong viec, lien ket dong va tinh tien do.
-  return;
-}
-
-function onSelectionChange(e) {
-  return xuLyDoiVungChon(e);
-}
-
-
 const SELECTION_HIGHLIGHT_CACHE_KEY_V1 = 'LAST_ROW_HIGHLIGHT_SAFE_V1';
 const SELECTION_HIGHLIGHT_COLOR_V1 = '#FFF2CC';
 
 /**
- * Highlight tam thoi dong dang chon.
- *
- * Cong_viec:
- * - To vang tam thoi vung A:W.
- *
- * Tien_do_tong_hop:
- * - Chi to vang vung thong tin A:H.
- * - Khong to vung Gantt phia sau de khong phu mau duong gang/thanh Gantt.
+ * Highlight tam thoi dung o dang chon.
  */
 function xuLyDoiVungChon(e) {
   try {
@@ -107,16 +89,9 @@ function xuLyDoiVungChon(e) {
     khoiPhucSelectionHighlightCuV1_(cache);
 
     if (row < CONFIG.SYSTEM.START_ROW) return;
+    if (!laSheetDuocHighlightSelectionV1_(sheetName)) return;
 
-    const highlightRangeInfo = layVungSelectionHighlightV1_(sheet, sheetName);
-    if (!highlightRangeInfo) return;
-
-    const targetRange = sheet.getRange(
-      row,
-      highlightRangeInfo.startColumn,
-      1,
-      highlightRangeInfo.numColumns
-    );
+    const targetRange = sheet.getRange(row, e.range.getColumn(), 1, 1);
     const oldBackgrounds = targetRange.getBackgrounds();
 
     targetRange.setBackground(SELECTION_HIGHLIGHT_COLOR_V1);
@@ -127,8 +102,8 @@ function xuLyDoiVungChon(e) {
         JSON.stringify({
           sheetName: sheetName,
           row: row,
-          startColumn: highlightRangeInfo.startColumn,
-          numColumns: highlightRangeInfo.numColumns,
+          startColumn: e.range.getColumn(),
+          numColumns: 1,
           backgrounds: oldBackgrounds
         })
       );
@@ -138,22 +113,8 @@ function xuLyDoiVungChon(e) {
   }
 }
 
-function layVungSelectionHighlightV1_(sheet, sheetName) {
-  if (sheetName === CONFIG.SHEET.CONG_VIEC) {
-    return {
-      startColumn: 1,
-      numColumns: 23
-    };
-  }
-
-  if (sheetName === 'Tien_do_tong_hop') {
-    return {
-      startColumn: 1,
-      numColumns: 8
-    };
-  }
-
-  return null;
+function laSheetDuocHighlightSelectionV1_(sheetName) {
+  return sheetName === CONFIG.SHEET.CONG_VIEC || sheetName === 'Tien_do_tong_hop';
 }
 
 function khoiPhucSelectionHighlightCuV1_(cache) {

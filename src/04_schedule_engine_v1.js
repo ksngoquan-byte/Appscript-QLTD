@@ -437,6 +437,9 @@ function ghiKetQuaScheduleV1_(sheet, tasks, numRows) {
   const startValues = [];
   const endValues = [];
   const errorValues = [];
+  const currentDurationValues = sheet
+    .getRange(cfg.START_ROW, cfg.COL.DURATION, numRows, 1)
+    .getValues();
 
   for (let i = 0; i < numRows; i++) {
     const task = taskByIndex[i];
@@ -448,13 +451,13 @@ function ghiKetQuaScheduleV1_(sheet, tasks, numRows) {
       continue;
     }
 
-    durationValues.push([task.duration || '']);
+    const oldDuration = currentDurationValues[i] ? currentDurationValues[i][0] : '';
+    durationValues.push([task.duration || oldDuration || '']);
     startValues.push([task.start || '']);
     endValues.push([task.end || '']);
     errorValues.push([layMaLoiDuyNhatV1_(task.errors).join('; ')]);
   }
 
-  // J có thể được tự điền khi duration suy ra được từ FS/SS + FF.
   sheet.getRange(cfg.START_ROW, cfg.COL.DURATION, numRows, 1).setValues(durationValues);
   sheet.getRange(cfg.START_ROW, cfg.COL.START, numRows, 1).setValues(startValues);
   sheet.getRange(cfg.START_ROW, cfg.COL.END, numRows, 1).setValues(endValues);
