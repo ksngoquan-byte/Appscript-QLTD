@@ -140,7 +140,7 @@ function chayScheduleEngineV1(options) {
 
     danhDauLoiVongLapV1_(tasks, taskByRef);
     tinhLichCongViecV1_(tasks, taskByRef, anchorDate);
-    ghiKetQuaScheduleV1_(sheet, tasks, numRows);
+    ghiKetQuaScheduleV1_(sheet, tasks, numRows, data);
     if (options.normalizeFormat === true && typeof normalizeCongViecRowBackgrounds_ === 'function') {
       normalizeCongViecRowBackgrounds_(sheet);
     }
@@ -411,23 +411,48 @@ function danhDauLoiVongLapV1_(tasks, taskByRef) {
   });
 }
 
-function ghiKetQuaScheduleV1_(sheet, tasks, numRows) {
+function ghiKetQuaScheduleV1_(sheet, tasks, numRows, currentData) {
   const cfg = SCHEDULE_ENGINE_V1;
   const taskByIndex = {};
+
   tasks.forEach(task => {
     taskByIndex[task.index] = task;
   });
+
+  const currentDurationValues = [];
+  const currentStartValues = [];
+  const currentEndValues = [];
+  const currentErrorValues = [];
+
+  if (currentData && currentData.length) {
+    for (let i = 0; i < numRows; i++) {
+      const row = currentData[i] || [];
+      currentDurationValues.push([row[cfg.COL.DURATION - 1] || '']);
+      currentStartValues.push([row[cfg.COL.START - 1] || '']);
+      currentEndValues.push([row[cfg.COL.END - 1] || '']);
+      currentErrorValues.push([row[cfg.COL.ERROR - 1] || '']);
+    }
+  } else {
+    // Fallback an toan neu ham duoc goi rieng le khong truyen currentData.
+    const currentJtoM = sheet.getRange(cfg.START_ROW, cfg.COL.DURATION, numRows, 4).getValues();
+    const currentQ = sheet.getRange(cfg.START_ROW, cfg.COL.ERROR, numRows, 1).getValues();
+
+    for (let i = 0; i < numRows; i++) {
+      currentDurationValues.push([currentJtoM[i][0] || '']);
+      currentStartValues.push([currentJtoM[i][2] || '']);
+      currentEndValues.push([currentJtoM[i][3] || '']);
+      currentErrorValues.push([currentQ[i][0] || '']);
+    }
+  }
 
   const durationValues = [];
   const startValues = [];
   const endValues = [];
   const errorValues = [];
-  const currentDurationValues = sheet
-    .getRange(cfg.START_ROW, cfg.COL.DURATION, numRows, 1)
-    .getValues();
 
   for (let i = 0; i < numRows; i++) {
     const task = taskByIndex[i];
+
     if (!task) {
       durationValues.push(['']);
       startValues.push(['']);
@@ -437,18 +462,78 @@ function ghiKetQuaScheduleV1_(sheet, tasks, numRows) {
     }
 
     const oldDuration = currentDurationValues[i] ? currentDurationValues[i][0] : '';
+
     durationValues.push([task.duration || oldDuration || '']);
     startValues.push([task.start || '']);
     endValues.push([task.end || '']);
     errorValues.push([layMaLoiDuyNhatV1_(task.errors).join('; ')]);
   }
 
-  sheet.getRange(cfg.START_ROW, cfg.COL.DURATION, numRows, 1).setValues(durationValues);
-  sheet.getRange(cfg.START_ROW, cfg.COL.START, numRows, 1).setValues(startValues);
-  sheet.getRange(cfg.START_ROW, cfg.COL.END, numRows, 1).setValues(endValues);
-  sheet.getRange(cfg.START_ROW, cfg.COL.ERROR, numRows, 1).setValues(errorValues);
+  const changedDuration = ghiCotTheoCumNeuKhacScheduleV1_(sheet, cfg.COL.DURATION, cfg.START_ROW, currentDurationValues, durationValues);
+  const changedStart = ghiCotTheoCumNeuKhacScheduleV1_(sheet, cfg.COL.START, cfg.START_ROW, currentStartValues, startValues);
+  const changedEnd = ghiCotTheoCumNeuKhacScheduleV1_(sheet, cfg.COL.END, cfg.START_ROW, currentEndValues, endValues);
+  const changedError = ghiCotTheoCumNeuKhacScheduleV1_(sheet, cfg.COL.ERROR, cfg.START_ROW, currentErrorValues, errorValues);
 
-  sheet.getRange(cfg.START_ROW, cfg.COL.START, numRows, 2).setNumberFormat('dd/MM/yyyy');
+  if (changedStart > 0 || changedEnd > 0) {
+    sheet.getRange(cfg.START_ROW, cfg.COL.START, numRows, 2).setNumberFormat('dd/MM/yyyy');
+  }
+
+  Logger.log(
+    'ghiKetQuaScheduleV1_: changed J=' + changedDuration +
+    ', L=' + changedStart +
+    ', M=' + changedEnd +
+    ', Q=' + changedError
+  );
+}
+
+function ghiCotTheoCumNeuKhacScheduleV1_(sheet, col, startRow, currentValues, nextValues) {
+  let groupStart = null;
+  let groupValues = [];
+  let changedRows = 0;
+
+  for (let i = 0; i < nextValues.length; i++) {
+    const currentValue = currentValues[i] ? currentValues[i][0] : '';
+    const nextValue = nextValues[i] ? nextValues[i][0] : '';
+
+    if (bangGiaTriScheduleV1_(currentValue, nextValue)) {
+      if (groupStart !== null) {
+        sheet.getRange(groupStart, col, groupValues.length, 1).setValues(groupValues);
+        groupStart = null;
+        groupValues = [];
+      }
+      continue;
+    }
+
+    if (groupStart === null) {
+      groupStart = startRow + i;
+      groupValues = [];
+    }
+
+    groupValues.push([nextValue]);
+    changedRows++;
+  }
+
+  if (groupStart !== null) {
+    sheet.getRange(groupStart, col, groupValues.length, 1).setValues(groupValues);
+  }
+
+  return changedRows;
+}
+
+function bangGiaTriScheduleV1_(a, b) {
+  const blankA = a === null || a === '' || typeof a === 'undefined';
+  const blankB = b === null || b === '' || typeof b === 'undefined';
+
+  if (blankA && blankB) return true;
+
+  const isDateA = Object.prototype.toString.call(a) === '[object Date]' && !isNaN(a.getTime());
+  const isDateB = Object.prototype.toString.call(b) === '[object Date]' && !isNaN(b.getTime());
+
+  if (isDateA && isDateB) {
+    return a.getTime() === b.getTime();
+  }
+
+  return String(a) === String(b);
 }
 function layNgayNeoKeHoachV1_(ss) {
   const cfg = SCHEDULE_ENGINE_V1;
@@ -819,6 +904,8 @@ function layNgayNghiSetScheduleV1_() {
 
   return SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_;
 }
+
+
 
 
 
