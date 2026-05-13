@@ -1,5 +1,4 @@
 ﻿var perf = null;
-var SCHEDULE_DATE_CALC_MEMO_V1_ = null;
 
 const SCHEDULE_ENGINE_V1 = {
   SHEET_TASK: 'Cong_viec',
@@ -94,7 +93,6 @@ function chayScheduleEngineV1(options) {
     const data = sheet.getRange(cfg.START_ROW, 1, numRows, numCols).getValues();
     const anchorDate = layNgayNeoKeHoachV1_(ss);
     SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_ = null;
-    SCHEDULE_DATE_CALC_MEMO_V1_ = taoMemoNgayLamViecScheduleV1_();
     if (perf) perf.mark('01_doc_du_lieu_va_cau_hinh');
 
     const tasks = [];
@@ -667,143 +665,78 @@ function layNgayLonNhatV1_(dates) {
   return boGioV1_(new Date(Math.max.apply(null, dates.map(d => d.getTime()))));
 }
 
-
-function taoMemoNgayLamViecScheduleV1_() {
-  return {
-    countInclusive: {},
-    addWorkdays: {},
-    subtractWorkdays: {},
-    shiftWorkdays: {}
-  };
-}
-
-function layMemoNgayLamViecScheduleV1_() {
-  if (!SCHEDULE_DATE_CALC_MEMO_V1_) {
-    SCHEDULE_DATE_CALC_MEMO_V1_ = taoMemoNgayLamViecScheduleV1_();
-  }
-
-  return SCHEDULE_DATE_CALC_MEMO_V1_;
-}
-
-function keyNgayScheduleV1_(date) {
-  return boGioV1_(date).getTime();
-}
 function tinhSoNgayBaoGomV1_(startDate, endDate) {
   const start = boGioV1_(startDate);
   const end = boGioV1_(endDate);
 
   if (!start || !end || end.getTime() < start.getTime()) return '';
 
-  const memo = layMemoNgayLamViecScheduleV1_();
-  const key = keyNgayScheduleV1_(start) + ':' + keyNgayScheduleV1_(end);
-
-  if (Object.prototype.hasOwnProperty.call(memo.countInclusive, key)) {
-    return memo.countInclusive[key];
-  }
-
   const ngayNghiSet = layNgayNghiSetScheduleV1_();
-  let result;
 
+  // Nếu chưa có thư viện lịch làm việc thì fallback về cách đếm ngày lịch cũ.
   if (typeof cal_isNgayLamViec_ !== 'function') {
-    result = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
-  } else {
-    let count = 0;
-    const d = boGioV1_(start);
-
-    while (d.getTime() <= end.getTime()) {
-      if (cal_isNgayLamViec_(d, ngayNghiSet)) {
-        count++;
-      }
-      d.setDate(d.getDate() + 1);
-    }
-
-    result = count;
+    return Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
   }
 
-  memo.countInclusive[key] = result;
-  return result;
+  let count = 0;
+  const d = boGioV1_(start);
+
+  while (d.getTime() <= end.getTime()) {
+    if (cal_isNgayLamViec_(d, ngayNghiSet)) {
+      count++;
+    }
+    d.setDate(d.getDate() + 1);
+  }
+
+  return count;
 }
+
 
 function tinhNgayKetThucTheoDurationV1_(startDate, duration) {
   const n = Number(duration || 0);
+  const ngayNghiSet = layNgayNghiSetScheduleV1_();
 
   if (!n || n <= 0) return null;
 
-  const start = boGioV1_(startDate);
-  const memo = layMemoNgayLamViecScheduleV1_();
-  const key = keyNgayScheduleV1_(start) + ':' + n;
-
-  if (memo.addWorkdays[key]) {
-    return boGioV1_(memo.addWorkdays[key]);
-  }
-
-  const ngayNghiSet = layNgayNghiSetScheduleV1_();
-  let result;
-
+  // Nếu chưa có thư viện lịch làm việc thì fallback về cách tính ngày lịch cũ.
   if (typeof cal_addNgayLamViec_ !== 'function') {
-    const date = boGioV1_(start);
+    const date = boGioV1_(startDate);
     date.setDate(date.getDate() + n - 1);
-    result = date;
-  } else {
-    result = boGioV1_(cal_addNgayLamViec_(start, n, ngayNghiSet));
+    return date;
   }
 
-  memo.addWorkdays[key] = result;
-  return boGioV1_(result);
+  return boGioV1_(cal_addNgayLamViec_(startDate, n, ngayNghiSet));
 }
 
 function tinhNgayBatDauTheoDurationV1_(endDate, duration) {
   const n = Number(duration || 0);
+  const ngayNghiSet = layNgayNghiSetScheduleV1_();
 
   if (!n || n <= 0) return null;
 
-  const end = boGioV1_(endDate);
-  const memo = layMemoNgayLamViecScheduleV1_();
-  const key = keyNgayScheduleV1_(end) + ':' + n;
-
-  if (memo.subtractWorkdays[key]) {
-    return boGioV1_(memo.subtractWorkdays[key]);
-  }
-
-  const ngayNghiSet = layNgayNghiSetScheduleV1_();
-  let result;
-
+  // Nếu chưa có thư viện lịch làm việc thì fallback về cách tính ngày lịch cũ.
   if (typeof cal_subtractNgayLamViec_ !== 'function') {
-    const date = boGioV1_(end);
+    const date = boGioV1_(endDate);
     date.setDate(date.getDate() - n + 1);
-    result = date;
-  } else {
-    result = boGioV1_(cal_subtractNgayLamViec_(end, n, ngayNghiSet));
+    return date;
   }
 
-  memo.subtractWorkdays[key] = result;
-  return boGioV1_(result);
+  return boGioV1_(cal_subtractNgayLamViec_(endDate, n, ngayNghiSet));
 }
-
 function congNgayV1_(value, days) {
   const n = Number(days || 0);
-  const dateValue = boGioV1_(value);
-  const memo = layMemoNgayLamViecScheduleV1_();
-  const key = keyNgayScheduleV1_(dateValue) + ':' + n;
-
-  if (memo.shiftWorkdays[key]) {
-    return boGioV1_(memo.shiftWorkdays[key]);
-  }
-
   const ngayNghiSet = layNgayNghiSetScheduleV1_();
-  let result;
 
+  // Nếu chưa có thư viện lịch làm việc thì fallback về cách cộng ngày lịch cũ.
   if (typeof cal_shiftNgayLamViec_ !== 'function') {
-    const date = boGioV1_(dateValue);
+    const date = boGioV1_(value);
     date.setDate(date.getDate() + n);
-    result = date;
-  } else {
-    result = boGioV1_(cal_shiftNgayLamViec_(dateValue, n, ngayNghiSet));
+    return date;
   }
 
-  memo.shiftWorkdays[key] = result;
-  return boGioV1_(result);
+  return boGioV1_(cal_shiftNgayLamViec_(value, n, ngayNghiSet));
 }
+
 function boGioV1_(value) {
   const date = new Date(value);
   date.setHours(0, 0, 0, 0);
@@ -999,7 +932,6 @@ function assertScheduleV1_(name, ok) {
 }
 
 var SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_ = null;
-    SCHEDULE_DATE_CALC_MEMO_V1_ = taoMemoNgayLamViecScheduleV1_();
     if (perf) perf.mark('01_doc_du_lieu_va_cau_hinh');
 
 function layNgayNghiSetScheduleV1_() {
@@ -1015,7 +947,6 @@ function layNgayNghiSetScheduleV1_() {
 
   return SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_;
 }
-
 
 
 
