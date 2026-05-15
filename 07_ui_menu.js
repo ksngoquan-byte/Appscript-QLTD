@@ -11,6 +11,9 @@ function taoMenuThietLapQLTienDoV1_() {
   const ui = SpreadsheetApp.getUi();
 
   ui.createMenu('🚀 Thiết lập QL tiến độ')
+    .addItem('🧨 0. Xóa dữ liệu cũ và tạo lại từ TEMPLATE', 'menuXoaDuLieuCuVaTaoMoiTuTemplateV1')
+    .addItem('🗑️ 0.1 Xóa sheet snapshot KH gốc cũ', 'menuXoaSheetSnapshotKeHoachGocCuV1')
+    .addSeparator()
     .addItem('1️⃣ Thiết lập nhanh bản sao mới', 'menuThietLapNhanhBanSaoMoiV1')
     .addSeparator()
     .addItem('🔧 Cài lại trigger tối ưu', 'menuCaiTriggerToiUuV1')
@@ -58,6 +61,8 @@ function menuThietLapNhanhBanSaoMoiV1() {
 
   const results = [];
 
+  results.push(menuChayHamBatBuocV1_(['taoSheetVanHanhTuTemplateV1'], 'Tạo/khôi phục sheet vận hành bị thiếu từ TEMPLATE'));
+
   results.push(menuChayHamBatBuocV1_(['caiTriggerScheduleEngineV1'], 'Cài trigger onEdit tối ưu'));
   results.push(menuChayHamBatBuocV1_(['caiTriggerThayDoiCauTrucScheduleV1'], 'Cài trigger onChange cấu trúc'));
   results.push(menuChayHamNeuCoV1_(['dongBoMaCongViecCuoiV1'], 'Đồng bộ mã công việc cuối'));
@@ -72,6 +77,8 @@ function menuThietLapNhanhBanSaoMoiV1() {
 
 function menuCaiTriggerToiUuV1() {
   const results = [];
+
+  results.push(menuChayHamBatBuocV1_(['taoSheetVanHanhTuTemplateV1'], 'Tạo/khôi phục sheet vận hành bị thiếu từ TEMPLATE'));
   results.push(menuChayHamBatBuocV1_(['caiTriggerScheduleEngineV1'], 'Cài trigger onEdit tối ưu'));
   results.push(menuChayHamBatBuocV1_(['caiTriggerThayDoiCauTrucScheduleV1'], 'Cài trigger onChange cấu trúc'));
 
@@ -208,12 +215,9 @@ function menuCaiDatTriggerVanHanhTienDoV1() {
 function kiemTraTriggerVanHanhTienDoV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const watchedHandlers = [
-    'scheduleLinkFormulaOnEditV1',
-    'scheduleLinkFormulaOnChangeV1',
-    'xuLyCapNhatThucTeTienDoOnEditV1',
-    'scheduleAutoOnEditV1',
     'xuLySuaScheduleEngineV1',
-    'scheduleEngineOnEditV1'
+    'xuLyThayDoiCauTrucScheduleV1',
+    'chayTinhLaiTienDoNenV1'
   ];
   const counts = {};
 
@@ -239,6 +243,8 @@ function kiemTraTriggerVanHanhTienDoV1() {
 
 function menuKiemTraDuLieuDauVaoV1() {
   const results = [];
+
+  results.push(menuChayHamBatBuocV1_(['taoSheetVanHanhTuTemplateV1'], 'Tạo/khôi phục sheet vận hành bị thiếu từ TEMPLATE'));
 
   const fn1 = menuLayHamTheoTenV1_(['kiemTraKeHoach']);
   if (fn1) results.push(fn1.func());
@@ -364,6 +370,12 @@ function chuanHoaBangTraiTienDoTongHopV1() {
 }
 
 // === FIX_LEFT_TABLE_TIEN_DO_TONG_HOP_V1_END ===
+
+
+
+
+
+
 
 
 

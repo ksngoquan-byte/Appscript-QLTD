@@ -1,10 +1,4 @@
-node_modules/
-*.log
-.DS_Store
-Thumbs.db
-.clasprc.json
-.env_backup_local/
-*.bak_*
-_backup_local/
-*.ps1
-_backup*/
+﻿.clasp.json
+AUDIT_TRUNG_HAM_*.txt
+_legacy_bak_*
+QLTD_LEGACY_BACKUP_*
