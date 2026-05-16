@@ -7,22 +7,17 @@ const CAY_CONG_VIEC_WBS_V1 = {
   HEADER_LEVEL_SYS: 'WBS_LEVEL_SYS',
   LEVEL_LABELS: ['Cấp 1', 'Cấp 2', 'Cấp 3', 'Cấp 4'],
   MAX_LEVEL: 4,
-  MAX_GROUP_DEPTH: 5,
-  AUTO_GROUP_AFTER_RENDER: true
+  MAX_GROUP_DEPTH: 5
 };
-
-const WBS_AUTO_GROUP_AFTER_RENDER = CAY_CONG_VIEC_WBS_V1.AUTO_GROUP_AFTER_RENDER;
 
 function hienThiCayCongViecWbsV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = laySheetCongViecWbsV1_(ss);
   const cfg = CAY_CONG_VIEC_WBS_V1;
 
-  cleanupWbsProtectionsCongViecV1_(sheet);
-  setupCotWbsLevelSysCongViecV1_(sheet);
-
   const lastDataRow = layDongDuLieuCuoiWbsV1_(sheet);
   if (lastDataRow < cfg.START_ROW) {
+    anCotWbsLevelSysCongViecV1_(sheet);
     ss.toast('Cong_viec chưa có dòng dữ liệu để đánh cây WBS.', 'Cây công việc', 5);
     return 'Cong_viec chưa có dòng dữ liệu để đánh cây WBS.';
   }
@@ -76,9 +71,7 @@ function hienThiCayCongViecWbsV1() {
     .getRange(cfg.START_ROW, cfg.COL_LEVEL_SYS, numRows, 1)
     .setValues(outputSysValues);
 
-  if (WBS_AUTO_GROUP_AFTER_RENDER) {
-    taoNhomDongCongViecWbsV1(sheet, lastDataRow);
-  }
+  anCotWbsLevelSysCongViecV1_(sheet);
 
   const message = 'Đã hiển thị cây công việc. Dòng cập nhật: ' + changed + '.';
   const warning = missingParentCount > 0
@@ -94,7 +87,6 @@ function taoNhomDongCongViecWbsV1(sheetInput, lastDataRowInput) {
   const sheet = sheetInput || laySheetCongViecWbsV1_(ss);
   const cfg = CAY_CONG_VIEC_WBS_V1;
 
-  setupCotWbsLevelSysCongViecV1_(sheet);
   const lastDataRow = lastDataRowInput || layDongDuLieuCuoiWbsV1_(sheet);
   xoaNhomDongCongViecWbsV1_(sheet, lastDataRow);
 
@@ -169,6 +161,15 @@ function moNhomCongViecWbsV1() {
   return 'Đã mở nhóm Cong_viec.';
 }
 
+function thietLapCotWbsCongViecV1() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = laySheetCongViecWbsV1_(ss);
+  const message = setupCotWbsLevelSysCongViecV1_(sheet);
+
+  ss.toast(message, 'Cây công việc', 5);
+  return message;
+}
+
 function setupCotWbsLevelSysCongViecV1_(sheetInput) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = sheetInput || laySheetCongViecWbsV1_(ss);
@@ -176,7 +177,6 @@ function setupCotWbsLevelSysCongViecV1_(sheetInput) {
   const maxRows = sheet.getMaxRows();
   const numRows = Math.max(1, maxRows - cfg.START_ROW + 1);
 
-  cleanupWbsProtectionsCongViecV1_(sheet);
   sheet.getRange(cfg.HEADER_ROW, cfg.COL_LEVEL_SYS).setValue(cfg.HEADER_LEVEL_SYS);
 
   const rule = SpreadsheetApp.newDataValidation()
@@ -189,13 +189,17 @@ function setupCotWbsLevelSysCongViecV1_(sheetInput) {
     .getRange(cfg.START_ROW, cfg.COL_LEVEL_DISPLAY, numRows, 1)
     .setDataValidation(rule);
 
+  anCotWbsLevelSysCongViecV1_(sheet);
+
+  return 'Đã chuẩn hóa cột WBS_LEVEL_SYS và dropdown cấp công việc.';
+}
+
+function anCotWbsLevelSysCongViecV1_(sheet) {
   try {
-    sheet.hideColumns(cfg.COL_LEVEL_SYS);
+    sheet.hideColumns(CAY_CONG_VIEC_WBS_V1.COL_LEVEL_SYS);
   } catch (err) {
     Logger.log('Không ẩn được cột WBS_LEVEL_SYS: ' + err.message);
   }
-
-  return 'Đã chuẩn hóa cột WBS_LEVEL_SYS và dropdown cấp công việc.';
 }
 
 function docCapWbsTuDong_(rowValuesOrSheet, row) {
@@ -359,11 +363,20 @@ function layDongDuLieuCuoiWbsV1_(sheet) {
   if (sheetLastRow < cfg.START_ROW) return cfg.START_ROW;
 
   const numRows = sheetLastRow - cfg.START_ROW + 1;
-  const leftValues = sheet.getRange(cfg.START_ROW, 2, numRows, 7).getValues();   // B:H
-  const rightValues = sheet.getRange(cfg.START_ROW, 10, numRows, 14).getValues(); // J:W
+  const refs = [
+    sheet.getRange(cfg.START_ROW, 2, numRows, 1).getValues(),  // B
+    sheet.getRange(cfg.START_ROW, 8, numRows, 1).getValues(),  // H
+    sheet.getRange(cfg.START_ROW, 10, numRows, 4).getValues(), // J:M
+    sheet.getRange(cfg.START_ROW, 18, numRows, 4).getValues()  // R:U
+  ];
 
   for (let i = numRows - 1; i >= 0; i--) {
-    if (dongCoDuLieuWbsV1_(leftValues[i]) || dongCoDuLieuWbsV1_(rightValues[i])) {
+    if (
+      dongCoDuLieuWbsV1_(refs[0][i]) ||
+      dongCoDuLieuWbsV1_(refs[1][i]) ||
+      dongCoDuLieuWbsV1_(refs[2][i]) ||
+      dongCoDuLieuWbsV1_(refs[3][i])
+    ) {
       return cfg.START_ROW + i;
     }
   }
@@ -377,7 +390,20 @@ function dongCoDuLieuWbsV1_(values) {
   });
 }
 
+function donCanhBaoBaoVeCongViecV1() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = laySheetCongViecWbsV1_(ss);
+  const removed = cleanupWbsProtectionsCongViecV1_(sheet);
+  const message = 'Đã dọn cảnh báo bảo vệ Cong_viec. Số protection đã xóa: ' + removed + '.';
+
+  ss.toast(message, 'Cây công việc', 5);
+  Logger.log(message);
+  return message;
+}
+
 function cleanupWbsProtectionsCongViecV1_(sheetInput) {
+  let removed = 0;
+
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = sheetInput || laySheetCongViecWbsV1_(ss);
@@ -399,6 +425,7 @@ function cleanupWbsProtectionsCongViecV1_(sheetInput) {
         try {
           if (laProtectionWbsCanXoaV1_(protection)) {
             protection.remove();
+            removed++;
           }
         } catch (err) {
           Logger.log('Không xóa được protection WBS: ' + err.message);
@@ -408,30 +435,19 @@ function cleanupWbsProtectionsCongViecV1_(sheetInput) {
   } catch (err) {
     Logger.log('cleanupWbsProtectionsCongViecV1_: ' + err.message);
   }
+
+  return removed;
 }
 
 function laProtectionWbsCanXoaV1_(protection) {
-  const description = protection.getDescription ? String(protection.getDescription() || '') : '';
-  const descUpper = description.toUpperCase();
+  if (!protection.isWarningOnly || !protection.isWarningOnly()) return false;
 
-  if (
-    descUpper.indexOf('WBS') !== -1 ||
-    descUpper.indexOf('WBS_LEVEL_SYS') !== -1 ||
-    descUpper.indexOf('CAY_CONG_VIEC') !== -1
-  ) {
+  try {
+    if (!protection.getRange) return true;
+
+    const range = protection.getRange();
+    return !!range && range.getSheet().getName() === CAY_CONG_VIEC_WBS_V1.SHEET_NAME;
+  } catch (err) {
     return true;
   }
-
-  if (!description && protection.isWarningOnly && protection.isWarningOnly()) {
-    try {
-      const range = protection.getRange && protection.getRange();
-      return !!range &&
-        range.getColumn() <= CAY_CONG_VIEC_WBS_V1.COL_LEVEL_SYS &&
-        range.getLastColumn() >= CAY_CONG_VIEC_WBS_V1.COL_LEVEL_SYS;
-    } catch (err) {
-      return false;
-    }
-  }
-
-  return false;
 }
