@@ -132,8 +132,10 @@ function taoNhomDongCongViecWbsV1(sheetInput) {
 function gomNhomCongViecWbsV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = laySheetCongViecWbsV1_(ss);
+  const cfg = CAY_CONG_VIEC_WBS_V1;
+  const lastRow = sheet.getLastRow();
 
-  sheet.collapseRowGroupsUpToDepth(CAY_CONG_VIEC_WBS_V1.MAX_LEVEL);
+  collapseAllRowGroupsSafe_(sheet, cfg.START_ROW, lastRow);
   ss.toast('Đã gom nhóm Cong_viec.', 'Cây công việc', 5);
   return 'Đã gom nhóm Cong_viec.';
 }
@@ -141,8 +143,10 @@ function gomNhomCongViecWbsV1() {
 function moNhomCongViecWbsV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = laySheetCongViecWbsV1_(ss);
+  const cfg = CAY_CONG_VIEC_WBS_V1;
+  const lastRow = sheet.getLastRow();
 
-  sheet.expandRowGroupsUpToDepth(CAY_CONG_VIEC_WBS_V1.MAX_LEVEL);
+  expandAllRowGroupsSafe_(sheet, cfg.START_ROW, lastRow);
   ss.toast('Đã mở nhóm Cong_viec.', 'Cây công việc', 5);
   return 'Đã mở nhóm Cong_viec.';
 }
@@ -158,7 +162,7 @@ function setupCotWbsLevelSysCongViecV1_(sheetInput) {
 
   const rule = SpreadsheetApp.newDataValidation()
     .requireValueInList(cfg.LEVEL_LABELS, true)
-    .setAllowInvalid(false)
+    .setAllowInvalid(true)
     .setHelpText('Chọn cấp công việc: Cấp 1, Cấp 2, Cấp 3 hoặc Cấp 4.')
     .build();
 
@@ -199,8 +203,10 @@ function docCapWbsTuDong_(rowValuesOrSheet, row) {
     ? rowValuesOrSheet.sysValue
     : '';
   const displayLevel = chuanHoaNhanCapWbsV1_(displayValue);
+  const legacyLevel = chuanHoaCapCuWbsV1_(displayValue);
 
   if (displayLevel !== null) return displayLevel;
+  if (legacyLevel !== null) return legacyLevel;
   if (isMaCayWbsV1_(displayValue)) return chuanHoaCapWbsV1_(sysValue);
   if (isTrongWbsV1_(displayValue) && isTrongWbsV1_(sysValue)) return null;
 
@@ -217,6 +223,16 @@ function chuanHoaNhanCapWbsV1_(value) {
   const text = String(value || '').trim();
   const match = /^Cấp\s*([1-4])$/i.exec(text);
   return match ? Number(match[1]) : null;
+}
+
+function chuanHoaCapCuWbsV1_(value) {
+  if (value === null || typeof value === 'undefined' || value === '') return null;
+
+  const text = String(value).trim();
+  if (!/^[0-4]$/.test(text)) return null;
+
+  const numberValue = Number(text);
+  return numberValue <= 1 ? 1 : numberValue;
 }
 
 function chuanHoaCapWbsV1_(value) {
@@ -279,15 +295,42 @@ function soSangLaMaWbsV1_(numberValue) {
 
 function xoaNhomDongCongViecWbsV1_(sheet) {
   const cfg = CAY_CONG_VIEC_WBS_V1;
-  const maxRows = sheet.getMaxRows();
-  const numRows = Math.max(1, maxRows - cfg.START_ROW + 1);
+  const lastRow = Math.max(sheet.getLastRow(), cfg.START_ROW);
 
-  for (let i = 0; i < cfg.MAX_GROUP_DEPTH; i++) {
-    try {
-      sheet.shiftRowGroupDepth(cfg.START_ROW, numRows, -1);
-    } catch (err) {
-      Logger.log('Dừng xóa group cũ tại lần ' + (i + 1) + ': ' + err.message);
-      break;
+  for (let depth = cfg.MAX_GROUP_DEPTH; depth >= 1; depth--) {
+    for (let row = lastRow; row >= cfg.START_ROW; row--) {
+      try {
+        const group = sheet.getRowGroup(row, depth);
+        if (group) group.remove();
+      } catch (err) {
+        // Bỏ qua dòng/depth không có group.
+      }
+    }
+  }
+}
+
+function collapseAllRowGroupsSafe_(sheet, startRow, lastRow) {
+  thaoTacRowGroupsSafe_(sheet, startRow, lastRow, 'collapse');
+}
+
+function expandAllRowGroupsSafe_(sheet, startRow, lastRow) {
+  thaoTacRowGroupsSafe_(sheet, startRow, lastRow, 'expand');
+}
+
+function thaoTacRowGroupsSafe_(sheet, startRow, lastRow, actionName) {
+  const cfg = CAY_CONG_VIEC_WBS_V1;
+  if (!sheet || lastRow < startRow) return;
+
+  for (let depth = 1; depth <= cfg.MAX_GROUP_DEPTH; depth++) {
+    for (let row = startRow; row <= lastRow; row++) {
+      try {
+        const group = sheet.getRowGroup(row, depth);
+        if (group && typeof group[actionName] === 'function') {
+          group[actionName]();
+        }
+      } catch (err) {
+        // Bỏ qua dòng/depth không có group hoặc runtime không hỗ trợ thao tác.
+      }
     }
   }
 }
