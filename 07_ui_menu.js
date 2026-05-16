@@ -1,5 +1,6 @@
 ﻿function taoMenu() {
   taoMenuThietLapQLTienDoV1_();
+  taoMenuCayCongViecWbsV1_();
   taoMenuVanHanhQLTienDoV1_();
 }
 
@@ -42,6 +43,16 @@ function taoMenuVanHanhQLTienDoV1_() {
     .addItem('🧹 7. Dọn nền dòng trống', 'menuDonNenDongTrongV1')
     .addItem('🧭 8. Chỉ hiện sheet vận hành', 'batCheDoChiHienSheetVanHanhV1')
     .addItem('🔓 9. Hiện lại toàn bộ sheet', 'hienLaiTatCaSheetV1')
+    .addToUi();
+}
+
+function taoMenuCayCongViecWbsV1_() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('🌳 Cây công việc')
+    .addItem('Hiển thị cây công việc', 'hienThiCayCongViecWbsV1')
+    .addItem('Gom nhóm Cong_viec', 'gomNhomCongViecWbsV1')
+    .addItem('Mở nhóm Cong_viec', 'moNhomCongViecWbsV1')
     .addToUi();
 }
 

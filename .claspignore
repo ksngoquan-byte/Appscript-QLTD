@@ -1,0 +1,7 @@
+.git/**
+.gitignore
+.clasp.json
+AUDIT_TRUNG_HAM_*.txt
+_legacy_bak_*
+QLTD_LEGACY_BACKUP_*
+node_modules/**
