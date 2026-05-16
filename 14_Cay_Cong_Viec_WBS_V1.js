@@ -7,24 +7,27 @@ const CAY_CONG_VIEC_WBS_V1 = {
   HEADER_LEVEL_SYS: 'WBS_LEVEL_SYS',
   LEVEL_LABELS: ['Cấp 1', 'Cấp 2', 'Cấp 3', 'Cấp 4'],
   MAX_LEVEL: 4,
-  MAX_GROUP_DEPTH: 8
+  MAX_GROUP_DEPTH: 5,
+  AUTO_GROUP_AFTER_RENDER: true
 };
+
+const WBS_AUTO_GROUP_AFTER_RENDER = CAY_CONG_VIEC_WBS_V1.AUTO_GROUP_AFTER_RENDER;
 
 function hienThiCayCongViecWbsV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = laySheetCongViecWbsV1_(ss);
   const cfg = CAY_CONG_VIEC_WBS_V1;
 
+  cleanupWbsProtectionsCongViecV1_(sheet);
   setupCotWbsLevelSysCongViecV1_(sheet);
 
-  const lastRow = sheet.getLastRow();
-  if (lastRow < cfg.START_ROW) {
-    taoNhomDongCongViecWbsV1(sheet);
+  const lastDataRow = layDongDuLieuCuoiWbsV1_(sheet);
+  if (lastDataRow < cfg.START_ROW) {
     ss.toast('Cong_viec chưa có dòng dữ liệu để đánh cây WBS.', 'Cây công việc', 5);
     return 'Cong_viec chưa có dòng dữ liệu để đánh cây WBS.';
   }
 
-  const numRows = lastRow - cfg.START_ROW + 1;
+  const numRows = lastDataRow - cfg.START_ROW + 1;
   const displayValues = sheet
     .getRange(cfg.START_ROW, cfg.COL_LEVEL_DISPLAY, numRows, 1)
     .getValues();
@@ -73,7 +76,9 @@ function hienThiCayCongViecWbsV1() {
     .getRange(cfg.START_ROW, cfg.COL_LEVEL_SYS, numRows, 1)
     .setValues(outputSysValues);
 
-  taoNhomDongCongViecWbsV1(sheet);
+  if (WBS_AUTO_GROUP_AFTER_RENDER) {
+    taoNhomDongCongViecWbsV1(sheet, lastDataRow);
+  }
 
   const message = 'Đã hiển thị cây công việc. Dòng cập nhật: ' + changed + '.';
   const warning = missingParentCount > 0
@@ -84,24 +89,26 @@ function hienThiCayCongViecWbsV1() {
   return message + warning;
 }
 
-function taoNhomDongCongViecWbsV1(sheetInput) {
+function taoNhomDongCongViecWbsV1(sheetInput, lastDataRowInput) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = sheetInput || laySheetCongViecWbsV1_(ss);
   const cfg = CAY_CONG_VIEC_WBS_V1;
 
   setupCotWbsLevelSysCongViecV1_(sheet);
-  xoaNhomDongCongViecWbsV1_(sheet);
+  const lastDataRow = lastDataRowInput || layDongDuLieuCuoiWbsV1_(sheet);
+  xoaNhomDongCongViecWbsV1_(sheet, lastDataRow);
 
-  const lastRow = sheet.getLastRow();
-  if (lastRow < cfg.START_ROW) return 'Cong_viec chưa có dòng dữ liệu để tạo nhóm.';
+  if (lastDataRow < cfg.START_ROW) return 'Cong_viec chưa có dòng dữ liệu để tạo nhóm.';
 
-  const numRows = lastRow - cfg.START_ROW + 1;
+  const numRows = lastDataRow - cfg.START_ROW + 1;
   const levels = sheet
     .getRange(cfg.START_ROW, cfg.COL_LEVEL_SYS, numRows, 1)
     .getValues()
     .map(function(row) {
       return chuanHoaCapWbsV1_(row[0]);
     });
+
+  const groupRanges = [];
 
   for (let level = cfg.MAX_LEVEL - 1; level >= 1; level--) {
     let startIndex = null;
@@ -118,12 +125,23 @@ function taoNhomDongCongViecWbsV1(sheetInput) {
         const rowStart = cfg.START_ROW + startIndex;
         const rowCount = i - startIndex;
         if (rowCount > 0) {
-          sheet.shiftRowGroupDepth(rowStart, rowCount, 1);
+          groupRanges.push({
+            rowStart: rowStart,
+            rowCount: rowCount
+          });
         }
         startIndex = null;
       }
     }
   }
+
+  groupRanges.forEach(function(item) {
+    try {
+      sheet.shiftRowGroupDepth(item.rowStart, item.rowCount, 1);
+    } catch (err) {
+      Logger.log('Không tạo được group dòng ' + item.rowStart + ': ' + err.message);
+    }
+  });
 
   SpreadsheetApp.flush();
   return 'Đã tạo lại nhóm hàng Cong_viec theo cây WBS.';
@@ -133,7 +151,7 @@ function gomNhomCongViecWbsV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = laySheetCongViecWbsV1_(ss);
   const cfg = CAY_CONG_VIEC_WBS_V1;
-  const lastRow = sheet.getLastRow();
+  const lastRow = layDongDuLieuCuoiWbsV1_(sheet);
 
   collapseAllRowGroupsSafe_(sheet, cfg.START_ROW, lastRow);
   ss.toast('Đã gom nhóm Cong_viec.', 'Cây công việc', 5);
@@ -144,7 +162,7 @@ function moNhomCongViecWbsV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = laySheetCongViecWbsV1_(ss);
   const cfg = CAY_CONG_VIEC_WBS_V1;
-  const lastRow = sheet.getLastRow();
+  const lastRow = layDongDuLieuCuoiWbsV1_(sheet);
 
   expandAllRowGroupsSafe_(sheet, cfg.START_ROW, lastRow);
   ss.toast('Đã mở nhóm Cong_viec.', 'Cây công việc', 5);
@@ -158,6 +176,7 @@ function setupCotWbsLevelSysCongViecV1_(sheetInput) {
   const maxRows = sheet.getMaxRows();
   const numRows = Math.max(1, maxRows - cfg.START_ROW + 1);
 
+  cleanupWbsProtectionsCongViecV1_(sheet);
   sheet.getRange(cfg.HEADER_ROW, cfg.COL_LEVEL_SYS).setValue(cfg.HEADER_LEVEL_SYS);
 
   const rule = SpreadsheetApp.newDataValidation()
@@ -176,7 +195,6 @@ function setupCotWbsLevelSysCongViecV1_(sheetInput) {
     Logger.log('Không ẩn được cột WBS_LEVEL_SYS: ' + err.message);
   }
 
-  baoVeCotWbsLevelSysCongViecV1_(sheet);
   return 'Đã chuẩn hóa cột WBS_LEVEL_SYS và dropdown cấp công việc.';
 }
 
@@ -293,9 +311,9 @@ function soSangLaMaWbsV1_(numberValue) {
   return result;
 }
 
-function xoaNhomDongCongViecWbsV1_(sheet) {
+function xoaNhomDongCongViecWbsV1_(sheet, lastDataRowInput) {
   const cfg = CAY_CONG_VIEC_WBS_V1;
-  const lastRow = Math.max(sheet.getLastRow(), cfg.START_ROW);
+  const lastRow = Math.max(lastDataRowInput || layDongDuLieuCuoiWbsV1_(sheet), cfg.START_ROW);
 
   for (let depth = cfg.MAX_GROUP_DEPTH; depth >= 1; depth--) {
     for (let row = lastRow; row >= cfg.START_ROW; row--) {
@@ -335,23 +353,85 @@ function thaoTacRowGroupsSafe_(sheet, startRow, lastRow, actionName) {
   }
 }
 
-function baoVeCotWbsLevelSysCongViecV1_(sheet) {
-  const description = 'WBS_LEVEL_SYS - không chỉnh sửa trực tiếp';
+function layDongDuLieuCuoiWbsV1_(sheet) {
+  const cfg = CAY_CONG_VIEC_WBS_V1;
+  const sheetLastRow = sheet.getLastRow();
+  if (sheetLastRow < cfg.START_ROW) return cfg.START_ROW;
 
-  try {
-    const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
-    protections.forEach(function(protection) {
-      if (protection.getDescription() === description) {
-        protection.remove();
-      }
-    });
+  const numRows = sheetLastRow - cfg.START_ROW + 1;
+  const leftValues = sheet.getRange(cfg.START_ROW, 2, numRows, 7).getValues();   // B:H
+  const rightValues = sheet.getRange(cfg.START_ROW, 10, numRows, 14).getValues(); // J:W
 
-    const protection = sheet
-      .getRange(1, CAY_CONG_VIEC_WBS_V1.COL_LEVEL_SYS, sheet.getMaxRows(), 1)
-      .protect();
-    protection.setDescription(description);
-    protection.setWarningOnly(true);
-  } catch (err) {
-    Logger.log('Không đặt được cảnh báo bảo vệ cột WBS_LEVEL_SYS: ' + err.message);
+  for (let i = numRows - 1; i >= 0; i--) {
+    if (dongCoDuLieuWbsV1_(leftValues[i]) || dongCoDuLieuWbsV1_(rightValues[i])) {
+      return cfg.START_ROW + i;
+    }
   }
+
+  return cfg.START_ROW;
+}
+
+function dongCoDuLieuWbsV1_(values) {
+  return values.some(function(value) {
+    return value !== null && typeof value !== 'undefined' && String(value).trim() !== '';
+  });
+}
+
+function cleanupWbsProtectionsCongViecV1_(sheetInput) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = sheetInput || laySheetCongViecWbsV1_(ss);
+    const types = [
+      SpreadsheetApp.ProtectionType.RANGE,
+      SpreadsheetApp.ProtectionType.SHEET
+    ];
+
+    types.forEach(function(type) {
+      let protections = [];
+      try {
+        protections = sheet.getProtections(type);
+      } catch (err) {
+        Logger.log('Không đọc được protection WBS: ' + err.message);
+        return;
+      }
+
+      protections.forEach(function(protection) {
+        try {
+          if (laProtectionWbsCanXoaV1_(protection)) {
+            protection.remove();
+          }
+        } catch (err) {
+          Logger.log('Không xóa được protection WBS: ' + err.message);
+        }
+      });
+    });
+  } catch (err) {
+    Logger.log('cleanupWbsProtectionsCongViecV1_: ' + err.message);
+  }
+}
+
+function laProtectionWbsCanXoaV1_(protection) {
+  const description = protection.getDescription ? String(protection.getDescription() || '') : '';
+  const descUpper = description.toUpperCase();
+
+  if (
+    descUpper.indexOf('WBS') !== -1 ||
+    descUpper.indexOf('WBS_LEVEL_SYS') !== -1 ||
+    descUpper.indexOf('CAY_CONG_VIEC') !== -1
+  ) {
+    return true;
+  }
+
+  if (!description && protection.isWarningOnly && protection.isWarningOnly()) {
+    try {
+      const range = protection.getRange && protection.getRange();
+      return !!range &&
+        range.getColumn() <= CAY_CONG_VIEC_WBS_V1.COL_LEVEL_SYS &&
+        range.getLastColumn() >= CAY_CONG_VIEC_WBS_V1.COL_LEVEL_SYS;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  return false;
 }

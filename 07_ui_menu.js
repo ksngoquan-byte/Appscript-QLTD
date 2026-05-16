@@ -51,6 +51,7 @@ function taoMenuCayCongViecWbsV1_() {
 
   ui.createMenu('🌳 Cây công việc')
     .addItem('Hiển thị cây công việc', 'hienThiCayCongViecWbsV1')
+    .addItem('Tạo lại nhóm Cong_viec', 'taoNhomDongCongViecWbsV1')
     .addItem('Gom nhóm Cong_viec', 'gomNhomCongViecWbsV1')
     .addItem('Mở nhóm Cong_viec', 'moNhomCongViecWbsV1')
     .addToUi();
