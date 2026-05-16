@@ -19,11 +19,10 @@ function laDongCongViec_(row) {
 
   const col = CONFIG.COLUMN.CONG_VIEC;
   const b = row[col.MA_CAU_TRUC - 1];
+  const g = row[col.SO_THAM_CHIEU - 1];
   const h = row[col.TEN_CV - 1];
 
-  // Fallback an toan: phai co B/WBS va H.
-  // Khong dung B trong + H la task.
-  return !!b && !!h;
+  return !!h && (!!b || !!g);
 }
 
 function coGiaTriCongViec_(value) {

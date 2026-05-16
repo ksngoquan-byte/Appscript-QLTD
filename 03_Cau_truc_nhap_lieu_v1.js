@@ -180,10 +180,11 @@ function coDuLieuTienDoV1_(row) {
 function laDongPhanLoaiTuyBienV1_(row) {
   if (!row || !Array.isArray(row)) return false;
 
-  const hasWbs = coWbsCongViecV1_(row);
-  if (hasWbs) return false;
+  if (coWbsCongViecV1_(row)) return false;
+  if (typeof laDongTaskLegacyKhongWbsV1_ === 'function' && laDongTaskLegacyKhongWbsV1_(row)) return false;
 
-  // B/Z trong. Co the co C hoac H nhung van chi la dong phan loai/tieu de.
+  // B/Z trong, khong phai task legacy.
+  // Co the co C hoac H nhung chi la dong phan loai/tieu de.
   return coGiaTriCauTrucNhapLieuV1_(row[2]) || coGiaTriCauTrucNhapLieuV1_(row[7]);
 }
 
@@ -204,5 +205,29 @@ function laDongTaskTienDoV1_(row) {
   const hasName = coGiaTriCauTrucNhapLieuV1_(row[7]); // H
   const hasScheduleData = coDuLieuTienDoV1_(row);
 
-  return hasWbs && hasName && hasScheduleData;
+  if (hasWbs && hasName && hasScheduleData) return true;
+
+  // Ho tro du lieu cu truoc khi cap nhat WBS:
+  // B/Z trong nhung co G ref + H + du lieu tien do van la task that.
+  if (typeof laDongTaskLegacyKhongWbsV1_ === 'function' && laDongTaskLegacyKhongWbsV1_(row)) {
+    return true;
+  }
+
+  return false;
+}
+
+function laDongTaskLegacyKhongWbsV1_(row) {
+  if (!row || !Array.isArray(row)) return false;
+
+  const g = row[6];   // G - Ref
+  const h = row[7];   // H
+
+  const hasWbs = coWbsCongViecV1_(row);
+  if (hasWbs) return false;
+
+  const hasRef = coGiaTriCauTrucNhapLieuV1_(g);
+  const hasName = coGiaTriCauTrucNhapLieuV1_(h);
+  const hasScheduleData = coDuLieuTienDoV1_(row);
+
+  return hasRef && hasName && hasScheduleData;
 }

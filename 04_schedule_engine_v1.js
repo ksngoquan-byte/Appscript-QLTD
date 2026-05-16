@@ -614,6 +614,7 @@ function laDongCongViecScheduleV1_(row) {
 
   const col = SCHEDULE_ENGINE_V1.COL;
   const b = row[col.MA_CAU_TRUC - 1];
+  const g = row[col.REF - 1];
   const h = row[col.TASK_NAME - 1];
   const hasScheduleData =
     coGiaTriV1_(row[col.DURATION - 1]) ||
@@ -624,7 +625,10 @@ function laDongCongViecScheduleV1_(row) {
     coGiaTriV1_(row[18]) || // S
     coGiaTriV1_(row[19]);   // T
 
-  return coGiaTriV1_(b) && coGiaTriV1_(h) && hasScheduleData;
+  return coGiaTriV1_(h) && hasScheduleData && (
+    coGiaTriV1_(b) ||
+    coGiaTriV1_(g)
+  );
 }
 
 function docSoNgayV1_(value) {
