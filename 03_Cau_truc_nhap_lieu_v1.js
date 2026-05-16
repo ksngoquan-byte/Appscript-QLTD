@@ -32,8 +32,14 @@ function isDongNhomCauTrucV1_(ma) {
   return ['0', '1', '2', '3', '4'].indexOf(getMaCauTrucV1_(ma)) !== -1;
 }
 
-function isDongCongViecChiTietV1_(ma, tenCongViec) {
-  return !coGiaTriCauTrucNhapLieuV1_(ma) && coGiaTriCauTrucNhapLieuV1_(tenCongViec);
+function isDongCongViecChiTietV1_(ma, tenCongViec, row) {
+  if (row && Array.isArray(row)) {
+    return laDongTaskTienDoV1_(row);
+  }
+
+  // Khong du du lieu J/K/L/M/R/S/T de xac dinh task that.
+  // Tranh fallback kieu cu B trong + H co noi dung = task.
+  return false;
 }
 
 function capNhatTenCongViecTheoMaCauTrucV1_(sheet, row) {
@@ -149,4 +155,54 @@ function capNhatDataValidationTenCongViecMauV1_(ss, sheet) {
 
 function coGiaTriCauTrucNhapLieuV1_(value) {
   return value !== null && value !== '' && typeof value !== 'undefined';
+}
+
+function coWbsCongViecV1_(row) {
+  if (!row || !Array.isArray(row)) return false;
+
+  const b = row[1];   // B - STT WBS / ma cay
+  const z = row[25];  // Z - WBS_LEVEL_SYS
+
+  return coGiaTriCauTrucNhapLieuV1_(b) || coGiaTriCauTrucNhapLieuV1_(z);
+}
+
+function coDuLieuTienDoV1_(row) {
+  if (!row || !Array.isArray(row)) return false;
+
+  // J, K, L, M, R, S, T
+  const indexes = [9, 10, 11, 12, 17, 18, 19];
+
+  return indexes.some(function(index) {
+    return coGiaTriCauTrucNhapLieuV1_(row[index]);
+  });
+}
+
+function laDongPhanLoaiTuyBienV1_(row) {
+  if (!row || !Array.isArray(row)) return false;
+
+  const hasWbs = coWbsCongViecV1_(row);
+  if (hasWbs) return false;
+
+  // B/Z trong. Co the co C hoac H nhung van chi la dong phan loai/tieu de.
+  return coGiaTriCauTrucNhapLieuV1_(row[2]) || coGiaTriCauTrucNhapLieuV1_(row[7]);
+}
+
+function laDongNhomWbsV1_(row) {
+  if (!row || !Array.isArray(row)) return false;
+
+  const hasWbs = coWbsCongViecV1_(row);
+  const hasName = coGiaTriCauTrucNhapLieuV1_(row[7]); // H
+  const hasScheduleData = coDuLieuTienDoV1_(row);
+
+  return hasWbs && hasName && !hasScheduleData;
+}
+
+function laDongTaskTienDoV1_(row) {
+  if (!row || !Array.isArray(row)) return false;
+
+  const hasWbs = coWbsCongViecV1_(row);
+  const hasName = coGiaTriCauTrucNhapLieuV1_(row[7]); // H
+  const hasScheduleData = coDuLieuTienDoV1_(row);
+
+  return hasWbs && hasName && hasScheduleData;
 }

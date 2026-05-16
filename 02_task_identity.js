@@ -441,49 +441,16 @@ function dongBoMaCongViecCuoiV1() {
   });
 }
 function laDongCanTuDongCapMaCongViecV1_(row, col) {
+  if (typeof laDongTaskTienDoV1_ === 'function') {
+    return laDongTaskTienDoV1_(row);
+  }
+
   const maCauTrucCol = col.MA_CAU_TRUC || 2;
   const tenCol = col.TEN_CV || col.TASK_NAME || 8;
-  const soNgayCol = col.SO_NGAY || col.DURATION || 10;
-  const refCol = col.SO_THAM_CHIEU || col.REF || 7;
-  const maMauCol = col.MA_CV_MAU || col.MA_CONG_VIEC_MAU || 1;
-  const phongBanCol = col.PHONG_BAN || 9;
-  const predecessorCol = col.PREDECESSOR || 11;
-
   const maCauTruc = row[maCauTrucCol - 1];
   const ten = row[tenCol - 1];
-  const soNgay = row[soNgayCol - 1];
-  const predecessor = row[predecessorCol - 1];
-  const ref = row[refCol - 1];
-  const maMau = row[maMauCol - 1];
-  const phongBan = row[phongBanCol - 1];
 
-  if (typeof isDongNhomCauTrucV1_ === 'function' && isDongNhomCauTrucV1_(maCauTruc)) {
-    return false;
-  }
-
-  if (typeof isDongCongViecChiTietV1_ === 'function') {
-    return isDongCongViecChiTietV1_(maCauTruc, ten);
-  }
-
-  // Tranh cap ma cho dong nhom chi co tieu de.
-  // Dong cong viec that thuong co ten + it nhat mot dau hieu van hanh: so ngay, lien ket, phong ban, ref, ma mau.
-  if (coGiaTriAutoTaskIdV1_(ten) && (
-    coGiaTriAutoTaskIdV1_(soNgay) ||
-    coGiaTriAutoTaskIdV1_(predecessor) ||
-    coGiaTriAutoTaskIdV1_(ref) ||
-    coGiaTriAutoTaskIdV1_(maMau) ||
-    coGiaTriAutoTaskIdV1_(phongBan)
-  )) {
-    return true;
-  }
-
-  // Truong hop paste du lieu thieu ten nhung da co so ngay/lien ket/ref thi van coi la dong cong viec can cap ma.
-  return (
-    coGiaTriAutoTaskIdV1_(soNgay) ||
-    coGiaTriAutoTaskIdV1_(predecessor) ||
-    coGiaTriAutoTaskIdV1_(ref) ||
-    coGiaTriAutoTaskIdV1_(maMau)
-  );
+  return coGiaTriAutoTaskIdV1_(maCauTruc) && coGiaTriAutoTaskIdV1_(ten);
 }
 
 function coGiaTriAutoTaskIdV1_(value) {

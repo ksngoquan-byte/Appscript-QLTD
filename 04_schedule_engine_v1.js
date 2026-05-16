@@ -464,9 +464,13 @@ function ghiKetQuaScheduleV1_(sheet, tasks, numRows, currentData) {
     const task = taskByIndex[i];
 
     if (!task) {
-      durationValues.push(['']);
-      startValues.push(['']);
-      endValues.push(['']);
+      // Dong phan loai/nhom WBS khong phai task:
+      // - Khong tinh tien do.
+      // - Khong ghi loi Q.
+      // - Khong xoa du lieu nguoi dung o J/L/M neu dang co.
+      durationValues.push([currentDurationValues[i] ? currentDurationValues[i][0] : '']);
+      startValues.push([currentStartValues[i] ? currentStartValues[i][0] : '']);
+      endValues.push([currentEndValues[i] ? currentEndValues[i][0] : '']);
       errorValues.push(['']);
       continue;
     }
@@ -604,12 +608,23 @@ function timGiaTriNgayNeoTrenDongV1_(row, startIndex) {
 }
 
 function laDongCongViecScheduleV1_(row) {
-  const col = SCHEDULE_ENGINE_V1.COL;
-  if (typeof isDongCongViecChiTietV1_ === 'function') {
-    return isDongCongViecChiTietV1_(row[col.MA_CAU_TRUC - 1], row[col.TASK_NAME - 1]);
+  if (typeof laDongTaskTienDoV1_ === 'function') {
+    return laDongTaskTienDoV1_(row);
   }
 
-  return !coGiaTriV1_(row[col.MA_CAU_TRUC - 1]) && coGiaTriV1_(row[col.TASK_NAME - 1]);
+  const col = SCHEDULE_ENGINE_V1.COL;
+  const b = row[col.MA_CAU_TRUC - 1];
+  const h = row[col.TASK_NAME - 1];
+  const hasScheduleData =
+    coGiaTriV1_(row[col.DURATION - 1]) ||
+    coGiaTriV1_(row[col.PREDECESSOR - 1]) ||
+    coGiaTriV1_(row[col.START - 1]) ||
+    coGiaTriV1_(row[col.END - 1]) ||
+    coGiaTriV1_(row[17]) || // R
+    coGiaTriV1_(row[18]) || // S
+    coGiaTriV1_(row[19]);   // T
+
+  return coGiaTriV1_(b) && coGiaTriV1_(h) && hasScheduleData;
 }
 
 function docSoNgayV1_(value) {

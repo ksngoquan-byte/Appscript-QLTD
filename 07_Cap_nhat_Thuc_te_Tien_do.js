@@ -310,15 +310,13 @@ function capNhatTrangThaiThucHienChoVungCongViecV1_(sheet, startRow, numRows) {
   let changed = 0;
 
   values.forEach(function(row, index) {
-    const maCauTruc = row[1];       // B
-    const tenCongViec = row[7];     // H
     const currentStatus = String(statusValues[index][0] || '').trim();
     const actualStart = row[18];    // S
     const actualFinish = row[19];   // T
 
-    const isDetailTask = typeof isDongCongViecChiTietV1_ === 'function'
-      ? isDongCongViecChiTietV1_(maCauTruc, tenCongViec)
-      : (!maCauTruc && !!tenCongViec);
+    const isDetailTask = typeof laDongTaskTienDoV1_ === 'function'
+      ? laDongTaskTienDoV1_(row)
+      : false;
 
     if (!isDetailTask) return;
 
@@ -379,6 +377,14 @@ function coGiaTriTrangThaiThucHienV1_(value) {
 function capNhatCanhBaoMotDongTienDo_(sheet, row) {
   const width = Math.max(sheet.getLastColumn(), 27);
   const rowValues = sheet.getRange(row, 1, 1, width).getValues()[0];
+
+  if (typeof laDongTaskTienDoV1_ === 'function' && !laDongTaskTienDoV1_(rowValues)) {
+    const warningCell = sheet.getRange(row, 23);
+    if (!warningCell.getFormula()) {
+      warningCell.clearContent();
+    }
+    return;
+  }
 
   if (typeof isCongViecActiveRow_ === 'function' && !isCongViecActiveRow_(rowValues, null)) {
     const warningCell = sheet.getRange(row, 23);

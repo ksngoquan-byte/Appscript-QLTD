@@ -13,15 +13,17 @@ function luuMaCongViecCuoi_(val) {
 }
 
 function laDongCongViec_(row) {
-  const col = CONFIG.COLUMN.CONG_VIEC;
-  const maCauTruc = row[col.MA_CAU_TRUC - 1];
-  const tenCv = row[col.TEN_CV - 1];
-
-  if (typeof isDongCongViecChiTietV1_ === 'function') {
-    return isDongCongViecChiTietV1_(maCauTruc, tenCv);
+  if (typeof laDongTaskTienDoV1_ === 'function') {
+    return laDongTaskTienDoV1_(row);
   }
 
-  return !maCauTruc && !!tenCv;
+  const col = CONFIG.COLUMN.CONG_VIEC;
+  const b = row[col.MA_CAU_TRUC - 1];
+  const h = row[col.TEN_CV - 1];
+
+  // Fallback an toan: phai co B/WBS va H.
+  // Khong dung B trong + H la task.
+  return !!b && !!h;
 }
 
 function coGiaTriCongViec_(value) {
