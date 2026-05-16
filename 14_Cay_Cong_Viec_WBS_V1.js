@@ -82,6 +82,10 @@ function hienThiCayCongViecWbsV1() {
   return message + warning;
 }
 
+function capNhatSttWbsCongViecV1() {
+  return hienThiCayCongViecWbsV1();
+}
+
 function taoNhomDongCongViecWbsV1(sheetInput, lastDataRowInput) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = sheetInput || laySheetCongViecWbsV1_(ss);

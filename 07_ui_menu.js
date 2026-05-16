@@ -52,10 +52,7 @@ function taoMenuCayCongViecWbsV1_() {
   ui.createMenu('🌳 Cây công việc')
     .addItem('Thiết lập cột B/Z WBS', 'thietLapCotWbsCongViecV1')
     .addItem('Dọn cảnh báo bảo vệ Cong_viec', 'donCanhBaoBaoVeCongViecV1')
-    .addItem('Hiển thị cây công việc', 'hienThiCayCongViecWbsV1')
-    .addItem('Tạo lại nhóm Cong_viec', 'taoNhomDongCongViecWbsV1')
-    .addItem('Gom nhóm Cong_viec', 'gomNhomCongViecWbsV1')
-    .addItem('Mở nhóm Cong_viec', 'moNhomCongViecWbsV1')
+    .addItem('Cập nhật STT WBS', 'capNhatSttWbsCongViecV1')
     .addToUi();
 }
 
