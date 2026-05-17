@@ -61,7 +61,7 @@ function capNhatTienDoTongHopV1() {
       const taskName = row[7];         // H - Công việc / Phạm vi
       const owner = row[8];            // I - Chủ trì
       const duration = row[9];         // J - Số ngày kế hoạch
-      const predecessor = row[10];     // K - Công việc liên kết
+      const predecessor = chuanHoaTienNhiemHienThiTongHopV1_(row[10]); // K - Công việc liên kết
       const planStart = row[11];       // L - Bắt đầu kế hoạch
       const planEnd = row[12];         // M - Kết thúc kế hoạch
       const actualStart = row[18];     // S - Bắt đầu thực tế
@@ -227,6 +227,33 @@ function coGiaTriBangTraiTienDoTongHop3A_(value) {
   return value !== '';
 }
 
+function chuanHoaTienNhiemHienThiTongHopV1_(value) {
+  if (value === null || typeof value === 'undefined' || value === '') return '';
+
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    return Utilities.formatDate(value, 'Asia/Ho_Chi_Minh', 'dd/MM/yyyy');
+  }
+
+  const text = String(value).trim();
+  if (!text) return '';
+
+  const normalized = text.toUpperCase().replace(/\s+/g, '');
+
+  if (/^\d+$/.test(normalized)) {
+    return normalized + 'FS';
+  }
+
+  const parts = normalized.split(';').filter(Boolean);
+  if (parts.length > 1) {
+    return parts.map(function(part) {
+      if (/^\d+$/.test(part)) return part + 'FS';
+      return part;
+    }).join('; ');
+  }
+
+  return normalized;
+}
+
 function dinhDangBangTraiTienDoTongHop3A_(sheet, headerRow, dataStartRow, numRows) {
   const LEFT_COLS = 9;
   const GANTT_START_COL = 10;
@@ -326,6 +353,7 @@ function dinhDangBangTraiTienDoTongHop3A_(sheet, headerRow, dataStartRow, numRow
       .setHorizontalAlignment('left');
 
     sheet.getRange(dataStartRow, 6, numRows, 1)
+      .setNumberFormat('@')
       .setWrap(true)
       .setHorizontalAlignment('center');
 

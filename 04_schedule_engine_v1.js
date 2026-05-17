@@ -266,6 +266,29 @@ function tinhLichCongViecV1_(tasks, taskByRef, anchorDate) {
 
     if (task.errors.length) return;
 
+    // Uu tien K khi tien nhiem co dong thoi rang buoc dau va cuoi.
+    // Vi du: 15SS;25FF hoac 8FS;33FF => L/M lay theo K, J duoc suy lai tu L/M.
+    if (
+      !actualStart &&
+      !actualFinish &&
+      coRangBuocDauVaCuoiTuTienNhiemV1_(task) &&
+      startConstraintCandidates.length > 0 &&
+      endConstraintCandidates.length > 0
+    ) {
+      task.start = layNgayLonNhatV1_(startConstraintCandidates);
+      task.end = layNgayLonNhatV1_(endConstraintCandidates);
+
+      if (task.end.getTime() < task.start.getTime()) {
+        task.errors.push('ERR_DURATION_INFER_CONFLICT');
+        task.start = null;
+        task.end = null;
+        return;
+      }
+
+      task.duration = tinhSoNgayBaoGomV1_(task.start, task.end);
+      return;
+    }
+
     if (task.duration && task.duration > 0) {
       endCandidates.forEach(endMin => {
         const candidate = tinhNgayBatDauTheoDurationV1_(endMin, task.duration);
@@ -284,29 +307,6 @@ function tinhLichCongViecV1_(tasks, taskByRef, anchorDate) {
       danhDauXungDotActualV1_(task, startConstraintCandidates, endConstraintCandidates);
       return;
     }
-    // Uu tien suy duration khi co dong thoi rang buoc dau va cuoi.
-    // Vi du: 38SS;43FF => L lay theo 38SS, M lay theo 43FF, J tu tinh lai.
-    // Quy tac: neu co ca start constraint va end constraint thi J khong giu so ngay cu.
-    if (
-      !actualStart &&
-      !actualFinish &&
-      startConstraintCandidates.length > 0 &&
-      endConstraintCandidates.length > 0
-    ) {
-      task.start = layNgayLonNhatV1_(startConstraintCandidates);
-      task.end = layNgayLonNhatV1_(endConstraintCandidates);
-
-      if (task.end.getTime() < task.start.getTime()) {
-        task.errors.push('ERR_DURATION_INFER_CONFLICT');
-        task.start = null;
-        task.end = null;
-        return;
-      }
-
-      task.duration = tinhSoNgayBaoGomV1_(task.start, task.end);
-      return;
-    }
-
     if (actualFinish && (!task.duration || task.duration <= 0)) {
       task.errors.push('ERR_DURATION_EMPTY');
       return;
@@ -678,6 +678,27 @@ function danhDauXungDotActualV1_(task, startConstraintCandidates, endConstraintC
       task.errors.push('ERR_ACTUAL_CONFLICT');
     }
   }
+}
+
+function coRangBuocDauVaCuoiTuTienNhiemV1_(task) {
+  if (!task || !Array.isArray(task.predecessors)) return false;
+
+  let hasStartConstraint = false;
+  let hasEndConstraint = false;
+
+  task.predecessors.forEach(function(pred) {
+    if (!pred || !pred.type) return;
+
+    if (pred.type === 'SS' || pred.type === 'FS') {
+      hasStartConstraint = true;
+    }
+
+    if (pred.type === 'FF') {
+      hasEndConstraint = true;
+    }
+  });
+
+  return hasStartConstraint && hasEndConstraint;
 }
 
 function layNgayLonNhatV1_(dates) {
