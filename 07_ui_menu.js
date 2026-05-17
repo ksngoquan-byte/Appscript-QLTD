@@ -145,7 +145,6 @@ function taoMenuAnToanVaBaoTriQltdV1_() {
     .addSeparator()
     .addItem('🛡️ Dọn cảnh báo bảo vệ Cong_viec', 'donCanhBaoBaoVeCongViecV1')
     .addItem('🧹 Dọn nền dòng trống', 'menuDonNenDongTrongV1')
-    .addItem('🗑️ Xóa sheet snapshot KH gốc cũ', 'menuXoaSheetSnapshotKeHoachGocCuV1')
     .addToUi();
 }
 
