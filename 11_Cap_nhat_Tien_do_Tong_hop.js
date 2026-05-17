@@ -260,6 +260,9 @@ function dinhDangBangTraiTienDoTongHop3A_(sheet, headerRow, dataStartRow, numRow
     }
   }
 
+  apDungKeBangVaZebraBangTrai3A_(sheet, dataStartRow, numRows, LEFT_COLS);
+  dinhDangTimelineGanttNhe3A_(sheet, headerRow, dataStartRow, numRows, GANTT_START_COL);
+
   // Tạo ranh giới thị giác rõ giữa bảng trái A:I và Gantt từ J.
   sheet
     .getRange(1, 9, Math.max(rowsToFormat, 4), 1)
@@ -336,5 +339,109 @@ function loaiCotIKhoiConditionalFormatGantt3A_(sheet) {
 
   if (changed) {
     sheet.setConditionalFormatRules(newRules);
+  }
+}
+
+function apDungKeBangVaZebraBangTrai3A_(sheet, dataStartRow, numRows, leftCols) {
+  if (numRows <= 0) return;
+
+  const bodyRange = sheet.getRange(dataStartRow, 1, numRows, leftCols);
+
+  // Kẻ bảng rõ cho vùng A:I.
+  bodyRange.setBorder(
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    '#d6dee8',
+    SpreadsheetApp.BorderStyle.SOLID
+  );
+
+  // Tô màu xen kẽ từng hàng cho bảng trái A:I.
+  // Không áp dụng sang Gantt để tránh ghi đè màu bar xanh/đỏ.
+  for (let i = 0; i < numRows; i++) {
+    const rowIndex = dataStartRow + i;
+    const bg = i % 2 === 0 ? '#ffffff' : '#f8fbff';
+
+    sheet
+      .getRange(rowIndex, 1, 1, leftCols)
+      .setBackground(bg);
+  }
+
+  // Tô lại dòng nhóm WBS cấp 1 sau zebra để không bị mất nhấn mạnh.
+  for (let i = 0; i < numRows; i++) {
+    const rowIndex = dataStartRow + i;
+    const wbsValue = String(sheet.getRange(rowIndex, 1).getDisplayValue() || '').trim();
+
+    if (/^[IVXLCDM]+$/.test(wbsValue)) {
+      sheet
+        .getRange(rowIndex, 1, 1, leftCols)
+        .setBackground('#eaf2ff')
+        .setFontWeight('bold');
+    }
+  }
+
+  // Viền phải cột I đậm hơn để tách khỏi Gantt.
+  sheet
+    .getRange(1, leftCols, numRows + dataStartRow - 1, 1)
+    .setBorder(
+      null,
+      null,
+      null,
+      true,
+      null,
+      null,
+      '#334155',
+      SpreadsheetApp.BorderStyle.SOLID_MEDIUM
+    );
+}
+
+function dinhDangTimelineGanttNhe3A_(sheet, headerRow, dataStartRow, numRows, ganttStartCol) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < ganttStartCol) return;
+
+  const ganttCols = lastCol - ganttStartCol + 1;
+  const rowsToFormat = Math.max(numRows + dataStartRow - 1, headerRow);
+
+  // Timeline header J trở đi: làm rõ tháng/tuần/ngày.
+  sheet
+    .getRange(3, ganttStartCol, 1, ganttCols)
+    .setFontWeight('bold')
+    .setFontSize(8)
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setBackground('#e5eef8')
+    .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
+
+  sheet
+    .getRange(4, ganttStartCol, 1, ganttCols)
+    .setFontWeight('bold')
+    .setFontSize(8)
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setBackground('#f1f5f9')
+    .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
+
+  // Kẻ grid nhẹ cho vùng Gantt nhưng KHÔNG set background để không phá bar màu xanh/đỏ.
+  if (numRows > 0) {
+    sheet
+      .getRange(dataStartRow, ganttStartCol, numRows, ganttCols)
+      .setBorder(
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        '#edf2f7',
+        SpreadsheetApp.BorderStyle.SOLID
+      );
+  }
+
+  // Cột Gantt gọn, giống timeline cũ.
+  for (let col = ganttStartCol; col <= Math.min(lastCol, ganttStartCol + 80); col++) {
+    sheet.setColumnWidth(col, 28);
   }
 }
