@@ -87,30 +87,11 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
   const maxRows = sheet.getMaxRows();
   if (maxRows >= 5) {
     const bodyRange = sheet.getRange(5, 1, maxRows - 4, 26);
-    bodyRange
-      .clearContent()
-      .setFontColor('#111827')
-      .setBackground('#ffffff')
-      .setFontSize(9)
-      .setVerticalAlignment('middle');
+    bodyRange.clearContent();
+    apDungZebraVaKeBangTemplateQltdV1_(sheet, 5, 1, maxRows - 4, 26);
   }
 
-  sheet.getRange(4, 1, 1, 26)
-    .setFontWeight('bold')
-    .setFontSize(9)
-    .setFontColor('#111827')
-    .setBackground('#dbeafe')
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle')
-    .setWrap(true);
-
-  sheet.getRange(4, 1, 1, 26)
-    .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
-
-  if (maxRows >= 5) {
-    sheet.getRange(5, 1, maxRows - 4, 26)
-      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
-  }
+  dinhDangHeaderBangTemplateQltdV1_(sheet.getRange(4, 1, 1, 26));
 
   sheet.setFrozenRows(4);
 
@@ -162,7 +143,7 @@ function hoanThienTemplateTienDoTongHopQltdV1_(ss) {
 
   boCoDinhDongCotTruocKhiMergeTemplateQltdV1_(sheet);
 
-  damBaoSoCotQltdTemplateV1_(sheet, 40);
+  damBaoSoCotQltdTemplateV1_(sheet, 52);
   xoaNhomHangTemplateQltdV1_(sheet);
 
   const maxRows = sheet.getMaxRows();
@@ -217,13 +198,15 @@ function hoanThienTemplateTienDoTongHopQltdV1_(ss) {
     'Ghi chú cập nhật'
   ]]);
 
-  sheet.getRange(4, 1, 1, 9)
-    .setFontWeight('bold')
-    .setFontSize(9)
-    .setBackground('#dbeafe')
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle')
-    .setWrap(true);
+  dinhDangHeaderBangTemplateQltdV1_(sheet.getRange(4, 1, 1, 9));
+
+  if (maxRows >= 5) {
+    apDungZebraVaKeBangTemplateQltdV1_(sheet, 5, 1, maxRows - 4, 9);
+  }
+
+  const ganttGridEndCol = Math.max(52, maxCols);
+  sheet.getRange(3, 10, Math.min(Math.max(maxRows - 2, 1), 120), ganttGridEndCol - 9)
+    .setBorder(true, true, true, true, true, true, '#edf2f7', SpreadsheetApp.BorderStyle.SOLID);
 
   sheet.setFrozenRows(4);
   sheet.setFrozenColumns(9);
@@ -299,12 +282,11 @@ function hoanThienTemplateKeHoachGocQltdV1_(ss) {
     sheet.getRange(5, 1, maxRows - 4, 14).clearContent();
   }
 
-  sheet.getRange(4, 1, 1, 14)
-    .setFontWeight('bold')
-    .setBackground('#e5e7eb')
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle')
-    .setWrap(true);
+  dinhDangHeaderBangTemplateQltdV1_(sheet.getRange(4, 1, 1, 14));
+
+  if (maxRows >= 5) {
+    apDungZebraVaKeBangTemplateQltdV1_(sheet, 5, 1, maxRows - 4, 14);
+  }
 
   sheet.setFrozenRows(4);
 
@@ -334,12 +316,11 @@ function hoanThienTemplateKeHoachGocHistoryQltdV1_(ss) {
     sheet.getRange(2, 1, maxRows - 1, 6).clearContent();
   }
 
-  sheet.getRange(1, 1, 1, 6)
-    .setFontWeight('bold')
-    .setBackground('#e5e7eb')
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle')
-    .setWrap(true);
+  dinhDangHeaderBangTemplateQltdV1_(sheet.getRange(1, 1, 1, 6));
+
+  if (maxRows >= 2) {
+    apDungZebraVaKeBangTemplateQltdV1_(sheet, 2, 1, maxRows - 1, 6);
+  }
 
   sheet.setFrozenRows(1);
 
@@ -438,4 +419,39 @@ function chonSheetVanHanhAnToanTruocKhiAnTemplateQltdV1_(ss) {
   if (fallback) {
     ss.setActiveSheet(fallback);
   }
+}
+
+function apDungZebraVaKeBangTemplateQltdV1_(sheet, startRow, startCol, numRows, numCols) {
+  if (!sheet || numRows <= 0 || numCols <= 0) return;
+
+  const range = sheet.getRange(startRow, startCol, numRows, numCols);
+
+  range
+    .setFontColor('#111827')
+    .setFontSize(9)
+    .setVerticalAlignment('middle')
+    .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
+
+  const zebraRows = Math.min(numRows, 300);
+  for (let i = 0; i < zebraRows; i++) {
+    const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
+    sheet.getRange(startRow + i, startCol, 1, numCols).setBackground(bg);
+  }
+
+  if (numRows > zebraRows) {
+    sheet.getRange(startRow + zebraRows, startCol, numRows - zebraRows, numCols)
+      .setBackground('#ffffff');
+  }
+}
+
+function dinhDangHeaderBangTemplateQltdV1_(range) {
+  range
+    .setFontWeight('bold')
+    .setFontSize(9)
+    .setFontColor('#ffffff')
+    .setBackground('#1f4e79')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true)
+    .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
 }

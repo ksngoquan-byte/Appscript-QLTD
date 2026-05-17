@@ -232,25 +232,12 @@ function dinhDangCongViecVanHanhSauCopyTemplateV1_(sheet) {
     .setHorizontalAlignment('left')
     .setVerticalAlignment('middle');
 
-  sheet.getRange(4, 1, 1, 26)
-    .setFontWeight('bold')
-    .setFontSize(9)
-    .setFontColor('#111827')
-    .setBackground('#dbeafe')
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle')
-    .setWrap(true)
-    .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
+  dinhDangHeaderBangVanHanhSauCopyV1_(sheet.getRange(4, 1, 1, 26));
 
   if (maxRows >= 5) {
     const bodyRows = maxRows - 4;
 
-    sheet.getRange(5, 1, bodyRows, 26)
-      .setFontColor('#111827')
-      .setFontSize(9)
-      .setBackground('#ffffff')
-      .setVerticalAlignment('middle')
-      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
+    apDungZebraVaKeBangVanHanhSauCopyV1_(sheet, 5, 1, bodyRows, 26);
 
     // Wrap các cột dài.
     sheet.getRange(5, 8, bodyRows, 1).setWrap(true);   // H - Công việc / Phạm vi
@@ -328,25 +315,12 @@ function dinhDangTienDoTongHopVanHanhSauCopyTemplateV1_(sheet) {
     .setVerticalAlignment('middle')
     .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
 
-  sheet.getRange(4, 1, 1, leftCols)
-    .setFontWeight('bold')
-    .setFontSize(9)
-    .setFontColor('#111827')
-    .setBackground('#dbeafe')
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle')
-    .setWrap(true)
-    .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
+  dinhDangHeaderBangVanHanhSauCopyV1_(sheet.getRange(4, 1, 1, leftCols));
 
   if (maxRows >= 5) {
     const bodyRows = maxRows - 4;
 
-    sheet.getRange(5, 1, bodyRows, leftCols)
-      .setFontColor('#111827')
-      .setFontSize(9)
-      .setBackground('#ffffff')
-      .setVerticalAlignment('middle')
-      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
+    apDungZebraVaKeBangVanHanhSauCopyV1_(sheet, 5, 1, bodyRows, leftCols);
 
     sheet.getRange(5, 1, bodyRows, 2).setHorizontalAlignment('center');
     sheet.getRange(5, 3, bodyRows, 1).setWrap(true);
@@ -395,23 +369,10 @@ function dinhDangKeHoachGocVanHanhSauCopyTemplateV1_(sheet) {
     .setHorizontalAlignment('left')
     .setVerticalAlignment('middle');
 
-  sheet.getRange(4, 1, 1, 14)
-    .setFontWeight('bold')
-    .setFontSize(9)
-    .setFontColor('#111827')
-    .setBackground('#e5e7eb')
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle')
-    .setWrap(true)
-    .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
+  dinhDangHeaderBangVanHanhSauCopyV1_(sheet.getRange(4, 1, 1, 14));
 
   if (maxRows >= 5) {
-    sheet.getRange(5, 1, maxRows - 4, 14)
-      .setFontColor('#111827')
-      .setFontSize(9)
-      .setBackground('#ffffff')
-      .setVerticalAlignment('middle')
-      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
+    apDungZebraVaKeBangVanHanhSauCopyV1_(sheet, 5, 1, maxRows - 4, 14);
   }
 
   sheet.setFrozenRows(4);
@@ -420,26 +381,48 @@ function dinhDangKeHoachGocVanHanhSauCopyTemplateV1_(sheet) {
 function dinhDangKeHoachGocHistoryVanHanhSauCopyTemplateV1_(sheet) {
   const maxRows = sheet.getMaxRows();
 
-  sheet.getRange(1, 1, 1, 6)
+  dinhDangHeaderBangVanHanhSauCopyV1_(sheet.getRange(1, 1, 1, 6));
+
+  if (maxRows >= 2) {
+    apDungZebraVaKeBangVanHanhSauCopyV1_(sheet, 2, 1, maxRows - 1, 6);
+  }
+
+  sheet.setFrozenRows(1);
+}
+
+function apDungZebraVaKeBangVanHanhSauCopyV1_(sheet, startRow, startCol, numRows, numCols) {
+  if (!sheet || numRows <= 0 || numCols <= 0) return;
+
+  const range = sheet.getRange(startRow, startCol, numRows, numCols);
+
+  range
+    .setFontColor('#111827')
+    .setFontSize(9)
+    .setVerticalAlignment('middle')
+    .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
+
+  const zebraRows = Math.min(numRows, 300);
+  for (let i = 0; i < zebraRows; i++) {
+    const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
+    sheet.getRange(startRow + i, startCol, 1, numCols).setBackground(bg);
+  }
+
+  if (numRows > zebraRows) {
+    sheet.getRange(startRow + zebraRows, startCol, numRows - zebraRows, numCols)
+      .setBackground('#ffffff');
+  }
+}
+
+function dinhDangHeaderBangVanHanhSauCopyV1_(range) {
+  range
     .setFontWeight('bold')
     .setFontSize(9)
-    .setFontColor('#111827')
-    .setBackground('#e5e7eb')
+    .setFontColor('#ffffff')
+    .setBackground('#1f4e79')
     .setHorizontalAlignment('center')
     .setVerticalAlignment('middle')
     .setWrap(true)
     .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
-
-  if (maxRows >= 2) {
-    sheet.getRange(2, 1, maxRows - 1, 6)
-      .setFontColor('#111827')
-      .setFontSize(9)
-      .setBackground('#ffffff')
-      .setVerticalAlignment('middle')
-      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
-  }
-
-  sheet.setFrozenRows(1);
 }
 
 function menuXoaSheetSnapshotKeHoachGocCuV1() {
