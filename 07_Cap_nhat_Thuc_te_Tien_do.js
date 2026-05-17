@@ -14,7 +14,7 @@
  * - Người dùng chỉ nhập R:S:T:U
  * - Apps Script tự ghi V
  * - Apps Script tự tính W
- * - Khi sửa S/T, Schedule Engine tự cập nhật lại J/L/M/Q
+ * - Khi sửa S/T, hệ thống chỉ đánh dấu cần tính lại J/L/M/Q
  *******************************************************/
 
 function thietLapCotCapNhatThucTeTienDoV1() {
@@ -185,37 +185,12 @@ function xuLyCapNhatThucTeTienDoOnEditV1(e) {
     return;
   }
 
-  const lock = LockService.getDocumentLock();
-  let locked = false;
+  if (typeof danhDauCanTinhLaiTienDoV1_ === 'function') {
+    danhDauCanTinhLaiTienDoV1_('EDIT_ACTUAL_DATE');
+  }
 
-  try {
-    locked = lock.tryLock(10000);
-
-    if (!locked) {
-      Logger.log('xuLyCapNhatThucTeTienDoOnEditV1: dang co tien trinh khac, bo qua lan chay Schedule Engine.');
-      return;
-    }
-
-    if (typeof chayScheduleEngineV1 !== 'function') {
-      Logger.log('xuLyCapNhatThucTeTienDoOnEditV1: khong tim thay ham chayScheduleEngineV1.');
-      for (let i = 0; i < numRows; i++) {
-        capNhatCanhBaoMotDongTienDo_(sheet, actualStartRow + i);
-      }
-      return;
-    }
-
-    chayScheduleEngineV1();
-    capNhatCanhBaoTienDoCongViecV1();
-  } catch (err) {
-    Logger.log('xuLyCapNhatThucTeTienDoOnEditV1: ' + err);
-
-    for (let i = 0; i < numRows; i++) {
-      capNhatCanhBaoMotDongTienDo_(sheet, actualStartRow + i);
-    }
-  } finally {
-    if (locked) {
-      lock.releaseLock();
-    }
+  for (let i = 0; i < numRows; i++) {
+    capNhatCanhBaoMotDongTienDo_(sheet, actualStartRow + i);
   }
 }
 

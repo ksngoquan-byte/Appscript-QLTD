@@ -2,6 +2,8 @@
   KEY_NEED_RECALC: 'SCHEDULE_NEED_RECALC_V1',
   KEY_REASON: 'SCHEDULE_NEED_RECALC_REASON_V1',
   KEY_MARKED_AT: 'SCHEDULE_NEED_RECALC_MARKED_AT_V1',
+  KEY_MARKED_BY: 'SCHEDULE_NEED_RECALC_MARKED_BY_V1',
+  KEY_LAST_RUN_AT: 'SCHEDULE_RECALC_LAST_RUN_AT_V1',
   BACKGROUND_TRIGGER_HANDLER: 'chayTinhLaiTienDoNenV1'
 };
 
@@ -10,6 +12,7 @@ function danhDauCanTinhLaiTienDoV1_(reason) {
   props.setProperty(SCHEDULE_DIRTY_V1.KEY_NEED_RECALC, '1');
   props.setProperty(SCHEDULE_DIRTY_V1.KEY_REASON, String(reason || 'UNKNOWN'));
   props.setProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_AT, new Date().toISOString());
+  props.setProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_BY, layEmailNguoiDungScheduleV1_());
 }
 
 function coCanTinhLaiTienDoV1_() {
@@ -23,6 +26,23 @@ function xoaCoTinhLaiTienDoV1_() {
   props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_NEED_RECALC);
   props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_REASON);
   props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_AT);
+  props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_BY);
+}
+
+function ghiLanChayTinhLaiTienDoV1_() {
+  PropertiesService
+    .getDocumentProperties()
+    .setProperty(SCHEDULE_DIRTY_V1.KEY_LAST_RUN_AT, new Date().toISOString());
+}
+
+function layEmailNguoiDungScheduleV1_() {
+  try {
+    const email = Session.getActiveUser().getEmail();
+    return email || '';
+  } catch (err) {
+    Logger.log('layEmailNguoiDungScheduleV1_: ' + err);
+    return '';
+  }
 }
 
 function layTrangThaiTinhLaiTienDoV1() {
@@ -31,7 +51,9 @@ function layTrangThaiTinhLaiTienDoV1() {
   const status = {
     needRecalc: coCanTinhLaiTienDoV1_(),
     reason: props.getProperty(SCHEDULE_DIRTY_V1.KEY_REASON) || '',
-    markedAt: props.getProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_AT) || ''
+    markedAt: props.getProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_AT) || '',
+    markedBy: props.getProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_BY) || '',
+    lastRunAt: props.getProperty(SCHEDULE_DIRTY_V1.KEY_LAST_RUN_AT) || ''
   };
 
   Logger.log(JSON.stringify(status));
@@ -127,6 +149,7 @@ function chayTinhLaiTienDoThuCongV1() {
     normalizeFormat: false
   });
 
+  ghiLanChayTinhLaiTienDoV1_();
   xoaCoTinhLaiTienDoV1_();
 
   return logPerfScheduleV1_('Da tinh lai tien do thu cong', started);
@@ -139,6 +162,7 @@ function chayTinhLaiTienDoThuCongFullV1() {
     normalizeFormat: true
   });
 
+  ghiLanChayTinhLaiTienDoV1_();
   xoaCoTinhLaiTienDoV1_();
 
   return logPerfScheduleV1_('Da tinh lai tien do thu cong full kem dinh dang', started);
@@ -155,6 +179,7 @@ function chayTinhLaiTienDoNenV1() {
     normalizeFormat: false
   });
 
+  ghiLanChayTinhLaiTienDoV1_();
   xoaCoTinhLaiTienDoV1_();
 
   return logPerfScheduleV1_('Da tinh lai tien do nen', started);
@@ -202,10 +227,16 @@ function chayDonNenCongViecThuCongV1() {
 
 function hienTrangThaiTinhLaiTienDoV1() {
   const status = layTrangThaiTinhLaiTienDoV1();
+  const nextStep = status.needRecalc
+    ? 'Nen bam "Chay tinh lai tien do J/L/M/Q".'
+    : 'Chua can chay lai. Neu muon doi soat, co the chay thu cong va xac nhan.';
   const message =
     'Can tinh lai: ' + (status.needRecalc ? 'CO' : 'KHONG') +
-    '\nLy do: ' + status.reason +
-    '\nThoi diem danh dau: ' + status.markedAt;
+    '\nLy do: ' + (status.reason || '(khong co)') +
+    '\nThoi diem phat sinh: ' + (status.markedAt || '(khong co)') +
+    '\nNguoi cap nhat: ' + (status.markedBy || '(khong lay duoc email)') +
+    '\nLan chay tinh lai gan nhat: ' + (status.lastRunAt || '(chua co)') +
+    '\nGoi y: ' + nextStep;
 
   SpreadsheetApp.getUi().alert(message);
   return status;

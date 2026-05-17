@@ -131,6 +131,19 @@ function menuCapNhatMaCongViecV1() {
 }
 
 function menuChayTinhLaiTienDoV1() {
+  const ui = SpreadsheetApp.getUi();
+  const hasDirtyFlag = typeof coCanTinhLaiTienDoV1_ === 'function' && coCanTinhLaiTienDoV1_();
+
+  if (!hasDirtyFlag) {
+    const confirm = ui.alert(
+      'Chạy tính lại tiến độ J/L/M/Q',
+      'Hiện chưa ghi nhận thay đổi cần tính lại. Anh vẫn muốn chạy lại toàn bộ không?',
+      ui.ButtonSet.YES_NO
+    );
+
+    if (confirm !== ui.Button.YES) return 'Da huy chay tinh lai tien do.';
+  }
+
   const result = menuChayHamBatBuocV1_(['chayTinhLaiTienDoThuCongV1'], 'Chạy tính lại tiến độ J/L/M/Q');
   menuChayHamNeuCoV1_(['capNhatTrangThaiThucHienCongViecV1'], 'Cập nhật trạng thái thực hiện');
   SpreadsheetApp.getActiveSpreadsheet().toast('Đã chạy tính lại tiến độ.', 'Vận hành QL tiến độ', 5);
