@@ -128,6 +128,8 @@ function taoSheetVanHanhTuTemplateCoreV1_(replaceExisting) {
     }
 
     dinhDangSheetVanHanhSauCopyTemplateV1_(newSheet, item.targetName);
+    const formulaWarning = canhBaoOCoHamNhungMatFormulaSauSetupV1_(newSheet);
+    if (formulaWarning) logs.push(formulaWarning);
 
     ss.setActiveSheet(newSheet);
     ss.moveActiveSheet(Math.min(templateSheet.getIndex() + 1, ss.getNumSheets()));
@@ -423,6 +425,34 @@ function dinhDangHeaderBangVanHanhSauCopyV1_(range) {
     .setVerticalAlignment('middle')
     .setWrap(true)
     .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
+}
+
+function canhBaoOCoHamNhungMatFormulaSauSetupV1_(sheet) {
+  if (!sheet || sheet.getName() !== 'Cong_viec') return '';
+
+  const maxRows = sheet.getMaxRows();
+  if (maxRows < 5) return '';
+
+  const range = sheet.getRange(5, 1, maxRows - 4, 26);
+  const notes = range.getNotes();
+  const formulas = range.getFormulas();
+
+  const missing = [];
+
+  for (let r = 0; r < notes.length; r++) {
+    for (let c = 0; c < notes[r].length; c++) {
+      const note = String(notes[r][c] || '').trim().toLowerCase();
+      const formula = String(formulas[r][c] || '').trim();
+
+      if ((note.indexOf('có hàm') !== -1 || note.indexOf('co ham') !== -1) && !formula) {
+        missing.push(range.getCell(r + 1, c + 1).getA1Notation());
+      }
+    }
+  }
+
+  if (missing.length === 0) return '';
+
+  return '- CẢNH BÁO: Các ô có ghi chú "Có hàm" nhưng đang mất công thức sau setup: ' + missing.join(', ');
 }
 
 function menuXoaSheetSnapshotKeHoachGocCuV1() {
