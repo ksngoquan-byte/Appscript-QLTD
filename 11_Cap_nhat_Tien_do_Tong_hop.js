@@ -42,6 +42,7 @@ function capNhatTienDoTongHopV1() {
   const sourceLastCol = Math.max(sourceSheet.getLastColumn(), 21); // cần đến U
 
   const output = [];
+  const ganttRows = [];
 
   if (sourceLastRow >= SOURCE_START_ROW) {
     const sourceValues = sourceSheet
@@ -87,6 +88,17 @@ function capNhatTienDoTongHopV1() {
         currentEnd,
         updateNote
       ]);
+
+      ganttRows.push({
+        wbs: wbs,
+        id: id,
+        taskName: taskName,
+        start: currentStart,
+        end: currentEnd,
+        actualStart: actualStart,
+        actualFinish: actualFinish,
+        status: row[17] || '' // R - Trạng thái thực hiện
+      });
     });
   }
 
@@ -112,10 +124,12 @@ function capNhatTienDoTongHopV1() {
     Math.max(output.length, 1)
   );
 
+  capNhatGanttTongHop3B_(targetSheet, ganttRows);
+
   const message =
-    'Đã cập nhật bảng trái Tien_do_tong_hop A:I. Số dòng dữ liệu: ' +
+    'Đã cập nhật Tien_do_tong_hop A:I và Gantt từ cột J. Số dòng dữ liệu: ' +
     output.length +
-    '. Chặng 3A chưa tô Gantt.';
+    '.';
 
   Logger.log(message);
   ss.toast(message, 'Quản lý tiến độ', 5);
@@ -444,4 +458,248 @@ function dinhDangTimelineGanttNhe3A_(sheet, headerRow, dataStartRow, numRows, ga
   for (let col = ganttStartCol; col <= Math.min(lastCol, ganttStartCol + 80); col++) {
     sheet.setColumnWidth(col, 28);
   }
+}
+
+function capNhatGanttTongHop3B_(sheet, ganttRows) {
+  const HEADER_MONTH_ROW = 3;
+  const HEADER_WEEK_ROW = 4;
+  const DATA_START_ROW = 5;
+  const GANTT_START_COL = 10; // J
+  const MAX_WEEKS = 260;
+
+  const validRows = ganttRows.filter(function(row) {
+    return laNgayHopLeGantt3B_(row.start) && laNgayHopLeGantt3B_(row.end);
+  });
+
+  donVungGanttCu3B_(sheet, GANTT_START_COL, HEADER_MONTH_ROW);
+
+  if (validRows.length === 0) {
+    return 'Không có dữ liệu ngày hợp lệ để vẽ Gantt 3B.';
+  }
+
+  const minStart = validRows.reduce(function(min, row) {
+    return row.start.getTime() < min.getTime() ? row.start : min;
+  }, validRows[0].start);
+
+  const maxEnd = validRows.reduce(function(max, row) {
+    return row.end.getTime() > max.getTime() ? row.end : max;
+  }, validRows[0].end);
+
+  const firstWeekStart = layThuHaiGantt3B_(minStart);
+  const lastWeekStart = layThuHaiGantt3B_(maxEnd);
+  let weekCount = Math.floor((lastWeekStart.getTime() - firstWeekStart.getTime()) / (7 * 86400000)) + 1;
+  weekCount = Math.max(1, Math.min(weekCount, MAX_WEEKS));
+
+  const ganttEndCol = GANTT_START_COL + weekCount - 1;
+
+  if (sheet.getMaxColumns() < ganttEndCol) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), ganttEndCol - sheet.getMaxColumns());
+  }
+
+  capNhatThongSoTongQuanGantt3B_(sheet, firstWeekStart, maxEnd, weekCount);
+  veTimelineGantt3B_(sheet, firstWeekStart, weekCount, GANTT_START_COL, HEADER_MONTH_ROW, HEADER_WEEK_ROW);
+  toMauBarGantt3B_(sheet, ganttRows, firstWeekStart, weekCount, GANTT_START_COL, DATA_START_ROW);
+  highlightTuanHienTaiGantt3B_(sheet, firstWeekStart, weekCount, GANTT_START_COL, DATA_START_ROW, ganttRows.length);
+
+  sheet.setFrozenRows(4);
+  sheet.setFrozenColumns(9);
+
+  return 'Đã cập nhật Gantt 3B từ cột J. Số tuần: ' + weekCount;
+}
+
+function donVungGanttCu3B_(sheet, ganttStartCol, headerMonthRow) {
+  const maxRows = sheet.getMaxRows();
+  const maxCols = sheet.getMaxColumns();
+
+  if (maxCols < ganttStartCol) return;
+
+  const width = maxCols - ganttStartCol + 1;
+
+  sheet
+    .getRange(headerMonthRow, ganttStartCol, maxRows - headerMonthRow + 1, width)
+    .breakApart()
+    .clearContent()
+    .clearFormat()
+    .clearNote();
+}
+
+function capNhatThongSoTongQuanGantt3B_(sheet, firstWeekStart, maxEnd, weekCount) {
+  const now = new Date();
+
+  sheet.getRange(2, 1, 1, 8).setValues([[
+    'Từ ngày',
+    firstWeekStart,
+    'Đến ngày',
+    maxEnd,
+    'Số tuần',
+    weekCount,
+    'Cập nhật',
+    now
+  ]]);
+
+  sheet.getRange(2, 2, 1, 1).setNumberFormat('dd/MM/yyyy');
+  sheet.getRange(2, 4, 1, 1).setNumberFormat('dd/MM/yyyy');
+  sheet.getRange(2, 8, 1, 1).setNumberFormat('dd/MM/yyyy');
+}
+
+function veTimelineGantt3B_(sheet, firstWeekStart, weekCount, ganttStartCol, monthRow, weekRow) {
+  const weekLabels = [];
+  const weekSaturdays = [];
+
+  for (let i = 0; i < weekCount; i++) {
+    const weekStart = congNgayGantt3B_(firstWeekStart, i * 7);
+    const saturday = congNgayGantt3B_(weekStart, 5);
+    weekSaturdays.push(saturday);
+    weekLabels.push(Utilities.formatDate(saturday, 'Asia/Ho_Chi_Minh', 'dd'));
+  }
+
+  sheet
+    .getRange(weekRow, ganttStartCol, 1, weekCount)
+    .setValues([weekLabels])
+    .setFontWeight('bold')
+    .setFontSize(8)
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setBackground('#f1f5f9')
+    .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
+
+  const monthSegments = taoDoanThangGantt3B_(weekSaturdays);
+
+  monthSegments.forEach(function(seg, index) {
+    const col = ganttStartCol + seg.startIndex;
+    const width = seg.endIndex - seg.startIndex + 1;
+    const bg = index % 2 === 0 ? '#dbeafe' : '#e5eef8';
+
+    sheet
+      .getRange(monthRow, col, 1, width)
+      .merge()
+      .setValue(seg.label)
+      .setFontWeight('bold')
+      .setFontSize(8)
+      .setHorizontalAlignment('center')
+      .setVerticalAlignment('middle')
+      .setBackground(bg)
+      .setBorder(true, true, true, true, false, false, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
+
+    sheet
+      .getRange(monthRow, col, 2, 1)
+      .setBorder(null, true, null, null, null, null, '#64748b', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  });
+
+  for (let col = ganttStartCol; col < ganttStartCol + weekCount; col++) {
+    sheet.setColumnWidth(col, 28);
+  }
+}
+
+function toMauBarGantt3B_(sheet, ganttRows, firstWeekStart, weekCount, ganttStartCol, dataStartRow) {
+  if (!ganttRows || ganttRows.length === 0) return;
+
+  const today = boGioGantt3B_(new Date());
+  const backgrounds = [];
+
+  for (let r = 0; r < ganttRows.length; r++) {
+    const row = ganttRows[r];
+    const emptyColor = r % 2 === 0 ? '#ffffff' : '#f8fbff';
+    const rowBg = new Array(weekCount).fill(emptyColor);
+
+    if (laNgayHopLeGantt3B_(row.start) && laNgayHopLeGantt3B_(row.end)) {
+      const start = boGioGantt3B_(row.start);
+      const end = boGioGantt3B_(row.end);
+      const actualStartOk = laNgayHopLeGantt3B_(row.actualStart);
+      const actualFinishOk = laNgayHopLeGantt3B_(row.actualFinish);
+
+      let color = '#3B82F6';
+
+      if (actualStartOk && actualFinishOk) {
+        color = '#22C55E';
+      } else if (end.getTime() < today.getTime()) {
+        color = '#EF4444';
+      }
+
+      for (let w = 0; w < weekCount; w++) {
+        const weekStart = congNgayGantt3B_(firstWeekStart, w * 7);
+        const weekEnd = congNgayGantt3B_(weekStart, 6);
+
+        if (end.getTime() >= weekStart.getTime() && start.getTime() <= weekEnd.getTime()) {
+          rowBg[w] = color;
+        }
+      }
+    }
+
+    backgrounds.push(rowBg);
+  }
+
+  sheet
+    .getRange(dataStartRow, ganttStartCol, ganttRows.length, weekCount)
+    .setBackgrounds(backgrounds)
+    .setBorder(true, true, true, true, true, true, '#edf2f7', SpreadsheetApp.BorderStyle.SOLID);
+}
+
+function highlightTuanHienTaiGantt3B_(sheet, firstWeekStart, weekCount, ganttStartCol, dataStartRow, rowCount) {
+  const today = boGioGantt3B_(new Date());
+  const first = boGioGantt3B_(firstWeekStart);
+  const offset = Math.floor((today.getTime() - first.getTime()) / (7 * 86400000));
+
+  if (offset < 0 || offset >= weekCount) return;
+
+  const col = ganttStartCol + offset;
+  const height = Math.max(rowCount + dataStartRow - 1, 4);
+
+  sheet
+    .getRange(3, col, height - 2, 1)
+    .setBorder(null, true, null, true, null, null, '#F97316', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+}
+
+function taoDoanThangGantt3B_(dates) {
+  const segments = [];
+  if (!dates || dates.length === 0) return segments;
+
+  let startIndex = 0;
+  let currentKey = Utilities.formatDate(dates[0], 'Asia/Ho_Chi_Minh', 'MM/yyyy');
+
+  for (let i = 1; i < dates.length; i++) {
+    const key = Utilities.formatDate(dates[i], 'Asia/Ho_Chi_Minh', 'MM/yyyy');
+
+    if (key !== currentKey) {
+      segments.push({
+        startIndex: startIndex,
+        endIndex: i - 1,
+        label: currentKey
+      });
+
+      startIndex = i;
+      currentKey = key;
+    }
+  }
+
+  segments.push({
+    startIndex: startIndex,
+    endIndex: dates.length - 1,
+    label: currentKey
+  });
+
+  return segments;
+}
+
+function layThuHaiGantt3B_(value) {
+  const date = boGioGantt3B_(value);
+  const day = date.getDay();
+  const offset = day === 0 ? -6 : 1 - day;
+  return congNgayGantt3B_(date, offset);
+}
+
+function congNgayGantt3B_(date, days) {
+  const output = new Date(date);
+  output.setDate(output.getDate() + days);
+  return boGioGantt3B_(output);
+}
+
+function boGioGantt3B_(value) {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function laNgayHopLeGantt3B_(value) {
+  return Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime());
 }
