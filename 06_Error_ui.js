@@ -78,39 +78,9 @@ const SELECTION_HIGHLIGHT_COLOR_V1 = '#FFF2CC';
  * Highlight tam thoi dung o dang chon.
  */
 function xuLyDoiVungChon(e) {
-  try {
-    if (!e || !e.range) return;
-
-    const sheet = e.range.getSheet();
-    const sheetName = sheet.getName();
-    const row = e.range.getRow();
-    const cache = layCache_ && typeof layCache_ === 'function' ? layCache_() : null;
-
-    khoiPhucSelectionHighlightCuV1_(cache);
-
-    if (row < CONFIG.SYSTEM.START_ROW) return;
-    if (!laSheetDuocHighlightSelectionV1_(sheetName)) return;
-
-    const targetRange = sheet.getRange(row, e.range.getColumn(), 1, 1);
-    const oldBackgrounds = targetRange.getBackgrounds();
-
-    targetRange.setBackground(SELECTION_HIGHLIGHT_COLOR_V1);
-
-    if (cache) {
-      cache.setProperty(
-        SELECTION_HIGHLIGHT_CACHE_KEY_V1,
-        JSON.stringify({
-          sheetName: sheetName,
-          row: row,
-          startColumn: e.range.getColumn(),
-          numColumns: 1,
-          backgrounds: oldBackgrounds
-        })
-      );
-    }
-  } catch (err) {
-    Logger.log('xuLyDoiVungChon: ' + err);
-  }
+  // Đã tắt highlight ô/dòng khi đổi vùng chọn trên Cong_viec và Tien_do_tong_hop
+  // để giảm tải UI và tránh nháy màn hình.
+  return;
 }
 
 function laSheetDuocHighlightSelectionV1_(sheetName) {
@@ -153,7 +123,9 @@ function khoiPhucSelectionHighlightCuV1_(cache) {
  * Simple trigger khi doi vung chon.
  */
 function onSelectionChange(e) {
-  xuLyDoiVungChon(e);
+  // Đã tắt highlight ô/dòng khi đổi vùng chọn trên toàn bộ file,
+  // bao gồm Cong_viec và Tien_do_tong_hop.
+  return;
 }
 
 /**
