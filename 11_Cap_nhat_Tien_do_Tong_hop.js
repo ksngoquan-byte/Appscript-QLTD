@@ -6,6 +6,9 @@
  * - Chạy layout, đổ dữ liệu A:H, rồi tô Gantt bar.
  *******************************************************/
 
+const BASELINE_GANTT_PROP_KEY_V1 = 'QLTD_SHOW_BASELINE_GANTT_V1';
+const BASELINE_GANTT_COLOR_V1 = '#D1D5DB';
+
 function capNhatTienDoTongHopV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sourceSheet = ss.getSheetByName('Cong_viec');
@@ -43,6 +46,9 @@ function capNhatTienDoTongHopV1() {
 
   const output = [];
   const ganttRows = [];
+  const baselineByRef = coHienThiBaselineGanttV1_()
+    ? layBaselineActiveTheoRefGanttV1_()
+    : {};
 
   if (sourceLastRow >= SOURCE_START_ROW) {
     const sourceValues = sourceSheet
@@ -89,6 +95,9 @@ function capNhatTienDoTongHopV1() {
         updateNote
       ]);
 
+      const normalizedRef = chuanHoaRefBaselineGanttV1_(id);
+      const baseline = baselineByRef[normalizedRef] || null;
+
       ganttRows.push({
         wbs: wbs,
         id: id,
@@ -97,7 +106,9 @@ function capNhatTienDoTongHopV1() {
         end: currentEnd,
         actualStart: actualStart,
         actualFinish: actualFinish,
-        status: row[17] || '' // R - Trạng thái thực hiện
+        status: row[17] || '',
+        baselineStart: baseline ? baseline.start : null,
+        baselineEnd: baseline ? baseline.end : null
       });
     });
   }
@@ -135,6 +146,68 @@ function capNhatTienDoTongHopV1() {
   ss.toast(message, 'Quản lý tiến độ', 5);
 
   return message;
+}
+
+function toggleDuongGangKeHoachGocV1() {
+  const props = PropertiesService.getDocumentProperties();
+  const current = props.getProperty(BASELINE_GANTT_PROP_KEY_V1) === '1';
+  const next = !current;
+
+  props.setProperty(BASELINE_GANTT_PROP_KEY_V1, next ? '1' : '0');
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const message = next
+    ? 'Đã BẬT hiển thị kế hoạch gốc/baseline màu xám trên Gantt.'
+    : 'Đã TẮT hiển thị kế hoạch gốc/baseline trên Gantt.';
+
+  ss.toast(message, 'Baseline Gantt', 5);
+
+  if (typeof capNhatTienDoTongHopV1 === 'function') {
+    capNhatTienDoTongHopV1();
+  }
+
+  return message;
+}
+
+function coHienThiBaselineGanttV1_() {
+  const props = PropertiesService.getDocumentProperties();
+  return props.getProperty(BASELINE_GANTT_PROP_KEY_V1) === '1';
+}
+
+function layBaselineActiveTheoRefGanttV1_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Ke_hoach_goc');
+  const result = {};
+
+  if (!sheet || sheet.getLastRow() < 5) return result;
+
+  const lastRow = sheet.getLastRow();
+  const values = sheet.getRange(5, 1, lastRow - 4, 14).getValues();
+
+  values.forEach(function(row) {
+    const ref = chuanHoaRefBaselineGanttV1_(row[0]); // A - Ref gốc
+    const start = row[3]; // D - Bắt đầu gốc
+    const end = row[4];   // E - Kết thúc gốc
+    const status = String(row[12] || '').trim(); // M - Baseline status
+
+    if (!ref) return;
+    if (status !== 'ACTIVE') return;
+    if (!laNgayHopLeGantt3B_(start) || !laNgayHopLeGantt3B_(end)) return;
+
+    result[ref] = {
+      start: start,
+      end: end
+    };
+  });
+
+  return result;
+}
+
+function chuanHoaRefBaselineGanttV1_(value) {
+  if (value === null || typeof value === 'undefined' || value === '') return '';
+  const numberValue = Number(value);
+  if (isFinite(numberValue)) return String(numberValue);
+  return String(value).trim();
 }
 
 function coGiaTriBangTraiTienDoTongHop3A_(value) {
@@ -467,23 +540,21 @@ function capNhatGanttTongHop3B_(sheet, ganttRows) {
   const GANTT_START_COL = 10; // J
   const MAX_WEEKS = 260;
 
-  const validRows = ganttRows.filter(function(row) {
-    return laNgayHopLeGantt3B_(row.start) && laNgayHopLeGantt3B_(row.end);
-  });
+  const validRanges = layKhoangNgayHienHanhVaBaselineGanttV1_(ganttRows);
 
   donVungGanttCu3B_(sheet, GANTT_START_COL, HEADER_MONTH_ROW);
 
-  if (validRows.length === 0) {
+  if (validRanges.length === 0) {
     return 'Không có dữ liệu ngày hợp lệ để vẽ Gantt 3B.';
   }
 
-  const minStart = validRows.reduce(function(min, row) {
-    return row.start.getTime() < min.getTime() ? row.start : min;
-  }, validRows[0].start);
+  const minStart = validRanges.reduce(function(min, range) {
+    return range.start.getTime() < min.getTime() ? range.start : min;
+  }, validRanges[0].start);
 
-  const maxEnd = validRows.reduce(function(max, row) {
-    return row.end.getTime() > max.getTime() ? row.end : max;
-  }, validRows[0].end);
+  const maxEnd = validRanges.reduce(function(max, range) {
+    return range.end.getTime() > max.getTime() ? range.end : max;
+  }, validRanges[0].end);
 
   const firstWeekStart = layThuHaiGantt3B_(minStart);
   const lastWeekStart = layThuHaiGantt3B_(maxEnd);
@@ -506,6 +577,22 @@ function capNhatGanttTongHop3B_(sheet, ganttRows) {
   sheet.setFrozenColumns(9);
 
   return 'Đã cập nhật Gantt 3B từ cột J. Số tuần: ' + weekCount;
+}
+
+function layKhoangNgayHienHanhVaBaselineGanttV1_(ganttRows) {
+  const ranges = [];
+
+  ganttRows.forEach(function(row) {
+    if (laNgayHopLeGantt3B_(row.start) && laNgayHopLeGantt3B_(row.end)) {
+      ranges.push({ start: row.start, end: row.end });
+    }
+
+    if (laNgayHopLeGantt3B_(row.baselineStart) && laNgayHopLeGantt3B_(row.baselineEnd)) {
+      ranges.push({ start: row.baselineStart, end: row.baselineEnd });
+    }
+  });
+
+  return ranges;
 }
 
 function donVungGanttCu3B_(sheet, ganttStartCol, headerMonthRow) {
@@ -596,12 +683,31 @@ function toMauBarGantt3B_(sheet, ganttRows, firstWeekStart, weekCount, ganttStar
   if (!ganttRows || ganttRows.length === 0) return;
 
   const today = boGioGantt3B_(new Date());
+  const showBaseline = coHienThiBaselineGanttV1_();
   const backgrounds = [];
 
   for (let r = 0; r < ganttRows.length; r++) {
     const row = ganttRows[r];
     const emptyColor = r % 2 === 0 ? '#ffffff' : '#f8fbff';
     const rowBg = new Array(weekCount).fill(emptyColor);
+
+    if (
+      showBaseline &&
+      laNgayHopLeGantt3B_(row.baselineStart) &&
+      laNgayHopLeGantt3B_(row.baselineEnd)
+    ) {
+      const baselineStart = boGioGantt3B_(row.baselineStart);
+      const baselineEnd = boGioGantt3B_(row.baselineEnd);
+
+      for (let w = 0; w < weekCount; w++) {
+        const weekStart = congNgayGantt3B_(firstWeekStart, w * 7);
+        const weekEnd = congNgayGantt3B_(weekStart, 6);
+
+        if (baselineEnd.getTime() >= weekStart.getTime() && baselineStart.getTime() <= weekEnd.getTime()) {
+          rowBg[w] = BASELINE_GANTT_COLOR_V1;
+        }
+      }
+    }
 
     if (laNgayHopLeGantt3B_(row.start) && laNgayHopLeGantt3B_(row.end)) {
       const start = boGioGantt3B_(row.start);
