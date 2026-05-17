@@ -11,6 +11,10 @@ function capMaCongViecChoVungNeuThieuV1_(sheet, editedRange) {
 
   if (rangeEndRow < rangeStartRow) return { updatedId: 0, updatedCode: 0 };
 
+  if (vungEditGiaoCotTenCongViecCapMaV1_(editedRange)) {
+    return danhLaiIdCongViecTheoThuTuTrenSheetV1_(sheet);
+  }
+
   return capMaCongViecChoKhoangDongV1_(sheet, rangeStartRow, rangeEndRow);
 }
 
@@ -107,10 +111,10 @@ function capNhatMaCongViecConThieuV1() {
     };
   }
 
-  const result = capMaCongViecChoKhoangDongV1_(sheet, startRow, lastRow);
+  const result = danhLaiIdCongViecTheoThuTuTrenSheetV1_(sheet);
 
   const message =
-    'Đã cấp/cập nhật mã công việc còn thiếu. ID mới: ' +
+    'Đã cấp/cập nhật mã công việc còn thiếu. ID đã điều chỉnh: ' +
     result.updatedId +
     ', mã công việc mới: ' +
     result.updatedCode +
@@ -123,6 +127,92 @@ function capNhatMaCongViecConThieuV1() {
     updatedId: result.updatedId,
     updatedCode: result.updatedCode
   };
+}
+
+function danhLaiIdCongViecTheoThuTuV1_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Cong_viec');
+
+  if (!sheet) return { updatedId: 0, updatedCode: 0 };
+
+  return danhLaiIdCongViecTheoThuTuTrenSheetV1_(sheet);
+}
+
+function danhLaiIdCongViecTheoThuTuTrenSheetV1_(sheet) {
+  const lock = LockService.getDocumentLock();
+
+  if (!lock.tryLock(5000)) {
+    Logger.log('Không lấy được lock để đánh lại ID công việc.');
+    return { updatedId: 0, updatedCode: 0 };
+  }
+
+  try {
+    const startRow = 5;
+    const lastRow = sheet.getLastRow();
+
+    if (lastRow < startRow) return { updatedId: 0, updatedCode: 0 };
+
+    const numRows = lastRow - startRow + 1;
+    const values = sheet.getRange(startRow, 1, numRows, 15).getValues(); // A:O
+    const idValues = values.map(function(row) {
+      return [row[6]];
+    });
+    const codeValues = values.map(function(row) {
+      return [row[14]];
+    });
+
+    let nextId = 0;
+    let updatedId = 0;
+    let updatedCode = 0;
+
+    for (let i = 0; i < values.length; i++) {
+      const row = values[i];
+
+      if (!laDongTaskThatChoCapMaCongViecV1_(row)) {
+        if (idValues[i][0] !== '') {
+          idValues[i][0] = '';
+          updatedId++;
+        }
+        continue;
+      }
+
+      nextId++;
+
+      if (String(row[6] || '') !== String(nextId)) {
+        idValues[i][0] = nextId;
+        row[6] = nextId;
+        updatedId++;
+      } else {
+        row[6] = idValues[i][0];
+      }
+
+      if (!row[14]) {
+        codeValues[i][0] = taoMaCongViecTuDongV1_(row, nextId);
+        updatedCode++;
+      }
+    }
+
+    if (updatedId > 0) {
+      sheet.getRange(startRow, 7, numRows, 1).setValues(idValues);
+    }
+
+    if (updatedCode > 0) {
+      sheet.getRange(startRow, 15, numRows, 1).setValues(codeValues);
+    }
+
+    return {
+      updatedId: updatedId,
+      updatedCode: updatedCode
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function vungEditGiaoCotTenCongViecCapMaV1_(editedRange) {
+  const startCol = editedRange.getColumn();
+  const endCol = editedRange.getLastColumn();
+  return startCol <= 8 && endCol >= 8;
 }
 
 function laDongTaskThatChoCapMaCongViecV1_(row) {

@@ -392,6 +392,19 @@ function xuLyThayDoiCauTrucScheduleV1(e) {
 
     if (watchedTypes.indexOf(e.changeType) === -1) return;
 
+    if (
+      ['INSERT_ROW', 'REMOVE_ROW', 'OTHER'].indexOf(e.changeType) !== -1 &&
+      typeof danhLaiIdCongViecTheoThuTuV1_ === 'function'
+    ) {
+      const result = danhLaiIdCongViecTheoThuTuV1_();
+      Logger.log(
+        'Đã đánh lại ID công việc sau thay đổi cấu trúc. ID điều chỉnh: ' +
+        result.updatedId +
+        ', mã mới: ' +
+        result.updatedCode
+      );
+    }
+
     danhDauCanTinhLaiTienDoV1_('STRUCTURE_CHANGE_' + e.changeType, {
       message: 'Thay đổi cấu trúc hàng/cột'
     });
