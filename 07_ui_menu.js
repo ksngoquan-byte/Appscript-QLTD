@@ -17,6 +17,7 @@ function taoMenuThietLapQLTienDoV1_() {
     .addItem('🗑️ 0.1 Xóa sheet snapshot KH gốc cũ', 'menuXoaSheetSnapshotKeHoachGocCuV1')
     .addSeparator()
     .addItem('1️⃣ Thiết lập nhanh bản sao mới', 'menuThietLapNhanhBanSaoMoiV1')
+    .addItem('🧩 Hoàn thiện TEMPLATE gốc', 'menuHoanThienTemplateGocQltdV1')
     .addSeparator()
     .addItem('🔧 Cài lại trigger tối ưu', 'menuCaiTriggerToiUuV1')
     .addItem('🆔 Đồng bộ mã công việc cuối', 'menuDongBoMaCongViecCuoiV1')
