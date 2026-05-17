@@ -1,4 +1,4 @@
-﻿function capMaCongViec() {
+﻿function capMaCongViecLegacyV1_() {
   return chayCoKhoa_(() => {
     try {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -325,7 +325,7 @@ function laySpreadsheetChoLienKetDongV1_() {
  * - Khong doi ma da co.
  * - Khong cap cho dong blank/nhom neu chua co du dau hieu la dong cong viec.
  */
-function capMaCongViecChoVungNeuThieuV1_(sheet, editedRange) {
+function capMaCongViecChoVungNeuThieuLegacyV1_(sheet, editedRange) {
   return chayCoKhoa_(() => {
     const col = CONFIG.COLUMN.CONG_VIEC;
     const startRow = CONFIG.SYSTEM.START_ROW;
@@ -426,7 +426,7 @@ function layMaCongViecLonNhatTuCotMaV1_(sheet, col) {
   return maxId;
 }
 
-function dongBoMaCongViecCuoiV1() {
+function dongBoMaCongViecCuoiLegacyV1_() {
   return chayCoKhoa_(() => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(CONFIG.SHEET.CONG_VIEC);

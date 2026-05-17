@@ -33,7 +33,7 @@ function taoMenuKhoiTaoVaCauHinhFileQltdV1_() {
     .addItem('🌳 Thiết lập cột B/Z WBS', 'thietLapCotWbsCongViecV1')
     .addItem('🔗 Khởi tạo lại công thức cột K', 'menuKhoiTaoCongThucLienKetCotKV1')
     .addItem('📅 Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
-    .addItem('🆔 Đồng bộ mã công việc cuối', 'menuDongBoMaCongViecCuoiV1')
+    .addItem('🆔 Cấp mã công việc còn thiếu', 'menuCapNhatMaCongViecV1')
     .addItem('🔧 Cài lại trigger tối ưu', 'menuCaiTriggerToiUuV1')
     .addItem('🧪 Kiểm tra trigger sau khởi tạo', 'kiemTraTriggerVanHanhTienDoV1')
     .addSeparator()
@@ -110,6 +110,7 @@ function taoMenuNhapVaTinhTienDoQltdV1_() {
 
   ui.createMenu('🧩 2. Nhập & tính tiến độ')
     .addItem('🔢 Cập nhật STT WBS', 'capNhatSttWbsCongViecV1')
+    .addItem('🆔 Cấp mã công việc còn thiếu', 'menuCapNhatMaCongViecV1')
     .addSeparator()
     .addItem('👁️ Xem trạng thái cần tính lại', 'hienTrangThaiTinhLaiTienDoV1')
     .addItem('🔄 Chạy tính lại tiến độ J/L/M/Q', 'menuChayTinhLaiTienDoV1')
@@ -159,7 +160,7 @@ function taoMenuThietLapQLTienDoV1_() {
     .addItem('🧩 Hoàn thiện TEMPLATE gốc', 'menuHoanThienTemplateGocQltdV1')
     .addSeparator()
     .addItem('🔧 Cài lại trigger tối ưu', 'menuCaiTriggerToiUuV1')
-    .addItem('🆔 Đồng bộ mã công việc cuối', 'menuDongBoMaCongViecCuoiV1')
+    .addItem('🆔 Cấp mã công việc còn thiếu', 'menuCapNhatMaCongViecV1')
     .addItem('🔗 Khởi tạo lại công thức cột K', 'menuKhoiTaoCongThucLienKetCotKV1')
     .addItem('📅 Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
     .addSeparator()
@@ -211,7 +212,7 @@ function menuThietLapNhanhBanSaoMoiV1() {
 
   const confirm = ui.alert(
     'Thiết lập nhanh bản sao mới',
-    'Chức năng này sẽ cài trigger tối ưu, đồng bộ mã công việc cuối, khởi tạo công thức cột K, tạo/cập nhật ngày nghỉ và chạy tính lại tiến độ. Tiếp tục?',
+    'Chức năng này sẽ cài trigger tối ưu, cấp mã công việc còn thiếu, khởi tạo công thức cột K, tạo/cập nhật ngày nghỉ và chạy tính lại tiến độ. Tiếp tục?',
     ui.ButtonSet.YES_NO
   );
 
@@ -226,7 +227,7 @@ function menuThietLapNhanhBanSaoMoiV1() {
 
   results.push(menuChayHamBatBuocV1_(['caiTriggerScheduleEngineV1'], 'Cài trigger onEdit tối ưu'));
   results.push(menuChayHamBatBuocV1_(['caiTriggerThayDoiCauTrucScheduleV1'], 'Cài trigger onChange cấu trúc'));
-  results.push(menuChayHamNeuCoV1_(['dongBoMaCongViecCuoiV1'], 'Đồng bộ mã công việc cuối'));
+  results.push(menuChayHamBatBuocV1_(['capNhatMaCongViecConThieuV1'], 'Cấp mã công việc còn thiếu'));
   results.push(menuChayHamNeuCoV1_(['khoiTaoCongThucLienKetDongV1'], 'Khởi tạo công thức cột K'));
   results.push(menuChayHamNeuCoV1_(['taoNgayNghiTuDong'], 'Tạo lại ngày nghỉ/lễ/tết'));
   results.push(menuChayHamBatBuocV1_(['chayTinhLaiTienDoThuCongV1'], 'Chạy tính lại tiến độ'));
@@ -248,7 +249,7 @@ function menuCaiTriggerToiUuV1() {
 }
 
 function menuDongBoMaCongViecCuoiV1() {
-  return menuChayHamBatBuocV1_(['dongBoMaCongViecCuoiV1'], 'Đồng bộ mã công việc cuối');
+  return menuCapNhatMaCongViecV1();
 }
 
 function menuKhoiTaoCongThucLienKetCotKV1() {
@@ -277,7 +278,16 @@ function menuDonNenDongTrongV1() {
   return menuChayHamBatBuocV1_(['chayDonNenCongViecThuCongV1'], 'Dọn nền dòng trống');
 }
 function menuCapNhatMaCongViecV1() {
-  return menuChayHamBatBuocV1_(['capMaCongViec'], 'Cấp/cập nhật mã công việc');
+  const result = capNhatMaCongViecConThieuV1();
+  const message = result && result.message ? result.message : String(result);
+
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    message,
+    'Cấp mã công việc',
+    7
+  );
+
+  return message;
 }
 
 function menuChayTinhLaiTienDoV1() {
@@ -322,6 +332,16 @@ function menuLuuKhoaKeHoachGocV1() {
   );
 
   if (confirm !== ui.Button.YES) return;
+
+  const codeResult = capNhatMaCongViecConThieuV1();
+  const hasDirtyFlag = typeof coCanTinhLaiTienDoV1_ === 'function' && coCanTinhLaiTienDoV1_();
+
+  if (
+    (codeResult && codeResult.updatedId > 0) ||
+    hasDirtyFlag
+  ) {
+    menuChayHamBatBuocV1_(['chayTinhLaiTienDoThuCongV1'], 'Chạy tính lại tiến độ trước khi lưu baseline');
+  }
 
   const result = menuChayHamBatBuocV1_(['chotKeHoachGocV1'], 'Lưu/khóa kế hoạch gốc');
 

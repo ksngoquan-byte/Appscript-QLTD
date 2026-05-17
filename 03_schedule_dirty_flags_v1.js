@@ -249,12 +249,7 @@ function rangeGiaoMotTrongCacCotV1_(startCol, endCol, cols) {
 }
 
 function shouldAutoAssignTaskIdOnEditV1_(editedCol, editedLastCol) {
-  const col = CONFIG.COLUMN.CONG_VIEC;
-
-  return (
-    rangeGiaoCotV1_(editedCol, editedLastCol, col.MA_CV_MAU, col.PREDECESSOR) ||
-    rangeGiaoCotV1_(editedCol, editedLastCol, col.MA_CONG_VIEC, col.MA_CONG_VIEC)
-  );
+  return rangeGiaoCotV1_(editedCol, editedLastCol, 1, 15);
 }
 
 function chayTinhLaiTienDoThuCongV1() {
