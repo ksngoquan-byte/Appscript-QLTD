@@ -34,6 +34,8 @@ function hoanThienTemplateGocQltdV1_() {
 function hoanThienTemplateCongViecQltdV1_(ss) {
   const sheet = layTemplateBatBuocQltdV1_(ss, '_TEMPLATE_Cong_viec');
 
+  boCoDinhDongCotTruocKhiMergeTemplateQltdV1_(sheet);
+
   damBaoSoCotQltdTemplateV1_(sheet, 26);
   xoaNhomHangTemplateQltdV1_(sheet);
 
@@ -140,6 +142,8 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
 function hoanThienTemplateTienDoTongHopQltdV1_(ss) {
   const sheet = layTemplateBatBuocQltdV1_(ss, '_TEMPLATE_Tien_do_tong_hop');
 
+  boCoDinhDongCotTruocKhiMergeTemplateQltdV1_(sheet);
+
   damBaoSoCotQltdTemplateV1_(sheet, 40);
   xoaNhomHangTemplateQltdV1_(sheet);
 
@@ -226,6 +230,8 @@ function hoanThienTemplateTienDoTongHopQltdV1_(ss) {
 function hoanThienTemplateKeHoachGocQltdV1_(ss) {
   const sheet = layTemplateBatBuocQltdV1_(ss, '_TEMPLATE_Ke_hoach_goc');
 
+  boCoDinhDongCotTruocKhiMergeTemplateQltdV1_(sheet);
+
   damBaoSoCotQltdTemplateV1_(sheet, 14);
   xoaNhomHangTemplateQltdV1_(sheet);
 
@@ -290,6 +296,8 @@ function hoanThienTemplateKeHoachGocQltdV1_(ss) {
 function hoanThienTemplateKeHoachGocHistoryQltdV1_(ss) {
   const sheet = layTemplateBatBuocQltdV1_(ss, '_TEMPLATE_Ke_hoach_goc_history');
 
+  boCoDinhDongCotTruocKhiMergeTemplateQltdV1_(sheet);
+
   damBaoSoCotQltdTemplateV1_(sheet, 6);
   xoaNhomHangTemplateQltdV1_(sheet);
 
@@ -348,5 +356,21 @@ function xoaNhomHangTemplateQltdV1_(sheet) {
       Logger.log('Dừng xóa group template tại vòng ' + (i + 1) + ': ' + err.message);
       break;
     }
+  }
+}
+
+function boCoDinhDongCotTruocKhiMergeTemplateQltdV1_(sheet) {
+  try {
+    if (sheet.getFrozenRows && sheet.getFrozenRows() > 0) {
+      sheet.setFrozenRows(0);
+    }
+
+    if (sheet.getFrozenColumns && sheet.getFrozenColumns() > 0) {
+      sheet.setFrozenColumns(0);
+    }
+
+    SpreadsheetApp.flush();
+  } catch (err) {
+    Logger.log('Không bỏ được frozen rows/columns trước khi merge template: ' + err.message);
   }
 }
