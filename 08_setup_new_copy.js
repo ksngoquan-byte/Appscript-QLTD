@@ -156,6 +156,12 @@ function taoSheetVanHanhTuTemplateCoreV1_(replaceExisting) {
   xoaSheetTamAnToanSauResetQltdV1_(ss, safeDeleteContext, logs);
 
   SpreadsheetApp.flush();
+  donSheetTamAnToanConSotSauResetQltdV1_(ss, logs);
+
+  const activeCongViec = ss.getSheetByName('Cong_viec');
+  if (activeCongViec) {
+    ss.setActiveSheet(activeCongViec);
+  }
 
   const message = logs.join('\n');
   Logger.log(message);
@@ -251,6 +257,34 @@ function xoaSheetTamAnToanSauResetQltdV1_(ss, safeDeleteContext, logs) {
     logs.push('- Đã xóa sheet tạm an toàn sau reset.');
   } catch (err) {
     logs.push('- Không xóa được sheet tạm an toàn: ' + err.message);
+  }
+}
+
+function donSheetTamAnToanConSotSauResetQltdV1_(ss, logs) {
+  const tempSheet = ss.getSheetByName(QLTD_TEMP_SAFE_DELETE_SHEET_V1);
+  if (!tempSheet) return;
+
+  const congViec = ss.getSheetByName('Cong_viec');
+  if (congViec) {
+    try {
+      congViec.showSheet();
+      ss.setActiveSheet(congViec);
+      SpreadsheetApp.flush();
+    } catch (err) {
+      Logger.log('Không active được Cong_viec trước khi dọn sheet tạm: ' + err.message);
+    }
+  }
+
+  try {
+    ss.deleteSheet(tempSheet);
+    logs.push('- Đã dọn sheet tạm an toàn còn sót sau reset.');
+  } catch (err) {
+    try {
+      tempSheet.hideSheet();
+      logs.push('- Không xóa được sheet tạm, đã ẩn lại: ' + err.message);
+    } catch (hideErr) {
+      logs.push('- Không xóa/ẩn được sheet tạm: ' + err.message + ' / ' + hideErr.message);
+    }
   }
 }
 
