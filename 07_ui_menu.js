@@ -141,7 +141,7 @@ function menuChayTinhLaiTienDoV1() {
       ui.ButtonSet.YES_NO
     );
 
-    if (confirm !== ui.Button.YES) return 'Da huy chay tinh lai tien do.';
+    if (confirm !== ui.Button.YES) return 'Đã hủy chạy tính lại tiến độ.';
   }
 
   const result = menuChayHamBatBuocV1_(['chayTinhLaiTienDoThuCongV1'], 'Chạy tính lại tiến độ J/L/M/Q');
@@ -250,8 +250,14 @@ function kiemTraTriggerVanHanhTienDoV1() {
     counts[handler] = (counts[handler] || 0) + 1;
   });
 
+  const labels = {
+    xuLySuaScheduleEngineV1: 'onEdit nhẹ - đánh dấu cần tính lại',
+    xuLyThayDoiCauTrucScheduleV1: 'onChange cấu trúc hàng/cột',
+    chayTinhLaiTienDoNenV1: 'trigger nền tính lại tiến độ'
+  };
+
   const lines = watchedHandlers.map(function(handler) {
-    return handler + ': ' + (counts[handler] || 0);
+    return labels[handler] + ' (' + handler + '): ' + (counts[handler] || 0);
   });
   const message = 'Kiểm tra trigger vận hành:\n' + lines.join('\n');
 

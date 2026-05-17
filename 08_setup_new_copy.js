@@ -194,6 +194,9 @@ function xoaTrangThaiTinhLaiSauKhiXoaDuLieuSetupV1_() {
   props.deleteProperty('SCHEDULE_NEED_RECALC_REASON_V1');
   props.deleteProperty('SCHEDULE_NEED_RECALC_MARKED_AT_V1');
   props.deleteProperty('SCHEDULE_NEED_RECALC_MARKED_BY_V1');
+  props.deleteProperty('SCHEDULE_NEED_RECALC_DETAIL_V1');
+  props.deleteProperty('SCHEDULE_NEED_RECALC_RANGE_A1_V1');
+  props.deleteProperty('SCHEDULE_NEED_RECALC_COLUMNS_V1');
 }
 
 function kiemTraSheetBatBuocQLTDV1() {

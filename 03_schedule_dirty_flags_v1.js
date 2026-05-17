@@ -3,16 +3,28 @@
   KEY_REASON: 'SCHEDULE_NEED_RECALC_REASON_V1',
   KEY_MARKED_AT: 'SCHEDULE_NEED_RECALC_MARKED_AT_V1',
   KEY_MARKED_BY: 'SCHEDULE_NEED_RECALC_MARKED_BY_V1',
+  KEY_DETAIL: 'SCHEDULE_NEED_RECALC_DETAIL_V1',
+  KEY_RANGE_A1: 'SCHEDULE_NEED_RECALC_RANGE_A1_V1',
+  KEY_COLUMNS: 'SCHEDULE_NEED_RECALC_COLUMNS_V1',
   KEY_LAST_RUN_AT: 'SCHEDULE_RECALC_LAST_RUN_AT_V1',
   BACKGROUND_TRIGGER_HANDLER: 'chayTinhLaiTienDoNenV1'
 };
 
-function danhDauCanTinhLaiTienDoV1_(reason) {
+function danhDauCanTinhLaiTienDoV1_(reason, detail) {
+  detail = detail || {};
   const props = PropertiesService.getDocumentProperties();
   props.setProperty(SCHEDULE_DIRTY_V1.KEY_NEED_RECALC, '1');
   props.setProperty(SCHEDULE_DIRTY_V1.KEY_REASON, String(reason || 'UNKNOWN'));
   props.setProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_AT, new Date().toISOString());
   props.setProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_BY, layEmailNguoiDungScheduleV1_());
+  props.setProperty(SCHEDULE_DIRTY_V1.KEY_DETAIL, JSON.stringify({
+    sheetName: detail.sheetName || '',
+    rangeA1: detail.rangeA1 || '',
+    columns: Array.isArray(detail.columns) ? detail.columns : [],
+    message: detail.message || ''
+  }));
+  props.setProperty(SCHEDULE_DIRTY_V1.KEY_RANGE_A1, taoPhamViSuaScheduleV1_(detail.sheetName, detail.rangeA1));
+  props.setProperty(SCHEDULE_DIRTY_V1.KEY_COLUMNS, (Array.isArray(detail.columns) ? detail.columns : []).join('; '));
 }
 
 function coCanTinhLaiTienDoV1_() {
@@ -27,6 +39,9 @@ function xoaCoTinhLaiTienDoV1_() {
   props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_REASON);
   props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_AT);
   props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_BY);
+  props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_DETAIL);
+  props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_RANGE_A1);
+  props.deleteProperty(SCHEDULE_DIRTY_V1.KEY_COLUMNS);
 }
 
 function ghiLanChayTinhLaiTienDoV1_() {
@@ -53,11 +68,101 @@ function layTrangThaiTinhLaiTienDoV1() {
     reason: props.getProperty(SCHEDULE_DIRTY_V1.KEY_REASON) || '',
     markedAt: props.getProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_AT) || '',
     markedBy: props.getProperty(SCHEDULE_DIRTY_V1.KEY_MARKED_BY) || '',
+    detail: docJsonScheduleV1_(props.getProperty(SCHEDULE_DIRTY_V1.KEY_DETAIL)),
+    rangeA1: props.getProperty(SCHEDULE_DIRTY_V1.KEY_RANGE_A1) || '',
+    columns: props.getProperty(SCHEDULE_DIRTY_V1.KEY_COLUMNS) || '',
     lastRunAt: props.getProperty(SCHEDULE_DIRTY_V1.KEY_LAST_RUN_AT) || ''
   };
 
   Logger.log(JSON.stringify(status));
   return status;
+}
+
+function docJsonScheduleV1_(jsonText) {
+  if (!jsonText) return {};
+
+  try {
+    return JSON.parse(jsonText);
+  } catch (err) {
+    Logger.log('docJsonScheduleV1_: ' + err);
+    return {};
+  }
+}
+
+function taoPhamViSuaScheduleV1_(sheetName, rangeA1) {
+  if (!sheetName || !rangeA1) return '';
+  return sheetName + '!' + rangeA1;
+}
+
+function dinhDangThoiGianScheduleV1_(isoText) {
+  if (!isoText) return '';
+
+  const date = new Date(isoText);
+  if (isNaN(date.getTime())) return String(isoText);
+
+  return Utilities.formatDate(date, 'Asia/Ho_Chi_Minh', 'dd/MM/yyyy HH:mm:ss');
+}
+
+function layLyDoTiengVietScheduleV1_(reason, detail) {
+  if (detail && detail.message) return detail.message;
+
+  const map = {
+    EDIT_CAU_HINH: 'Sửa cấu hình tiến độ',
+    EDIT_STRUCTURE_OR_SCOPE: 'Sửa cấu trúc hoặc tên công việc',
+    EDIT_PREDECESSOR: 'Sửa công việc liên kết/tiền nhiệm',
+    EDIT_SCHEDULE_FIELD: 'Sửa dữ liệu tiến độ',
+    EDIT_ACTUAL_DATE: 'Sửa ngày thực tế bắt đầu/hoàn thành'
+  };
+
+  const code = String(reason || '');
+  if (code.indexOf('STRUCTURE_CHANGE_') === 0) return 'Thay đổi cấu trúc hàng/cột';
+
+  return map[code] || 'Có thay đổi tiến độ cần xử lý';
+}
+
+function layCotAnhHuongScheduleV1_(startCol, endCol, targetCols) {
+  const result = [];
+  const seen = {};
+
+  targetCols.forEach(function(col) {
+    if (!rangeGiaoCotV1_(startCol, endCol, col, col)) return;
+
+    const label = layNhanCotScheduleV1_(col);
+    if (seen[label]) return;
+
+    seen[label] = true;
+    result.push(label);
+  });
+
+  return result;
+}
+
+function layNhanCotScheduleV1_(col) {
+  const map = {
+    2: 'B - Cây công việc / WBS',
+    8: 'H - Tên công việc / phạm vi',
+    10: 'J - Số ngày kế hoạch',
+    11: 'K - Công việc liên kết',
+    12: 'L - Bắt đầu kế hoạch hiện hành',
+    13: 'M - Kết thúc kế hoạch hiện hành',
+    19: 'S - Bắt đầu thực tế',
+    20: 'T - Hoàn thành thực tế'
+  };
+
+  return map[col] || (cotSoThanhChuScheduleV1_(col) + ' - Cột ảnh hưởng');
+}
+
+function cotSoThanhChuScheduleV1_(col) {
+  let n = Number(col);
+  let text = '';
+
+  while (n > 0) {
+    const remainder = (n - 1) % 26;
+    text = String.fromCharCode(65 + remainder) + text;
+    n = Math.floor((n - 1) / 26);
+  }
+
+  return text;
 }
 
 function logPerfScheduleV1_(label, startedAt) {
@@ -68,7 +173,12 @@ function logPerfScheduleV1_(label, startedAt) {
 }
 
 function handleCauHinhEditLight_(e, sheet, row, editedCol, editedLastCol) {
-  danhDauCanTinhLaiTienDoV1_('EDIT_CAU_HINH');
+  danhDauCanTinhLaiTienDoV1_('EDIT_CAU_HINH', {
+    sheetName: sheet.getName(),
+    rangeA1: e.range.getA1Notation(),
+    columns: layCotAnhHuongScheduleV1_(editedCol, editedLastCol, [editedCol]),
+    message: 'Sửa cấu hình tiến độ'
+  });
   return true;
 }
 
@@ -118,7 +228,12 @@ function handleCongViecEditLight_(e, sheet, row, editedCol, editedLastCol) {
   }
 
   if (dirtyReason) {
-    danhDauCanTinhLaiTienDoV1_(dirtyReason);
+    danhDauCanTinhLaiTienDoV1_(dirtyReason, {
+      sheetName: sheet.getName(),
+      rangeA1: e.range.getA1Notation(),
+      columns: layCotAnhHuongScheduleV1_(editedCol, editedLastCol, watchedCols),
+      message: layLyDoTiengVietScheduleV1_(dirtyReason, null)
+    });
     return true;
   }
 
@@ -170,7 +285,7 @@ function chayTinhLaiTienDoThuCongFullV1() {
 
 function chayTinhLaiTienDoNenV1() {
   if (!coCanTinhLaiTienDoV1_()) {
-    return 'Khong co co can tinh lai.';
+    return 'Không có cờ cần tính lại.';
   }
 
   const started = Date.now();
@@ -195,7 +310,7 @@ function caiTriggerTinhLaiTienDoNenV1() {
     .everyMinutes(10)
     .create();
 
-  return 'Da cai trigger nen tinh lai tien do moi 10 phut.';
+  return 'Đã cài trigger nền tính lại tiến độ mỗi 10 phút.';
 }
 
 function xoaTriggerTinhLaiTienDoNenV1() {
@@ -208,7 +323,7 @@ function xoaTriggerTinhLaiTienDoNenV1() {
       deleted++;
     });
 
-  return 'Da xoa trigger nen. So trigger xoa: ' + deleted;
+  return 'Đã xóa trigger nền. Số trigger đã xóa: ' + deleted;
 }
 
 function chayDonNenCongViecThuCongV1() {
@@ -227,18 +342,26 @@ function chayDonNenCongViecThuCongV1() {
 
 function hienTrangThaiTinhLaiTienDoV1() {
   const status = layTrangThaiTinhLaiTienDoV1();
-  const nextStep = status.needRecalc
-    ? 'Nen bam "Chay tinh lai tien do J/L/M/Q".'
-    : 'Chua can chay lai. Neu muon doi soat, co the chay thu cong va xac nhan.';
-  const message =
-    'Can tinh lai: ' + (status.needRecalc ? 'CO' : 'KHONG') +
-    '\nLy do: ' + (status.reason || '(khong co)') +
-    '\nThoi diem phat sinh: ' + (status.markedAt || '(khong co)') +
-    '\nNguoi cap nhat: ' + (status.markedBy || '(khong lay duoc email)') +
-    '\nLan chay tinh lai gan nhat: ' + (status.lastRunAt || '(chua co)') +
-    '\nGoi y: ' + nextStep;
+  const lines = [
+    'Cần tính lại: ' + (status.needRecalc ? 'CÓ' : 'KHÔNG')
+  ];
 
-  SpreadsheetApp.getUi().alert(message);
+  if (status.needRecalc) {
+    lines.push('Lý do: ' + layLyDoTiengVietScheduleV1_(status.reason, status.detail));
+    lines.push('Mã hệ thống: ' + (status.reason || 'Không có'));
+    lines.push('Phạm vi sửa: ' + (status.rangeA1 || 'Không ghi nhận'));
+    lines.push('Cột ảnh hưởng: ' + (status.columns || 'Không ghi nhận'));
+    lines.push('Thời điểm phát sinh: ' + (dinhDangThoiGianScheduleV1_(status.markedAt) || 'Không ghi nhận'));
+    lines.push('Người cập nhật: ' + (status.markedBy || 'Không lấy được email'));
+    lines.push('Lần chạy tính lại gần nhất: ' + (dinhDangThoiGianScheduleV1_(status.lastRunAt) || 'Chưa có'));
+    lines.push('Gợi ý: Bấm “Chạy tính lại tiến độ J/L/M/Q” để cập nhật L/M/Q.');
+  } else {
+    lines.push('Lý do: Không có thay đổi tiến độ đang chờ xử lý');
+    lines.push('Lần chạy tính lại gần nhất: ' + (dinhDangThoiGianScheduleV1_(status.lastRunAt) || 'Chưa có'));
+    lines.push('Gợi ý: Chưa cần chạy lại. Nếu muốn đối soát, có thể chạy thủ công và xác nhận.');
+  }
+
+  SpreadsheetApp.getUi().alert('Trạng thái tính lại tiến độ', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
   return status;
 }
 
@@ -271,7 +394,9 @@ function xuLyThayDoiCauTrucScheduleV1(e) {
 
     if (watchedTypes.indexOf(e.changeType) === -1) return;
 
-    danhDauCanTinhLaiTienDoV1_('STRUCTURE_CHANGE_' + e.changeType);
+    danhDauCanTinhLaiTienDoV1_('STRUCTURE_CHANGE_' + e.changeType, {
+      message: 'Thay đổi cấu trúc hàng/cột'
+    });
   } catch (err) {
     Logger.log('xuLyThayDoiCauTrucScheduleV1: ' + err);
   }
@@ -287,7 +412,7 @@ function caiTriggerThayDoiCauTrucScheduleV1() {
     .onChange()
     .create();
 
-  return 'Da cai trigger onChange cho thay doi cau truc hang/cot.';
+  return 'Đã cài trigger onChange cho thay đổi cấu trúc hàng/cột.';
 }
 
 function xoaTriggerThayDoiCauTrucScheduleV1() {
@@ -300,6 +425,6 @@ function xoaTriggerThayDoiCauTrucScheduleV1() {
       deleted++;
     });
 
-  return 'Da xoa trigger onChange cau truc. So trigger xoa: ' + deleted;
+  return 'Đã xóa trigger onChange cấu trúc. Số trigger đã xóa: ' + deleted;
 }
 

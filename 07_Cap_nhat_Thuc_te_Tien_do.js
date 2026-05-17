@@ -186,7 +186,16 @@ function xuLyCapNhatThucTeTienDoOnEditV1(e) {
   }
 
   if (typeof danhDauCanTinhLaiTienDoV1_ === 'function') {
-    danhDauCanTinhLaiTienDoV1_('EDIT_ACTUAL_DATE');
+    const actualDateColumns = typeof layCotAnhHuongScheduleV1_ === 'function'
+      ? layCotAnhHuongScheduleV1_(startCol, endCol, [19, 20])
+      : [];
+
+    danhDauCanTinhLaiTienDoV1_('EDIT_ACTUAL_DATE', {
+      sheetName: sheet.getName(),
+      rangeA1: range.getA1Notation(),
+      columns: actualDateColumns,
+      message: 'Sửa ngày thực tế bắt đầu/hoàn thành'
+    });
   }
 
   for (let i = 0; i < numRows; i++) {
