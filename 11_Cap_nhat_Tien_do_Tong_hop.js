@@ -500,6 +500,7 @@ function capNhatGanttTongHop3B_(sheet, ganttRows) {
   veTimelineGantt3B_(sheet, firstWeekStart, weekCount, GANTT_START_COL, HEADER_MONTH_ROW, HEADER_WEEK_ROW);
   toMauBarGantt3B_(sheet, ganttRows, firstWeekStart, weekCount, GANTT_START_COL, DATA_START_ROW);
   highlightTuanHienTaiGantt3B_(sheet, firstWeekStart, weekCount, GANTT_START_COL, DATA_START_ROW, ganttRows.length);
+  keVienDocDauThangGantt3B_(sheet, firstWeekStart, weekCount, GANTT_START_COL, HEADER_MONTH_ROW, DATA_START_ROW, ganttRows.length);
 
   sheet.setFrozenRows(4);
   sheet.setFrozenColumns(9);
@@ -702,4 +703,39 @@ function boGioGantt3B_(value) {
 
 function laNgayHopLeGantt3B_(value) {
   return Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime());
+}
+
+function keVienDocDauThangGantt3B_(sheet, firstWeekStart, weekCount, ganttStartCol, headerMonthRow, dataStartRow, rowCount) {
+  if (!weekCount || weekCount <= 0) return;
+
+  const totalHeight = Math.max(rowCount + dataStartRow - headerMonthRow, 2);
+  let previousMonthKey = '';
+
+  for (let w = 0; w < weekCount; w++) {
+    const weekStart = congNgayGantt3B_(firstWeekStart, w * 7);
+    const saturday = congNgayGantt3B_(weekStart, 5);
+    const monthKey = Utilities.formatDate(saturday, 'Asia/Ho_Chi_Minh', 'MM/yyyy');
+
+    const isFirstCol = w === 0;
+    const isNewMonth = monthKey !== previousMonthKey;
+
+    if (isFirstCol || isNewMonth) {
+      const col = ganttStartCol + w;
+
+      sheet
+        .getRange(headerMonthRow, col, totalHeight, 1)
+        .setBorder(
+          null,
+          true,
+          null,
+          null,
+          null,
+          null,
+          isFirstCol ? '#334155' : '#64748b',
+          isFirstCol ? SpreadsheetApp.BorderStyle.SOLID_MEDIUM : SpreadsheetApp.BorderStyle.SOLID
+        );
+    }
+
+    previousMonthKey = monthKey;
+  }
 }
