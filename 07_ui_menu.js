@@ -2,6 +2,7 @@
   taoMenuThietLapQLTienDoV1_();
   taoMenuCayCongViecWbsV1_();
   taoMenuVanHanhQLTienDoV1_();
+  taoMenuNhomWbsTongHopV1_();
 }
 
 function onOpen() {
@@ -53,6 +54,15 @@ function taoMenuCayCongViecWbsV1_() {
     .addItem('Thiết lập cột B/Z WBS', 'thietLapCotWbsCongViecV1')
     .addItem('Dọn cảnh báo bảo vệ Cong_viec', 'donCanhBaoBaoVeCongViecV1')
     .addItem('Cập nhật STT WBS', 'capNhatSttWbsCongViecV1')
+    .addToUi();
+}
+
+function taoMenuNhomWbsTongHopV1_() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('🗂️ Nhóm WBS tổng hợp')
+    .addItem('1. Tạo nhóm WBS', 'menuTaoNhomWbsTongHopV1')
+    .addItem('2. Xóa nhóm WBS', 'menuXoaNhomWbsTongHopV1')
     .addToUi();
 }
 
