@@ -204,10 +204,6 @@ function handleCongViecEditLight_(e, sheet, row, editedCol, editedLastCol) {
     capMaCongViecChoVungNeuThieuV1_(sheet, e.range);
   }
 
-  if (shouldAutoAssignTaskIdOnPasteV1_(e, editedCol, editedLastCol)) {
-    capMaCongViecChoVungPasteNeuThieuV1_(sheet, e.range);
-  }
-
   if (
     rangeGiaoCotV1_(editedCol, editedLastCol, cfg.COL.PREDECESSOR, cfg.COL.PREDECESSOR) &&
     typeof chuyenVungNhapThanhCongThucLienKetDongV1_ === 'function'
@@ -259,77 +255,6 @@ function shouldAutoAssignTaskIdOnEditV1_(editedCol, editedLastCol) {
     rangeGiaoCotV1_(editedCol, editedLastCol, col.MA_CV_MAU, col.PREDECESSOR) ||
     rangeGiaoCotV1_(editedCol, editedLastCol, col.MA_CONG_VIEC, col.MA_CONG_VIEC)
   );
-}
-
-function shouldAutoAssignTaskIdOnPasteV1_(e, editedCol, editedLastCol) {
-  if (!e || !e.range || typeof CONFIG === 'undefined') return false;
-
-  const range = e.range;
-  const isMultiCellPaste = range.getNumRows() > 1 || range.getNumColumns() > 1;
-  if (!isMultiCellPaste) return false;
-
-  const col = CONFIG.COLUMN.CONG_VIEC;
-  return rangeGiaoCotV1_(editedCol, editedLastCol, col.MA_CV_MAU, col.MA_CONG_VIEC);
-}
-
-function capMaCongViecChoVungPasteNeuThieuV1_(sheet, editedRange) {
-  if (!sheet || !editedRange || typeof CONFIG === 'undefined') {
-    return { assigned: 0, skipped: 0 };
-  }
-
-  const col = CONFIG.COLUMN.CONG_VIEC;
-  const startRow = CONFIG.SYSTEM.START_ROW;
-  const lastRow = sheet.getLastRow();
-
-  if (lastRow < startRow) return { assigned: 0, skipped: 0 };
-
-  const rangeStartRow = Math.max(editedRange.getRow(), startRow);
-  const rangeEndRow = Math.min(editedRange.getLastRow(), lastRow);
-
-  if (rangeEndRow < rangeStartRow) return { assigned: 0, skipped: 0 };
-
-  const numRows = rangeEndRow - rangeStartRow + 1;
-  const values = sheet.getRange(rangeStartRow, 1, numRows, col.MA_CONG_VIEC).getValues();
-  const maRange = sheet.getRange(rangeStartRow, col.MA_CONG_VIEC, numRows, 1);
-  const maValues = maRange.getValues();
-
-  let lastId = typeof layMaCongViecCuoi_ === 'function' ? layMaCongViecCuoi_() : 0;
-
-  if (!lastId && typeof layMaCongViecLonNhatTuCotMaV1_ === 'function') {
-    lastId = layMaCongViecLonNhatTuCotMaV1_(sheet, col);
-  }
-
-  let assigned = 0;
-  let skipped = 0;
-  let changed = false;
-
-  for (let i = 0; i < values.length; i++) {
-    const row = values[i];
-    const taskName = String(row[col.TEN_CV - 1] || '').trim();
-    const currentMa = maValues[i][0];
-
-    if (!taskName || currentMa) {
-      skipped++;
-      continue;
-    }
-
-    lastId++;
-    maValues[i][0] = typeof dinhDangMa_ === 'function'
-      ? dinhDangMa_(lastId)
-      : String(lastId);
-    assigned++;
-    changed = true;
-  }
-
-  if (changed) {
-    maRange.setValues(maValues);
-
-    if (typeof luuMaCongViecCuoi_ === 'function') {
-      luuMaCongViecCuoi_(lastId);
-    }
-  }
-
-  return { assigned: assigned, skipped: skipped };
 }
 
 function chayTinhLaiTienDoThuCongV1() {
