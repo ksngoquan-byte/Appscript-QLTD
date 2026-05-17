@@ -127,6 +127,8 @@ function taoSheetVanHanhTuTemplateCoreV1_(replaceExisting) {
       Logger.log('Không show được sheet vận hành mới ' + item.targetName + ': ' + err.message);
     }
 
+    dinhDangSheetVanHanhSauCopyTemplateV1_(newSheet, item.targetName);
+
     ss.setActiveSheet(newSheet);
     ss.moveActiveSheet(Math.min(templateSheet.getIndex() + 1, ss.getNumSheets()));
 
@@ -191,6 +193,253 @@ function anLaiCacSheetTemplateSauSetupV1_(ss) {
       Logger.log('Không ẩn được template sau setup ' + item.templateName + ': ' + err.message);
     }
   });
+}
+
+function dinhDangSheetVanHanhSauCopyTemplateV1_(sheet, targetName) {
+  if (!sheet || !targetName) return;
+
+  if (targetName === 'Cong_viec') {
+    dinhDangCongViecVanHanhSauCopyTemplateV1_(sheet);
+    return;
+  }
+
+  if (targetName === 'Tien_do_tong_hop') {
+    dinhDangTienDoTongHopVanHanhSauCopyTemplateV1_(sheet);
+    return;
+  }
+
+  if (targetName === 'Ke_hoach_goc') {
+    dinhDangKeHoachGocVanHanhSauCopyTemplateV1_(sheet);
+    return;
+  }
+
+  if (targetName === 'Ke_hoach_goc_history') {
+    dinhDangKeHoachGocHistoryVanHanhSauCopyTemplateV1_(sheet);
+  }
+}
+
+function dinhDangCongViecVanHanhSauCopyTemplateV1_(sheet) {
+  const maxRows = sheet.getMaxRows();
+
+  sheet.getRange(1, 1, 1, 26)
+    .breakApart()
+    .mergeAcross()
+    .setValue('BẢNG TIẾN ĐỘ DỰ ÁN')
+    .setFontWeight('bold')
+    .setFontSize(12)
+    .setFontColor('#ffffff')
+    .setBackground('#0f172a')
+    .setHorizontalAlignment('left')
+    .setVerticalAlignment('middle');
+
+  sheet.getRange(4, 1, 1, 26)
+    .setFontWeight('bold')
+    .setFontSize(9)
+    .setFontColor('#111827')
+    .setBackground('#dbeafe')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true)
+    .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
+
+  if (maxRows >= 5) {
+    const bodyRows = maxRows - 4;
+
+    sheet.getRange(5, 1, bodyRows, 26)
+      .setFontColor('#111827')
+      .setFontSize(9)
+      .setBackground('#ffffff')
+      .setVerticalAlignment('middle')
+      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
+
+    // Wrap các cột dài.
+    sheet.getRange(5, 8, bodyRows, 1).setWrap(true);   // H - Công việc / Phạm vi
+    sheet.getRange(5, 11, bodyRows, 1).setWrap(true);  // K - Công việc liên kết
+    sheet.getRange(5, 14, bodyRows, 1).setWrap(true);  // N - Ghi chú
+    sheet.getRange(5, 21, bodyRows, 1).setWrap(true);  // U - Ghi chú cập nhật
+
+    // Căn giữa các cột mã/ngày/trạng thái.
+    sheet.getRange(5, 2, bodyRows, 1).setHorizontalAlignment('center');  // B - WBS
+    sheet.getRange(5, 7, bodyRows, 1).setHorizontalAlignment('center');  // G - ID
+    sheet.getRange(5, 10, bodyRows, 1).setHorizontalAlignment('center'); // J
+    sheet.getRange(5, 12, bodyRows, 2).setHorizontalAlignment('center').setNumberFormat('dd/MM/yyyy'); // L:M
+    sheet.getRange(5, 19, bodyRows, 2).setHorizontalAlignment('center').setNumberFormat('dd/MM/yyyy'); // S:T
+    sheet.getRange(5, 22, bodyRows, 1).setHorizontalAlignment('center').setNumberFormat('dd/MM/yyyy'); // V
+  }
+
+  // Column width chuẩn.
+  sheet.setColumnWidth(1, 120);
+  sheet.setColumnWidth(2, 90);
+  sheet.setColumnWidth(3, 90);
+  sheet.setColumnWidth(4, 120);
+  sheet.setColumnWidth(5, 140);
+  sheet.setColumnWidth(6, 140);
+  sheet.setColumnWidth(7, 70);
+  sheet.setColumnWidth(8, 360);
+  sheet.setColumnWidth(9, 130);
+  sheet.setColumnWidth(10, 100);
+  sheet.setColumnWidth(11, 160);
+  sheet.setColumnWidth(12, 120);
+  sheet.setColumnWidth(13, 120);
+  sheet.setColumnWidth(14, 180);
+  sheet.setColumnWidth(15, 120);
+  sheet.setColumnWidth(16, 120);
+  sheet.setColumnWidth(17, 160);
+  sheet.setColumnWidth(18, 140);
+  sheet.setColumnWidth(19, 120);
+  sheet.setColumnWidth(20, 120);
+  sheet.setColumnWidth(21, 220);
+  sheet.setColumnWidth(22, 120);
+  sheet.setColumnWidth(23, 180);
+  sheet.setColumnWidth(26, 120);
+
+  sheet.setFrozenRows(4);
+
+  try {
+    sheet.hideColumns(26);
+  } catch (err) {
+    Logger.log('Không ẩn được cột Z Cong_viec sau copy template: ' + err.message);
+  }
+}
+
+function dinhDangTienDoTongHopVanHanhSauCopyTemplateV1_(sheet) {
+  const maxRows = sheet.getMaxRows();
+  const maxCols = sheet.getMaxColumns();
+  const leftCols = 9;
+  const ganttStartCol = 10;
+
+  sheet.getRange(1, 1, 1, leftCols)
+    .breakApart()
+    .mergeAcross()
+    .setValue('TIẾN ĐỘ TỔNG HỢP / GANTT VIEW')
+    .setFontWeight('bold')
+    .setFontSize(12)
+    .setFontColor('#ffffff')
+    .setBackground('#0f172a')
+    .setHorizontalAlignment('left')
+    .setVerticalAlignment('middle');
+
+  sheet.getRange(2, 1, 1, 8)
+    .setFontWeight('bold')
+    .setFontSize(9)
+    .setFontColor('#111827')
+    .setBackground('#e5e7eb')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
+
+  sheet.getRange(4, 1, 1, leftCols)
+    .setFontWeight('bold')
+    .setFontSize(9)
+    .setFontColor('#111827')
+    .setBackground('#dbeafe')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true)
+    .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
+
+  if (maxRows >= 5) {
+    const bodyRows = maxRows - 4;
+
+    sheet.getRange(5, 1, bodyRows, leftCols)
+      .setFontColor('#111827')
+      .setFontSize(9)
+      .setBackground('#ffffff')
+      .setVerticalAlignment('middle')
+      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
+
+    sheet.getRange(5, 1, bodyRows, 2).setHorizontalAlignment('center');
+    sheet.getRange(5, 3, bodyRows, 1).setWrap(true);
+    sheet.getRange(5, 4, bodyRows, 1).setHorizontalAlignment('center');
+    sheet.getRange(5, 5, bodyRows, 1).setHorizontalAlignment('center');
+    sheet.getRange(5, 6, bodyRows, 1).setWrap(true).setHorizontalAlignment('center');
+    sheet.getRange(5, 7, bodyRows, 2).setNumberFormat('dd/MM/yyyy').setHorizontalAlignment('center');
+    sheet.getRange(5, 9, bodyRows, 1).setWrap(true);
+
+    // Gantt vùng trống từ J trở đi vẫn có grid nhẹ để người dùng thấy khu vực thao tác.
+    if (maxCols >= ganttStartCol) {
+      sheet.getRange(3, ganttStartCol, Math.min(maxRows - 2, 120), maxCols - ganttStartCol + 1)
+        .setBorder(true, true, true, true, true, true, '#edf2f7', SpreadsheetApp.BorderStyle.SOLID);
+    }
+  }
+
+  sheet.setColumnWidth(1, 60);
+  sheet.setColumnWidth(2, 55);
+  sheet.setColumnWidth(3, 360);
+  sheet.setColumnWidth(4, 105);
+  sheet.setColumnWidth(5, 90);
+  sheet.setColumnWidth(6, 135);
+  sheet.setColumnWidth(7, 110);
+  sheet.setColumnWidth(8, 110);
+  sheet.setColumnWidth(9, 220);
+
+  for (let col = 10; col <= Math.min(maxCols, 80); col++) {
+    sheet.setColumnWidth(col, 28);
+  }
+
+  sheet.setFrozenRows(4);
+  sheet.setFrozenColumns(9);
+}
+
+function dinhDangKeHoachGocVanHanhSauCopyTemplateV1_(sheet) {
+  const maxRows = sheet.getMaxRows();
+
+  sheet.getRange(1, 1, 1, 14)
+    .breakApart()
+    .mergeAcross()
+    .setValue('KẾ HOẠCH GỐC / BASELINE ACTIVE')
+    .setFontWeight('bold')
+    .setFontSize(12)
+    .setFontColor('#ffffff')
+    .setBackground('#374151')
+    .setHorizontalAlignment('left')
+    .setVerticalAlignment('middle');
+
+  sheet.getRange(4, 1, 1, 14)
+    .setFontWeight('bold')
+    .setFontSize(9)
+    .setFontColor('#111827')
+    .setBackground('#e5e7eb')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true)
+    .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
+
+  if (maxRows >= 5) {
+    sheet.getRange(5, 1, maxRows - 4, 14)
+      .setFontColor('#111827')
+      .setFontSize(9)
+      .setBackground('#ffffff')
+      .setVerticalAlignment('middle')
+      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
+  }
+
+  sheet.setFrozenRows(4);
+}
+
+function dinhDangKeHoachGocHistoryVanHanhSauCopyTemplateV1_(sheet) {
+  const maxRows = sheet.getMaxRows();
+
+  sheet.getRange(1, 1, 1, 6)
+    .setFontWeight('bold')
+    .setFontSize(9)
+    .setFontColor('#111827')
+    .setBackground('#e5e7eb')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true)
+    .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
+
+  if (maxRows >= 2) {
+    sheet.getRange(2, 1, maxRows - 1, 6)
+      .setFontColor('#111827')
+      .setFontSize(9)
+      .setBackground('#ffffff')
+      .setVerticalAlignment('middle')
+      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
+  }
+
+  sheet.setFrozenRows(1);
 }
 
 function menuXoaSheetSnapshotKeHoachGocCuV1() {
