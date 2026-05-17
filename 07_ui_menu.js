@@ -1,12 +1,151 @@
 ﻿function taoMenu() {
-  taoMenuThietLapQLTienDoV1_();
-  taoMenuCayCongViecWbsV1_();
-  taoMenuVanHanhQLTienDoV1_();
-  taoMenuNhomWbsTongHopV1_();
+  if (coHienThiMenuKhoiTaoFileV1_()) {
+    taoMenuKhoiTaoVaCauHinhFileQltdV1_();
+  }
+
+  taoMenuNhapVaTinhTienDoQltdV1_();
+  taoMenuTongHopVaGanttQltdV1_();
+  taoMenuAnToanVaBaoTriQltdV1_();
 }
 
 function onOpen() {
   taoMenu();
+}
+
+const QLTD_SHOW_KHOI_TAO_MENU_PROP_V1 = 'QLTD_SHOW_KHOI_TAO_MENU_V1';
+
+function coHienThiMenuKhoiTaoFileV1_() {
+  const props = PropertiesService.getDocumentProperties();
+  const value = props.getProperty(QLTD_SHOW_KHOI_TAO_MENU_PROP_V1);
+
+  // Mặc định hiện menu khởi tạo để file mới/copy mới dễ dùng.
+  return value !== '0';
+}
+
+function taoMenuKhoiTaoVaCauHinhFileQltdV1_() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('🚀 1. Khởi tạo & cấu hình file')
+    .addItem('🧭 Xem quy trình khởi tạo', 'menuXemQuyTrinhKhoiTaoFileV1')
+    .addItem('1️⃣ Thiết lập nhanh bản sao mới', 'menuThietLapNhanhBanSaoMoiV1')
+    .addSeparator()
+    .addItem('🧩 Hoàn thiện TEMPLATE gốc', 'menuHoanThienTemplateGocQltdV1')
+    .addItem('🌳 Thiết lập cột B/Z WBS', 'thietLapCotWbsCongViecV1')
+    .addItem('🔗 Khởi tạo lại công thức cột K', 'menuKhoiTaoCongThucLienKetCotKV1')
+    .addItem('📅 Tạo lại ngày nghỉ/lễ/tết', 'menuTaoLaiNgayNghiLeTetV1')
+    .addItem('🆔 Đồng bộ mã công việc cuối', 'menuDongBoMaCongViecCuoiV1')
+    .addItem('🔧 Cài lại trigger tối ưu', 'menuCaiTriggerToiUuV1')
+    .addItem('🧪 Kiểm tra trigger sau khởi tạo', 'kiemTraTriggerVanHanhTienDoV1')
+    .addSeparator()
+    .addItem('⚠️ Xóa dữ liệu cũ và tạo lại từ TEMPLATE', 'menuXoaDuLieuCuVaTaoMoiTuTemplateV1')
+    .addItem('👁️ Ẩn menu khởi tạo file', 'menuAnMenuKhoiTaoFileV1')
+    .addToUi();
+}
+
+function menuXemQuyTrinhKhoiTaoFileV1() {
+  const message =
+    'QUY TRÌNH KHỞI TẠO FILE QL TIẾN ĐỘ\n\n' +
+    'Bước 1: Tạo bản sao file mẫu.\n' +
+    'Bước 2: Vào menu “🚀 1. Khởi tạo & cấu hình file”.\n' +
+    'Bước 3: Bấm “1️⃣ Thiết lập nhanh bản sao mới”.\n' +
+    'Bước 4: Kiểm tra trigger sau khởi tạo.\n' +
+    'Bước 5: Kiểm tra sheet Cong_viec và Tien_do_tong_hop.\n' +
+    'Bước 6: Nếu file đã sẵn sàng, bấm “Ẩn menu khởi tạo file” để tránh thao tác nhầm.\n\n' +
+    'Lưu ý: Chức năng “Xóa dữ liệu cũ và tạo lại từ TEMPLATE” là thao tác reset mạnh, chỉ dùng khi cần tạo lại file vận hành từ template.';
+
+  SpreadsheetApp.getUi().alert(
+    'Quy trình khởi tạo file',
+    message,
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+
+  return message;
+}
+
+function menuAnMenuKhoiTaoFileV1() {
+  const props = PropertiesService.getDocumentProperties();
+  props.setProperty(QLTD_SHOW_KHOI_TAO_MENU_PROP_V1, '0');
+
+  const message =
+    'Đã ẨN menu “🚀 1. Khởi tạo & cấu hình file”.\n' +
+    'Vui lòng tải lại Google Sheet để áp dụng.\n\n' +
+    'Khi cần bật lại, vào “🛡️ 4. An toàn & bảo trì” → “Bật/tắt menu khởi tạo file”.';
+
+  SpreadsheetApp.getActiveSpreadsheet().toast(message, 'QLTD', 7);
+
+  SpreadsheetApp.getUi().alert(
+    'Ẩn menu khởi tạo file',
+    message,
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+
+  return message;
+}
+
+function menuToggleMenuKhoiTaoFileV1() {
+  const props = PropertiesService.getDocumentProperties();
+  const current = coHienThiMenuKhoiTaoFileV1_();
+  const next = !current;
+
+  props.setProperty(QLTD_SHOW_KHOI_TAO_MENU_PROP_V1, next ? '1' : '0');
+
+  const message = next
+    ? 'Đã BẬT menu “🚀 1. Khởi tạo & cấu hình file”. Vui lòng tải lại Google Sheet để áp dụng.'
+    : 'Đã TẮT menu “🚀 1. Khởi tạo & cấu hình file”. Vui lòng tải lại Google Sheet để áp dụng.';
+
+  SpreadsheetApp.getActiveSpreadsheet().toast(message, 'QLTD', 7);
+
+  SpreadsheetApp.getUi().alert(
+    'Bật/tắt menu khởi tạo file',
+    message,
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+
+  return message;
+}
+
+function taoMenuNhapVaTinhTienDoQltdV1_() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('🧩 2. Nhập & tính tiến độ')
+    .addItem('🔢 Cập nhật STT WBS', 'capNhatSttWbsCongViecV1')
+    .addSeparator()
+    .addItem('👁️ Xem trạng thái cần tính lại', 'hienTrangThaiTinhLaiTienDoV1')
+    .addItem('🔄 Chạy tính lại tiến độ J/L/M/Q', 'menuChayTinhLaiTienDoV1')
+    .addItem('✅ Kiểm tra lỗi dữ liệu đầu vào', 'menuKiemTraDuLieuDauVaoV1')
+    .addSeparator()
+    .addItem('🔒 Lưu/khóa kế hoạch gốc', 'menuLuuKhoaKeHoachGocV1')
+    .addToUi();
+}
+
+function taoMenuTongHopVaGanttQltdV1_() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('📊 3. Tổng hợp & Gantt')
+    .addItem('📈 Cập nhật tổng hợp + Gantt', 'menuCapNhatTongHopGanttV1')
+    .addItem('👁️ Hiện/ẩn kế hoạch gốc trên Gantt', 'menuToggleDuongGangKeHoachGocV1')
+    .addSeparator()
+    .addItem('🗂️ Tạo nhóm WBS tổng hợp', 'menuTaoNhomWbsTongHopV1')
+    .addItem('🧹 Xóa nhóm WBS tổng hợp', 'menuXoaNhomWbsTongHopV1')
+    .addToUi();
+}
+
+function taoMenuAnToanVaBaoTriQltdV1_() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('🛡️ 4. An toàn & bảo trì')
+    .addItem('👁️ Bật/tắt menu khởi tạo file', 'menuToggleMenuKhoiTaoFileV1')
+    .addSeparator()
+    .addItem('🧭 Chỉ hiện sheet vận hành', 'batCheDoChiHienSheetVanHanhV1')
+    .addItem('🔓 Hiện lại toàn bộ sheet', 'hienLaiTatCaSheetV1')
+    .addSeparator()
+    .addItem('🟢 Bật trigger nền 10 phút', 'menuBatTriggerNenV1')
+    .addItem('🔴 Tắt trigger nền 10 phút', 'menuTatTriggerNenV1')
+    .addSeparator()
+    .addItem('🛡️ Dọn cảnh báo bảo vệ Cong_viec', 'donCanhBaoBaoVeCongViecV1')
+    .addItem('🧹 Dọn nền dòng trống', 'menuDonNenDongTrongV1')
+    .addItem('🗑️ Xóa sheet snapshot KH gốc cũ', 'menuXoaSheetSnapshotKeHoachGocCuV1')
+    .addToUi();
 }
 
 function taoMenuThietLapQLTienDoV1_() {
@@ -184,15 +323,17 @@ function menuLuuKhoaKeHoachGocV1() {
 
   if (confirm !== ui.Button.YES) return;
 
-  menuChayHamBatBuocV1_(['chotKeHoachGocV1'], 'Lưu/khóa kế hoạch gốc');
+  const result = menuChayHamBatBuocV1_(['chotKeHoachGocV1'], 'Lưu/khóa kế hoạch gốc');
 
   menuChayHamNeuCoV1_(['capNhatTienDoTongHopV1'], 'Cập nhật tổng hợp sau khi lưu baseline');
-  menuChayHamNeuCoV1_([
-    'toMauGanttTongHopV1',
-    'toMauGanttTongHop',
-    'toMauGanttTongHopV2',
-    'toMauGanttTongHopTheoTuanV1'
-  ], 'Tô màu Gantt sau khi lưu baseline');
+
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    'Đã lưu/khóa kế hoạch gốc và cập nhật tổng hợp + Gantt.',
+    'QLTD',
+    5
+  );
+
+  return result;
 }
 
 function menuToggleDuongGangKeHoachGocV1() {
@@ -357,68 +498,5 @@ function menuLayHamTheoTenV1_(functionNames) {
 
   return null;
 }
-
-
-// === FIX_LEFT_TABLE_TIEN_DO_TONG_HOP_V1_START ===
-
-/**
- * Chuan hoa header va dinh dang bang trai sheet Tien_do_tong_hop.
- * A: ID
- * B: Cong viec / Pham vi
- * C: Chu tri
- * D: So ngay
- * E: Cong viec lien ket
- * F: Bat dau
- * G: Ket thuc
- * H: Trang thai
- */
-function chuanHoaBangTraiTienDoTongHopV1() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Tien_do_tong_hop');
-  if (!sheet) throw new Error('Khong tim thay sheet Tien_do_tong_hop');
-
-  const headerRow = 4;
-  const dataStartRow = 5;
-  const lastRow = Math.max(sheet.getLastRow(), dataStartRow);
-
-  sheet.getRange(headerRow, 1, 1, 8).setValues([[
-    'ID',
-    'Công việc / Phạm vi',
-    'Chủ trì',
-    'Số ngày',
-    'Công việc liên kết',
-    'Bắt đầu',
-    'Kết thúc',
-    'Trạng thái'
-  ]]);
-
-  const numRows = lastRow - dataStartRow + 1;
-
-  if (numRows > 0) {
-    sheet.getRange(dataStartRow, 1, numRows, 1).setNumberFormat('0');             // A - Ref
-    sheet.getRange(dataStartRow, 4, numRows, 1).setNumberFormat('0');             // D - So ngay
-    sheet.getRange(dataStartRow, 5, numRows, 1).setNumberFormat('@');             // E - Cong viec lien ket
-    sheet.getRange(dataStartRow, 6, numRows, 2).setNumberFormat('dd/MM/yyyy');    // F:G - Ngay
-    sheet.getRange(dataStartRow, 2, numRows, 1).setWrap(true);                    // B - Ten viec
-    sheet.getRange(dataStartRow, 8, numRows, 1).setWrap(true);                    // H - Trang thai
-  }
-
-  SpreadsheetApp.flush();
-
-  const message = 'Da chuan hoa header va dinh dang bang trai Tien_do_tong_hop.';
-  Logger.log(message);
-  return message;
-}
-
-// === FIX_LEFT_TABLE_TIEN_DO_TONG_HOP_V1_END ===
-
-
-
-
-
-
-
-
-
 
 
