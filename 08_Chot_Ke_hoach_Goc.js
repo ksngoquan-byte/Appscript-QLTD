@@ -45,6 +45,14 @@ function chotKeHoachGocV1() {
  */
 function chotKeHoachGocCoreV1_(baselineType) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (typeof coCanTinhLaiTienDoV1_ === 'function' && coCanTinhLaiTienDoV1_()) {
+    throw new Error(
+      'Chưa thể chốt kế hoạch gốc vì tiến độ đang có thay đổi cần tính lại. ' +
+      'Vui lòng chạy “Chạy tính lại tiến độ J/L/M/Q” trước, sau đó mới lưu/khóa kế hoạch gốc.'
+    );
+  }
+
   const sourceSheet = ss.getSheetByName('Cong_viec');
 
   if (!sourceSheet) {
@@ -71,9 +79,9 @@ function chotKeHoachGocCoreV1_(baselineType) {
     throw new Error('Cong_viec chưa có dữ liệu để chốt kế hoạch gốc.');
   }
 
-  // Đọc A:Q một lần để tối ưu hiệu năng.
+  // Đọc A:Z một lần để nhận diện đúng task thật và WBS_LEVEL_SYS.
   const sourceValues = sourceSheet
-    .getRange(startRow, 1, lastRow - startRow + 1, 17)
+    .getRange(startRow, 1, lastRow - startRow + 1, 26)
     .getValues();
 
   const output = [];
@@ -96,20 +104,21 @@ function chotKeHoachGocCoreV1_(baselineType) {
     const ghiChuKeHoach = row[13];    // N
     const maCongViec = row[14];       // O
     const maMocHeThong = row[15];     // P
-    const isGroupRow = typeof isDongNhomCauTrucV1_ === 'function' && isDongNhomCauTrucV1_(maCauTruc);
-    const isDetailTask = typeof isDongCongViecChiTietV1_ === 'function'
-      ? isDongCongViecChiTietV1_(maCauTruc, tenCongViec)
-      : (!maCauTruc && !!tenCongViec);
+    const isTaskThat = laDongTaskThatChoBaselineV1_(row);
 
-    if (!isGroupRow && !isDetailTask) return;
+    if (!isTaskThat) return;
 
-    if (isDetailTask && !maCongViec) {
+    if (isTaskThat && !soThamChieu) {
+      errors.push('Dòng ' + sourceRow + ': thiếu ID/Ref tại cột G. Không thể lưu baseline vì không map được với Gantt.');
+    }
+
+    if (isTaskThat && !maCongViec) {
       errors.push('D\u00f2ng ' + sourceRow + ': thi\u1ebfu M\u00e3 c\u00f4ng vi\u1ec7c t\u1ea1i c\u1ed9t O.');
     }
 
-    if (isDetailTask && (!batDau || !ketThuc)) {
-      if (!batDau) errors.push('Dòng ' + sourceRow + ': thiếu Bắt đầu forecast tại cột L.');
-      if (!ketThuc) errors.push('Dòng ' + sourceRow + ': thiếu Kết thúc forecast tại cột M.');
+    if (isTaskThat && (!batDau || !ketThuc)) {
+      if (!batDau) errors.push('Dòng ' + sourceRow + ': thiếu Bắt đầu kế hoạch tại cột L.');
+      if (!ketThuc) errors.push('Dòng ' + sourceRow + ': thiếu Kết thúc kế hoạch tại cột M.');
     }
 
     const congViecPhamVi = taoCongViecPhamViBaselineV1_({
@@ -186,7 +195,8 @@ function chotKeHoachGocCoreV1_(baselineType) {
     'Đã chốt baseline thành công.\n' +
     'Phiên bản: ' + baselineVersion + '\n' +
     'Loại: ' + baselineType + '\n' +
-    'Số công việc: ' + output.length;
+    'Số task thật: ' + output.length + '\n' +
+    'Ghi chú: Chỉ lưu task tiến độ thật; không lưu dòng nhóm/phân loại.';
 
   Logger.log(message);
   return message;
@@ -495,11 +505,6 @@ function taoSnapshotSheetTheoBaselineVersionV1_(sourceSheet, baselineVersion, cr
 
 function taoCongViecPhamViBaselineV1_(data) {
   const ten = data.tenCongViec || '';
-
-  if (typeof isDongNhomCauTrucV1_ === 'function' && isDongNhomCauTrucV1_(data.maCauTruc)) {
-    return ten;
-  }
-
   const contextParts = [];
 
   if (data.zone) contextParts.push(data.zone);
@@ -511,6 +516,46 @@ function taoCongViecPhamViBaselineV1_(data) {
   }
 
   return ten + '\n' + contextParts.join(' · ');
+}
+
+function laDongTaskThatChoBaselineV1_(row) {
+  if (typeof laDongTaskTienDoV1_ === 'function') {
+    return laDongTaskTienDoV1_(row);
+  }
+
+  if (typeof laDongCongViecScheduleV1_ === 'function') {
+    return laDongCongViecScheduleV1_(row);
+  }
+
+  const b = row[1];   // B - WBS
+  const g = row[6];   // G - ID/Ref
+  const h = row[7];   // H - Công việc / Phạm vi
+  const z = row[25];  // Z - WBS_LEVEL_SYS
+
+  const hasScheduleData =
+    coGiaTriBaselineV1_(row[9])  || // J
+    coGiaTriBaselineV1_(row[10]) || // K
+    coGiaTriBaselineV1_(row[11]) || // L
+    coGiaTriBaselineV1_(row[12]) || // M
+    coGiaTriBaselineV1_(row[17]) || // R
+    coGiaTriBaselineV1_(row[18]) || // S
+    coGiaTriBaselineV1_(row[19]);   // T
+
+  const isNewTask = (coGiaTriBaselineV1_(b) || coGiaTriBaselineV1_(z)) &&
+    coGiaTriBaselineV1_(h) &&
+    hasScheduleData;
+
+  const isLegacyTask = !coGiaTriBaselineV1_(b) &&
+    !coGiaTriBaselineV1_(z) &&
+    coGiaTriBaselineV1_(g) &&
+    coGiaTriBaselineV1_(h) &&
+    hasScheduleData;
+
+  return isNewTask || isLegacyTask;
+}
+
+function coGiaTriBaselineV1_(value) {
+  return value !== null && value !== '' && typeof value !== 'undefined';
 }
 
 
