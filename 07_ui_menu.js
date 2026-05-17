@@ -37,6 +37,7 @@ function taoMenuKhoiTaoVaCauHinhFileQltdV1_() {
     .addItem('🔧 Cài lại trigger tối ưu', 'menuCaiTriggerToiUuV1')
     .addItem('🧪 Kiểm tra trigger sau khởi tạo', 'kiemTraTriggerVanHanhTienDoV1')
     .addSeparator()
+    .addItem('🗑️ Xóa sheet snapshot KH gốc cũ', 'menuXoaSheetSnapshotKeHoachGocCuV1')
     .addItem('⚠️ Xóa dữ liệu cũ và tạo lại từ TEMPLATE', 'menuXoaDuLieuCuVaTaoMoiTuTemplateV1')
     .addItem('👁️ Ẩn menu khởi tạo file', 'menuAnMenuKhoiTaoFileV1')
     .addToUi();

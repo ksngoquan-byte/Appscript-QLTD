@@ -17,6 +17,7 @@ const SETUP_TEMPLATE_SHEETS_V1 = [
 ];
 
 const CONG_VIEC_FORMULA_TEMPLATE_CELLS_SETUP_V1 = ['A5', 'D5', 'G5'];
+const QLTD_TEMP_SAFE_DELETE_SHEET_V1 = '_QLTD_TEMP_SAFE_DELETE';
 
 function menuXoaDuLieuCuVaTaoMoiTuTemplateV1() {
   const ui = SpreadsheetApp.getUi();
@@ -24,13 +25,15 @@ function menuXoaDuLieuCuVaTaoMoiTuTemplateV1() {
   const confirm1 = ui.alert(
     'Xóa dữ liệu cũ và tạo lại từ TEMPLATE',
     'Chức năng này sẽ:\n\n' +
-    '1. XÓA các sheet vận hành cũ nếu đang tồn tại:\n' +
+    '1. XÓA HẲN các sheet vận hành cũ nếu đang tồn tại:\n' +
     '- Cong_viec\n' +
     '- Tien_do_tong_hop\n' +
     '- Ke_hoach_goc\n' +
     '- Ke_hoach_goc_history\n\n' +
-    '2. TẠO LẠI các sheet này từ sheet _TEMPLATE_ tương ứng.\n\n' +
-    'Các sheet _TEMPLATE_ và Apps Script sẽ được giữ nguyên.\n\n' +
+    '2. XÓA các sheet snapshot KH gốc cũ dạng KH_goc_BL...\n\n' +
+    '3. TẠO LẠI 4 sheet vận hành mới từ sheet _TEMPLATE_ tương ứng.\n\n' +
+    'Các sheet _TEMPLATE_ được giữ nguyên, không bị sửa/xóa/clear.\n' +
+    'Apps Script/hàm trong file cũng được giữ nguyên.\n\n' +
     'Chỉ chạy sau khi đã tạo bản sao file mẫu. Tiếp tục?',
     ui.ButtonSet.YES_NO
   );
@@ -64,11 +67,13 @@ function menuXoaDuLieuCuVaTaoMoiTuTemplateV1() {
 }
 
 function xoaDuLieuCuVaTaoMoiTuTemplateV1() {
+  const snapshotResult = xoaSheetSnapshotKeHoachGocCuNoConfirmV1_();
   const result = taoSheetVanHanhTuTemplateCoreV1_(true);
 
   xoaTrangThaiTinhLaiSauKhiXoaDuLieuSetupV1_();
 
   const message =
+    snapshotResult + '\n\n' +
     result + '\n\n' +
     'Đã xóa trạng thái cần tính lại nếu có.\n' +
     'Các sheet _TEMPLATE_ được giữ nguyên. Apps Script/hàm trong file không bị ảnh hưởng.';
@@ -84,9 +89,11 @@ function taoSheetVanHanhTuTemplateV1() {
 function taoSheetVanHanhTuTemplateCoreV1_(replaceExisting) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const logs = [];
+  let safeDeleteContext = null;
 
   if (replaceExisting) {
-    chonSheetAnToanTruocKhiXoaSheetVanHanhV1_(ss);
+    kiemTraDuTemplateTruocKhiResetQltdV1_(ss);
+    safeDeleteContext = chonSheetAnToanTruocKhiXoaSheetVanHanhV1_(ss);
 
     SETUP_TEMPLATE_SHEETS_V1.forEach(function(item) {
       const existingTarget = ss.getSheetByName(item.targetName);
@@ -146,6 +153,8 @@ function taoSheetVanHanhTuTemplateCoreV1_(replaceExisting) {
     ss.setActiveSheet(congViec);
   }
 
+  xoaSheetTamAnToanSauResetQltdV1_(ss, safeDeleteContext, logs);
+
   SpreadsheetApp.flush();
 
   const message = logs.join('\n');
@@ -168,7 +177,10 @@ function chonSheetAnToanTruocKhiXoaSheetVanHanhV1_(ss) {
     const sheet = ss.getSheetByName(preferred[i]);
     if (sheet && !sheet.isSheetHidden() && targetNames.indexOf(sheet.getName()) === -1) {
       ss.setActiveSheet(sheet);
-      return;
+      return {
+        sheet: sheet,
+        createdTemp: false
+      };
     }
   }
 
@@ -180,10 +192,66 @@ function chonSheetAnToanTruocKhiXoaSheetVanHanhV1_(ss) {
 
   if (fallback) {
     ss.setActiveSheet(fallback);
-    return;
+    return {
+      sheet: fallback,
+      createdTemp: false
+    };
   }
 
-  throw new Error('Không tìm thấy sheet an toàn để active trước khi xóa sheet vận hành.');
+  let tempSheet = ss.getSheetByName(QLTD_TEMP_SAFE_DELETE_SHEET_V1);
+
+  if (!tempSheet) {
+    tempSheet = ss.insertSheet(QLTD_TEMP_SAFE_DELETE_SHEET_V1);
+  }
+
+  try {
+    tempSheet.showSheet();
+  } catch (err) {
+    Logger.log('Không show được sheet tạm an toàn: ' + err.message);
+  }
+
+  ss.setActiveSheet(tempSheet);
+
+  return {
+    sheet: tempSheet,
+    createdTemp: true
+  };
+}
+
+function kiemTraDuTemplateTruocKhiResetQltdV1_(ss) {
+  const missing = SETUP_TEMPLATE_SHEETS_V1
+    .map(function(item) {
+      return item.templateName;
+    })
+    .filter(function(templateName) {
+      return !ss.getSheetByName(templateName);
+    });
+
+  if (missing.length > 0) {
+    throw new Error(
+      'Không thể reset từ TEMPLATE vì thiếu sheet template: ' + missing.join(', ') +
+      '. Hệ thống chưa xóa sheet vận hành cũ.'
+    );
+  }
+}
+
+function xoaSheetTamAnToanSauResetQltdV1_(ss, safeDeleteContext, logs) {
+  if (!safeDeleteContext || !safeDeleteContext.createdTemp) return;
+
+  const tempSheet = ss.getSheetByName(QLTD_TEMP_SAFE_DELETE_SHEET_V1);
+  if (!tempSheet) return;
+
+  const congViec = ss.getSheetByName('Cong_viec');
+  if (congViec) {
+    ss.setActiveSheet(congViec);
+  }
+
+  try {
+    ss.deleteSheet(tempSheet);
+    logs.push('- Đã xóa sheet tạm an toàn sau reset.');
+  } catch (err) {
+    logs.push('- Không xóa được sheet tạm an toàn: ' + err.message);
+  }
 }
 
 function anLaiCacSheetTemplateSauSetupV1_(ss) {
@@ -445,6 +513,31 @@ function canhBaoOCoHamNhungMatFormulaSauSetupV1_(sheet) {
   if (missing.length === 0) return '';
 
   return '- CẢNH BÁO: Các ô công thức mẫu đang mất công thức sau setup: ' + missing.join(', ');
+}
+
+function xoaSheetSnapshotKeHoachGocCuNoConfirmV1_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  const deleted = [];
+
+  sheets.forEach(function(sheet) {
+    const name = sheet.getName();
+
+    if (!/^KH_goc_BL\d{3,}(_\d{8})?$/.test(name)) return;
+
+    try {
+      ss.deleteSheet(sheet);
+      deleted.push(name);
+    } catch (err) {
+      Logger.log('Không xóa được snapshot ' + name + ': ' + err.message);
+    }
+  });
+
+  if (deleted.length === 0) {
+    return 'Không có sheet snapshot KH gốc cũ cần xóa.';
+  }
+
+  return 'Đã xóa sheet snapshot KH gốc cũ: ' + deleted.join(', ');
 }
 
 function menuXoaSheetSnapshotKeHoachGocCuV1() {
