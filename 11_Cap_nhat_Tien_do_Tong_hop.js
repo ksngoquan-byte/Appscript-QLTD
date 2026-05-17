@@ -8,71 +8,169 @@
 
 function capNhatTienDoTongHopV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const lock = LockService.getDocumentLock();
-  let locked = false;
+  const sourceSheet = ss.getSheetByName('Cong_viec');
+  const targetSheet = ss.getSheetByName('Tien_do_tong_hop');
 
-  try {
-    ss.toast('Đang cập nhật tiến độ tổng hợp...', 'Quản lý tiến độ', 5);
-    Logger.log('Bắt đầu cập nhật tiến độ tổng hợp');
+  if (!sourceSheet) throw new Error('Không tìm thấy sheet Cong_viec');
+  if (!targetSheet) throw new Error('Không tìm thấy sheet Tien_do_tong_hop');
 
-    locked = lock.tryLock(30000);
+  const SOURCE_START_ROW = 5;
+  const TARGET_HEADER_ROW = 4;
+  const TARGET_DATA_START_ROW = 5;
+  const TARGET_START_COL = 1;
+  const TARGET_NUM_COLS = 9;
 
-    if (!locked) {
-      const message = 'Đang có tác vụ cập nhật khác. Vui lòng chờ 1 phút rồi bấm lại.';
-      Logger.log('Không lấy được DocumentLock khi cập nhật tiến độ tổng hợp. Có thể đang có tác vụ khác chạy.');
-      ss.toast(message, 'Quản lý tiến độ', 8);
-      return message;
-    }
+  const header = [[
+    'WBS',
+    'ID',
+    'Công việc / Phạm vi',
+    'Chủ trì',
+    'Số ngày kế hoạch',
+    'Công việc liên kết',
+    'Bắt đầu hiện hành',
+    'Kết thúc hiện hành',
+    'Ghi chú cập nhật'
+  ]];
 
-    kiemTraHamCapNhatTienDoTongHopV1_(
-      'dinhDangTimelineGanttTongHopV1',
-      'Thiếu hàm dinhDangTimelineGanttTongHopV1. Kiểm tra file 05_Dinh_dang_Timeline_Gantt_Tong_hop.gs'
-    );
-    dinhDangTimelineGanttTongHopV1();
-    Logger.log('Xong layout');
+  targetSheet
+    .getRange(TARGET_HEADER_ROW, TARGET_START_COL, 1, TARGET_NUM_COLS)
+    .setValues(header);
 
-    kiemTraHamCapNhatTienDoTongHopV1_(
-      'doDuLieuBangTraiTienDoTongHopV1',
-      'Thiếu hàm doDuLieuBangTraiTienDoTongHopV1. Kiểm tra file 06_Do_du_lieu_Tien_do_Tong_hop.gs'
-    );
-    doDuLieuBangTraiTienDoTongHopV1();
-    Logger.log('Xong dữ liệu A:H');
+  const sourceLastRow = sourceSheet.getLastRow();
+  const sourceLastCol = Math.max(sourceSheet.getLastColumn(), 21); // cần đến U
 
-    kiemTraHamCapNhatTienDoTongHopV1_(
-      'toMauGanttBarTienDoTongHopV1',
-      'Thiếu hàm toMauGanttBarTienDoTongHopV1. Kiểm tra file 10_To_mau_Gantt_Tong_hop.gs'
-    );
-    toMauGanttBarTienDoTongHopV1();
-    Logger.log('Xong tô Gantt bar');
+  const output = [];
 
-    SpreadsheetApp.flush();
+  if (sourceLastRow >= SOURCE_START_ROW) {
+    const sourceValues = sourceSheet
+      .getRange(SOURCE_START_ROW, 1, sourceLastRow - SOURCE_START_ROW + 1, sourceLastCol)
+      .getValues();
 
-    Logger.log('Hoàn tất cập nhật tiến độ tổng hợp');
-    ss.toast('Đã cập nhật tiến độ tổng hợp.', 'Quản lý tiến độ', 5);
+    sourceValues.forEach(function(row) {
+      const wbs = row[1];              // B - WBS
+      const id = row[6];               // G - ID/Ref
+      const taskName = row[7];         // H - Công việc / Phạm vi
+      const owner = row[8];            // I - Chủ trì
+      const duration = row[9];         // J - Số ngày kế hoạch
+      const predecessor = row[10];     // K - Công việc liên kết
+      const planStart = row[11];       // L - Bắt đầu kế hoạch
+      const planEnd = row[12];         // M - Kết thúc kế hoạch
+      const actualStart = row[18];     // S - Bắt đầu thực tế
+      const actualFinish = row[19];    // T - Hoàn thành thực tế
+      const updateNote = row[20];      // U - Ghi chú cập nhật
 
-    return 'Đã cập nhật tiến độ tổng hợp.';
-  } catch (err) {
-    Logger.log('Lỗi cập nhật tiến độ tổng hợp: ' + err);
-    ss.toast('Lỗi cập nhật tiến độ tổng hợp. Xem Nhật ký thực thi.', 'Quản lý tiến độ', 8);
-    throw err;
-  } finally {
-    if (locked) {
-      lock.releaseLock();
-    }
+      const hasDisplayData =
+        coGiaTriBangTraiTienDoTongHop3A_(wbs) ||
+        coGiaTriBangTraiTienDoTongHop3A_(id) ||
+        coGiaTriBangTraiTienDoTongHop3A_(taskName);
+
+      if (!hasDisplayData) return;
+
+      const currentStart = coGiaTriBangTraiTienDoTongHop3A_(actualStart)
+        ? actualStart
+        : planStart;
+
+      const currentEnd = coGiaTriBangTraiTienDoTongHop3A_(actualFinish)
+        ? actualFinish
+        : planEnd;
+
+      output.push([
+        wbs,
+        id,
+        taskName,
+        owner,
+        duration,
+        predecessor,
+        currentStart,
+        currentEnd,
+        updateNote
+      ]);
+    });
   }
+
+  const rowsToClear = Math.max(
+    targetSheet.getLastRow() - TARGET_DATA_START_ROW + 1,
+    1
+  );
+
+  targetSheet
+    .getRange(TARGET_DATA_START_ROW, TARGET_START_COL, rowsToClear, TARGET_NUM_COLS)
+    .clearContent();
+
+  if (output.length > 0) {
+    targetSheet
+      .getRange(TARGET_DATA_START_ROW, TARGET_START_COL, output.length, TARGET_NUM_COLS)
+      .setValues(output);
+  }
+
+  dinhDangBangTraiTienDoTongHop3A_(
+    targetSheet,
+    TARGET_HEADER_ROW,
+    TARGET_DATA_START_ROW,
+    Math.max(output.length, 1)
+  );
+
+  const message =
+    'Đã cập nhật bảng trái Tien_do_tong_hop A:I. Số dòng dữ liệu: ' +
+    output.length +
+    '. Chặng 3A chưa tô Gantt.';
+
+  Logger.log(message);
+  ss.toast(message, 'Quản lý tiến độ', 5);
+
+  return message;
 }
 
+function coGiaTriBangTraiTienDoTongHop3A_(value) {
+  if (value === null || typeof value === 'undefined') return false;
 
-function kiemTraHamCapNhatTienDoTongHopV1_(functionName, message) {
-  let fn = null;
-
-  try {
-    fn = eval(functionName);
-  } catch (err) {
-    fn = null;
+  if (
+    Object.prototype.toString.call(value) === '[object Date]' &&
+    !isNaN(value.getTime())
+  ) {
+    return true;
   }
 
-  if (typeof fn !== 'function') {
-    throw new Error(message);
+  if (typeof value === 'string') {
+    return value.trim() !== '';
   }
+
+  return value !== '';
+}
+
+function dinhDangBangTraiTienDoTongHop3A_(sheet, headerRow, dataStartRow, numRows) {
+  if (sheet.getFrozenRows() < headerRow) {
+    sheet.setFrozenRows(headerRow);
+  }
+
+  sheet
+    .getRange(headerRow, 1, 1, 9)
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true);
+
+  sheet
+    .getRange(dataStartRow, 1, numRows, 9)
+    .setVerticalAlignment('middle');
+
+  sheet
+    .getRange(dataStartRow, 1, numRows, 2)
+    .setHorizontalAlignment('center');
+
+  sheet
+    .getRange(dataStartRow, 5, numRows, 1)
+    .setHorizontalAlignment('center');
+
+  sheet
+    .getRange(dataStartRow, 7, numRows, 2)
+    .setNumberFormat('dd/MM/yyyy');
+
+  sheet
+    .getRange(dataStartRow, 3, numRows, 1)
+    .setWrap(true);
+
+  sheet
+    .getRange(dataStartRow, 9, numRows, 1)
+    .setWrap(true);
 }
