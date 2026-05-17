@@ -141,69 +141,132 @@ function coGiaTriBangTraiTienDoTongHop3A_(value) {
 }
 
 function dinhDangBangTraiTienDoTongHop3A_(sheet, headerRow, dataStartRow, numRows) {
-  if (sheet.getFrozenRows() < headerRow) {
+  const LEFT_COLS = 9;
+  const GANTT_START_COL = 10;
+
+  // Freeze đủ phần bảng trái A:I và 4 dòng đầu.
+  if (sheet.getFrozenRows() !== headerRow) {
     sheet.setFrozenRows(headerRow);
   }
 
-  // Width bảng trái A:I
-  sheet.setColumnWidth(1, 80);   // A - WBS
-  sheet.setColumnWidth(2, 70);   // B - ID
-  sheet.setColumnWidth(3, 420);  // C - Công việc / Phạm vi
-  sheet.setColumnWidth(4, 130);  // D - Chủ trì
-  sheet.setColumnWidth(5, 110);  // E - Số ngày kế hoạch
-  sheet.setColumnWidth(6, 170);  // F - Công việc liên kết
-  sheet.setColumnWidth(7, 130);  // G - Bắt đầu hiện hành
-  sheet.setColumnWidth(8, 130);  // H - Kết thúc hiện hành
-  sheet.setColumnWidth(9, 260);  // I - Ghi chú cập nhật
+  if (sheet.getFrozenColumns() !== LEFT_COLS) {
+    sheet.setFrozenColumns(LEFT_COLS);
+  }
 
-  // Dọn format cũ trong vùng bảng trái A:I từ header xuống dữ liệu.
+  // Chiều rộng bảng trái A:I.
+  sheet.setColumnWidth(1, 60);    // A - WBS
+  sheet.setColumnWidth(2, 55);    // B - ID
+  sheet.setColumnWidth(3, 360);   // C - Công việc / Phạm vi
+  sheet.setColumnWidth(4, 105);   // D - Chủ trì
+  sheet.setColumnWidth(5, 90);    // E - Số ngày kế hoạch
+  sheet.setColumnWidth(6, 135);   // F - Công việc liên kết
+  sheet.setColumnWidth(7, 110);   // G - Bắt đầu hiện hành
+  sheet.setColumnWidth(8, 110);   // H - Kết thúc hiện hành
+  sheet.setColumnWidth(9, 220);   // I - Ghi chú cập nhật
+
+  // Chiều cao các dòng tiêu đề.
+  sheet.setRowHeight(1, 28);
+  sheet.setRowHeight(2, 24);
+  sheet.setRowHeight(3, 22);
+  sheet.setRowHeight(4, 34);
+
+  // Dọn format cũ trong vùng bảng trái A:I từ dòng 1 xuống đến vùng dữ liệu.
+  const rowsToFormat = Math.max(numRows + dataStartRow - 1, headerRow);
   sheet
-    .getRange(headerRow, 1, Math.max(numRows + 1, 2), 9)
+    .getRange(1, 1, rowsToFormat, LEFT_COLS)
     .clearFormat();
 
+  // Tiêu đề chính A1:I1.
+  sheet.getRange(1, 1, 1, LEFT_COLS).breakApart();
   sheet
-    .getRange(headerRow, 1, 1, 9)
+    .getRange(1, 1, 1, LEFT_COLS)
+    .mergeAcross()
+    .setValue('TIẾN ĐỘ TỔNG HỢP / GANTT VIEW')
     .setFontWeight('bold')
+    .setFontSize(12)
+    .setFontColor('#ffffff')
+    .setBackground('#0f172a')
+    .setHorizontalAlignment('left')
+    .setVerticalAlignment('middle');
+
+  // Metadata dòng 2 A:I.
+  sheet
+    .getRange(2, 1, 1, LEFT_COLS)
+    .setFontWeight('bold')
+    .setFontSize(9)
+    .setBackground('#e5e7eb')
+    .setVerticalAlignment('middle');
+
+  // Dòng 3 vùng trái để trống, tạo khoảng đệm trước header.
+  sheet
+    .getRange(3, 1, 1, LEFT_COLS)
+    .clearContent()
+    .setBackground('#f8fafc');
+
+  // Header bảng trái A4:I4.
+  sheet
+    .getRange(headerRow, 1, 1, LEFT_COLS)
+    .setFontWeight('bold')
+    .setFontSize(9)
+    .setFontColor('#111827')
+    .setBackground('#dbeafe')
     .setHorizontalAlignment('center')
     .setVerticalAlignment('middle')
     .setWrap(true)
-    .setBackground('#f3f4f6');
+    .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
 
-  sheet
-    .getRange(dataStartRow, 1, numRows, 9)
-    .setVerticalAlignment('middle')
-    .setBackground('#ffffff');
+  // Body bảng trái.
+  if (numRows > 0) {
+    const bodyRange = sheet.getRange(dataStartRow, 1, numRows, LEFT_COLS);
 
-  sheet
-    .getRange(dataStartRow, 1, numRows, 2)
-    .setHorizontalAlignment('center');
+    bodyRange
+      .setFontSize(9)
+      .setVerticalAlignment('middle')
+      .setBackground('#ffffff')
+      .setBorder(null, null, true, null, null, null, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
 
-  sheet
-    .getRange(dataStartRow, 4, numRows, 1)
-    .setHorizontalAlignment('center');
+    // Căn giữa WBS, ID, Chủ trì, số ngày, ngày.
+    sheet.getRange(dataStartRow, 1, numRows, 2).setHorizontalAlignment('center');
+    sheet.getRange(dataStartRow, 4, numRows, 1).setHorizontalAlignment('center');
+    sheet.getRange(dataStartRow, 5, numRows, 1).setHorizontalAlignment('center');
+    sheet.getRange(dataStartRow, 7, numRows, 2)
+      .setNumberFormat('dd/MM/yyyy')
+      .setHorizontalAlignment('center');
 
-  sheet
-    .getRange(dataStartRow, 5, numRows, 1)
-    .setHorizontalAlignment('center');
+    // Wrap các cột dài.
+    sheet.getRange(dataStartRow, 3, numRows, 1)
+      .setWrap(true)
+      .setHorizontalAlignment('left');
 
-  sheet
-    .getRange(dataStartRow, 7, numRows, 2)
-    .setNumberFormat('dd/MM/yyyy')
-    .setHorizontalAlignment('center');
+    sheet.getRange(dataStartRow, 6, numRows, 1)
+      .setWrap(true)
+      .setHorizontalAlignment('center');
 
-  sheet
-    .getRange(dataStartRow, 3, numRows, 1)
-    .setWrap(true);
+    sheet.getRange(dataStartRow, 9, numRows, 1)
+      .setWrap(true)
+      .setHorizontalAlignment('left');
 
-  sheet
-    .getRange(dataStartRow, 6, numRows, 1)
-    .setWrap(true);
+    // Tô nhẹ dòng nhóm WBS cấp 1 nếu cột A có dạng I, II, III... và cột B có ID.
+    for (let i = 0; i < numRows; i++) {
+      const rowIndex = dataStartRow + i;
+      const wbsValue = String(sheet.getRange(rowIndex, 1).getDisplayValue() || '').trim();
 
+      if (/^[IVXLCDM]+$/.test(wbsValue)) {
+        sheet
+          .getRange(rowIndex, 1, 1, LEFT_COLS)
+          .setBackground('#f1f5f9')
+          .setFontWeight('bold');
+      }
+    }
+  }
+
+  // Tạo ranh giới thị giác rõ giữa bảng trái A:I và Gantt từ J.
   sheet
-    .getRange(dataStartRow, 9, numRows, 1)
-    .setWrap(true)
-    .setHorizontalAlignment('left')
-    .setBackground('#ffffff');
+    .getRange(1, 9, Math.max(rowsToFormat, 4), 1)
+    .setBorder(null, null, null, true, null, null, '#64748b', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  // Cột Gantt bắt đầu từ J: giữ hẹp, không đụng dữ liệu/format Gantt đang có.
+  sheet.setColumnWidth(GANTT_START_COL, 36);
 }
 
 function donCotGhiChuKhoiGanttCu3A_(sheet) {
