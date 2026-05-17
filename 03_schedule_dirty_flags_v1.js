@@ -198,13 +198,6 @@ function handleCongViecEditLight_(e, sheet, row, editedCol, editedLastCol) {
   }
 
   if (
-    shouldAutoAssignTaskIdOnEditV1_(editedCol, editedLastCol) &&
-    typeof capMaCongViecChoVungNeuThieuV1_ === 'function'
-  ) {
-    capMaCongViecChoVungNeuThieuV1_(sheet, e.range);
-  }
-
-  if (
     rangeGiaoCotV1_(editedCol, editedLastCol, cfg.COL.PREDECESSOR, cfg.COL.PREDECESSOR) &&
     typeof chuyenVungNhapThanhCongThucLienKetDongV1_ === 'function'
   ) {
