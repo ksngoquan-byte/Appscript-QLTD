@@ -83,6 +83,21 @@ function taoSheetVanHanhTuTemplateCoreV1_(replaceExisting) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const logs = [];
 
+  if (replaceExisting) {
+    chonSheetAnToanTruocKhiXoaSheetVanHanhV1_(ss);
+
+    SETUP_TEMPLATE_SHEETS_V1.forEach(function(item) {
+      const existingTarget = ss.getSheetByName(item.targetName);
+
+      if (existingTarget) {
+        ss.deleteSheet(existingTarget);
+        logs.push('- Đã xóa sheet vận hành cũ: ' + item.targetName);
+      }
+    });
+
+    SpreadsheetApp.flush();
+  }
+
   SETUP_TEMPLATE_SHEETS_V1.forEach(function(item) {
     const templateSheet = ss.getSheetByName(item.templateName);
 
@@ -93,28 +108,89 @@ function taoSheetVanHanhTuTemplateCoreV1_(replaceExisting) {
 
     const existingTarget = ss.getSheetByName(item.targetName);
 
-    if (existingTarget && replaceExisting) {
-      ss.deleteSheet(existingTarget);
-      logs.push('- Đã xóa sheet vận hành cũ: ' + item.targetName);
-    }
-
     if (existingTarget && !replaceExisting) {
       logs.push('- Đã có sheet "' + item.targetName + '", bỏ qua tạo mới.');
+      return;
+    }
+
+    if (existingTarget && replaceExisting) {
+      logs.push('- Sheet "' + item.targetName + '" vẫn còn sau bước xóa, bỏ qua để tránh trùng.');
       return;
     }
 
     const newSheet = templateSheet.copyTo(ss);
     newSheet.setName(item.targetName);
 
+    try {
+      newSheet.showSheet();
+    } catch (err) {
+      Logger.log('Không show được sheet vận hành mới ' + item.targetName + ': ' + err.message);
+    }
+
     ss.setActiveSheet(newSheet);
-    ss.moveActiveSheet(templateSheet.getIndex() + 1);
+    ss.moveActiveSheet(Math.min(templateSheet.getIndex() + 1, ss.getNumSheets()));
 
     logs.push('- Đã tạo sheet "' + item.targetName + '" từ "' + item.templateName + '".');
   });
 
+  anLaiCacSheetTemplateSauSetupV1_(ss);
+
+  const congViec = ss.getSheetByName('Cong_viec');
+  if (congViec) {
+    ss.setActiveSheet(congViec);
+  }
+
+  SpreadsheetApp.flush();
+
   const message = logs.join('\n');
   Logger.log(message);
   return message;
+}
+
+function chonSheetAnToanTruocKhiXoaSheetVanHanhV1_(ss) {
+  const targetNames = SETUP_TEMPLATE_SHEETS_V1.map(function(item) {
+    return item.targetName;
+  });
+
+  const preferred = [
+    'Cau_hinh',
+    'Danh_muc_du_an',
+    'Danh_muc_cong_viec'
+  ];
+
+  for (let i = 0; i < preferred.length; i++) {
+    const sheet = ss.getSheetByName(preferred[i]);
+    if (sheet && !sheet.isSheetHidden() && targetNames.indexOf(sheet.getName()) === -1) {
+      ss.setActiveSheet(sheet);
+      return;
+    }
+  }
+
+  const fallback = ss.getSheets().find(function(sheet) {
+    return !sheet.isSheetHidden() &&
+      targetNames.indexOf(sheet.getName()) === -1 &&
+      sheet.getName().indexOf('_TEMPLATE_') !== 0;
+  });
+
+  if (fallback) {
+    ss.setActiveSheet(fallback);
+    return;
+  }
+
+  throw new Error('Không tìm thấy sheet an toàn để active trước khi xóa sheet vận hành.');
+}
+
+function anLaiCacSheetTemplateSauSetupV1_(ss) {
+  SETUP_TEMPLATE_SHEETS_V1.forEach(function(item) {
+    const templateSheet = ss.getSheetByName(item.templateName);
+    if (!templateSheet) return;
+
+    try {
+      templateSheet.hideSheet();
+    } catch (err) {
+      Logger.log('Không ẩn được template sau setup ' + item.templateName + ': ' + err.message);
+    }
+  });
 }
 
 function menuXoaSheetSnapshotKeHoachGocCuV1() {

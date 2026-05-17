@@ -26,6 +26,9 @@ function hoanThienTemplateGocQltdV1_() {
   logs.push(hoanThienTemplateKeHoachGocQltdV1_(ss));
   logs.push(hoanThienTemplateKeHoachGocHistoryQltdV1_(ss));
 
+  anLaiCacSheetTemplateQltdV1_(ss);
+  logs.push('- Đã ẩn lại toàn bộ sheet _TEMPLATE_.');
+
   const message = logs.join('\n');
   Logger.log(message);
   return message;
@@ -83,16 +86,31 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
 
   const maxRows = sheet.getMaxRows();
   if (maxRows >= 5) {
-    sheet.getRange(5, 1, maxRows - 4, 26).clearContent();
+    const bodyRange = sheet.getRange(5, 1, maxRows - 4, 26);
+    bodyRange
+      .clearContent()
+      .setFontColor('#111827')
+      .setBackground('#ffffff')
+      .setFontSize(9)
+      .setVerticalAlignment('middle');
   }
 
   sheet.getRange(4, 1, 1, 26)
     .setFontWeight('bold')
     .setFontSize(9)
+    .setFontColor('#111827')
     .setBackground('#dbeafe')
     .setHorizontalAlignment('center')
     .setVerticalAlignment('middle')
     .setWrap(true);
+
+  sheet.getRange(4, 1, 1, 26)
+    .setBorder(true, true, true, true, true, true, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID);
+
+  if (maxRows >= 5) {
+    sheet.getRange(5, 1, maxRows - 4, 26)
+      .setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID);
+  }
 
   sheet.setFrozenRows(4);
 
@@ -372,5 +390,52 @@ function boCoDinhDongCotTruocKhiMergeTemplateQltdV1_(sheet) {
     SpreadsheetApp.flush();
   } catch (err) {
     Logger.log('Không bỏ được frozen rows/columns trước khi merge template: ' + err.message);
+  }
+}
+
+function anLaiCacSheetTemplateQltdV1_(ss) {
+  const templateNames = [
+    '_TEMPLATE_Cong_viec',
+    '_TEMPLATE_Tien_do_tong_hop',
+    '_TEMPLATE_Ke_hoach_goc',
+    '_TEMPLATE_Ke_hoach_goc_history'
+  ];
+
+  chonSheetVanHanhAnToanTruocKhiAnTemplateQltdV1_(ss);
+
+  templateNames.forEach(function(name) {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+
+    try {
+      sheet.hideSheet();
+    } catch (err) {
+      Logger.log('Không ẩn được sheet template ' + name + ': ' + err.message);
+    }
+  });
+}
+
+function chonSheetVanHanhAnToanTruocKhiAnTemplateQltdV1_(ss) {
+  const preferred = [
+    'Cong_viec',
+    'Tien_do_tong_hop',
+    'Cau_hinh',
+    'Danh_muc_du_an'
+  ];
+
+  for (let i = 0; i < preferred.length; i++) {
+    const sheet = ss.getSheetByName(preferred[i]);
+    if (sheet && !sheet.isSheetHidden()) {
+      ss.setActiveSheet(sheet);
+      return;
+    }
+  }
+
+  const fallback = ss.getSheets().find(function(sheet) {
+    return !sheet.isSheetHidden() && sheet.getName().indexOf('_TEMPLATE_') !== 0;
+  });
+
+  if (fallback) {
+    ss.setActiveSheet(fallback);
   }
 }
