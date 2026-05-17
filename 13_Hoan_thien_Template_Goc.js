@@ -1,3 +1,5 @@
+const CONG_VIEC_FORMULA_TEMPLATE_CELLS_V1 = ['A5', 'D5', 'G5'];
+
 function menuHoanThienTemplateGocQltdV1() {
   const ui = SpreadsheetApp.getUi();
 
@@ -85,9 +87,14 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
   sheet.getRange(4, 1, 1, 26).setValues(headers);
 
   const maxRows = sheet.getMaxRows();
+
+  // Dòng 5 là dòng mẫu công thức. Không clear dòng 5.
+  if (maxRows >= 6) {
+    sheet.getRange(6, 1, maxRows - 5, 26).clearContent();
+  }
+
+  // Vẫn format từ dòng 5 để dòng mẫu và vùng nhập liệu đẹp.
   if (maxRows >= 5) {
-    const bodyRange = sheet.getRange(5, 1, maxRows - 4, 26);
-    clearContentNhungGiuOCoHamTemplateQltdV1_(bodyRange);
     apDungZebraVaKeBangTemplateQltdV1_(sheet, 5, 1, maxRows - 4, 26);
   }
 
@@ -459,44 +466,18 @@ function dinhDangHeaderBangTemplateQltdV1_(range) {
     .setBorder(true, true, true, true, true, true, '#94a3b8', SpreadsheetApp.BorderStyle.SOLID);
 }
 
-function clearContentNhungGiuOCoHamTemplateQltdV1_(range) {
-  const notes = range.getNotes();
-
-  for (let r = 0; r < notes.length; r++) {
-    for (let c = 0; c < notes[r].length; c++) {
-      const note = String(notes[r][c] || '').trim().toLowerCase();
-
-      if (note.indexOf('có hàm') !== -1 || note.indexOf('co ham') !== -1) {
-        continue;
-      }
-
-      range.getCell(r + 1, c + 1).clearContent();
-    }
-  }
-}
-
 function canhBaoOCoHamNhungMatFormulaTemplateQltdV1_(sheet) {
-  const maxRows = sheet.getMaxRows();
-  if (maxRows < 5) return '';
-
-  const range = sheet.getRange(5, 1, maxRows - 4, 26);
-  const notes = range.getNotes();
-  const formulas = range.getFormulas();
-
   const missing = [];
 
-  for (let r = 0; r < notes.length; r++) {
-    for (let c = 0; c < notes[r].length; c++) {
-      const note = String(notes[r][c] || '').trim().toLowerCase();
-      const formula = String(formulas[r][c] || '').trim();
+  CONG_VIEC_FORMULA_TEMPLATE_CELLS_V1.forEach(function(a1) {
+    const formula = String(sheet.getRange(a1).getFormula() || '').trim();
 
-      if ((note.indexOf('có hàm') !== -1 || note.indexOf('co ham') !== -1) && !formula) {
-        missing.push(range.getCell(r + 1, c + 1).getA1Notation());
-      }
+    if (!formula) {
+      missing.push(a1);
     }
-  }
+  });
 
   if (missing.length === 0) return '';
 
-  return 'CẢNH BÁO: Các ô có ghi chú "Có hàm" nhưng đang mất công thức: ' + missing.join(', ');
+  return 'CẢNH BÁO: Các ô công thức mẫu đang mất công thức: ' + missing.join(', ');
 }

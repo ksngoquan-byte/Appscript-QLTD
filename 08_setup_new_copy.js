@@ -16,6 +16,8 @@ const SETUP_TEMPLATE_SHEETS_V1 = [
   { templateName: '_TEMPLATE_Ke_hoach_goc_history', targetName: 'Ke_hoach_goc_history' }
 ];
 
+const CONG_VIEC_FORMULA_TEMPLATE_CELLS_SETUP_V1 = ['A5', 'D5', 'G5'];
+
 function menuXoaDuLieuCuVaTaoMoiTuTemplateV1() {
   const ui = SpreadsheetApp.getUi();
 
@@ -430,29 +432,19 @@ function dinhDangHeaderBangVanHanhSauCopyV1_(range) {
 function canhBaoOCoHamNhungMatFormulaSauSetupV1_(sheet) {
   if (!sheet || sheet.getName() !== 'Cong_viec') return '';
 
-  const maxRows = sheet.getMaxRows();
-  if (maxRows < 5) return '';
-
-  const range = sheet.getRange(5, 1, maxRows - 4, 26);
-  const notes = range.getNotes();
-  const formulas = range.getFormulas();
-
   const missing = [];
 
-  for (let r = 0; r < notes.length; r++) {
-    for (let c = 0; c < notes[r].length; c++) {
-      const note = String(notes[r][c] || '').trim().toLowerCase();
-      const formula = String(formulas[r][c] || '').trim();
+  CONG_VIEC_FORMULA_TEMPLATE_CELLS_SETUP_V1.forEach(function(a1) {
+    const formula = String(sheet.getRange(a1).getFormula() || '').trim();
 
-      if ((note.indexOf('có hàm') !== -1 || note.indexOf('co ham') !== -1) && !formula) {
-        missing.push(range.getCell(r + 1, c + 1).getA1Notation());
-      }
+    if (!formula) {
+      missing.push(a1);
     }
-  }
+  });
 
   if (missing.length === 0) return '';
 
-  return '- CẢNH BÁO: Các ô có ghi chú "Có hàm" nhưng đang mất công thức sau setup: ' + missing.join(', ');
+  return '- CẢNH BÁO: Các ô công thức mẫu đang mất công thức sau setup: ' + missing.join(', ');
 }
 
 function menuXoaSheetSnapshotKeHoachGocCuV1() {
