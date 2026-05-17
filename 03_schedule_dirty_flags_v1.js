@@ -342,6 +342,7 @@ function chayDonNenCongViecThuCongV1() {
 
 function hienTrangThaiTinhLaiTienDoV1() {
   const status = layTrangThaiTinhLaiTienDoV1();
+
   const lines = [
     'Cần tính lại: ' + (status.needRecalc ? 'CÓ' : 'KHÔNG')
   ];
@@ -349,19 +350,21 @@ function hienTrangThaiTinhLaiTienDoV1() {
   if (status.needRecalc) {
     lines.push('Lý do: ' + layLyDoTiengVietScheduleV1_(status.reason, status.detail));
     lines.push('Mã hệ thống: ' + (status.reason || 'Không có'));
-    lines.push('Phạm vi sửa: ' + (status.rangeA1 || 'Không ghi nhận'));
-    lines.push('Cột ảnh hưởng: ' + (status.columns || 'Không ghi nhận'));
     lines.push('Thời điểm phát sinh: ' + (dinhDangThoiGianScheduleV1_(status.markedAt) || 'Không ghi nhận'));
-    lines.push('Người cập nhật: ' + (status.markedBy || 'Không lấy được email'));
-    lines.push('Lần chạy tính lại gần nhất: ' + (dinhDangThoiGianScheduleV1_(status.lastRunAt) || 'Chưa có'));
     lines.push('Gợi ý: Bấm “Chạy tính lại tiến độ J/L/M/Q” để cập nhật L/M/Q.');
   } else {
     lines.push('Lý do: Không có thay đổi tiến độ đang chờ xử lý');
-    lines.push('Lần chạy tính lại gần nhất: ' + (dinhDangThoiGianScheduleV1_(status.lastRunAt) || 'Chưa có'));
+    lines.push('Mã hệ thống: Không có');
+    lines.push('Thời điểm phát sinh: Không có');
     lines.push('Gợi ý: Chưa cần chạy lại. Nếu muốn đối soát, có thể chạy thủ công và xác nhận.');
   }
 
-  SpreadsheetApp.getUi().alert('Trạng thái tính lại tiến độ', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+  SpreadsheetApp.getUi().alert(
+    'Trạng thái tính lại tiến độ',
+    lines.join('\n'),
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+
   return status;
 }
 
