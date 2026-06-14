@@ -6,6 +6,7 @@
   taoMenuNhapVaTinhTienDoQltdV1_();
   taoMenuTongHopVaGanttQltdV1_();
   taoMenuAnToanVaBaoTriQltdV1_();
+  taoMenuDongBoPhongBanV1_();
 }
 
 function onOpen() {
@@ -124,7 +125,9 @@ function taoMenuTongHopVaGanttQltdV1_() {
   const ui = SpreadsheetApp.getUi();
 
   ui.createMenu('📊 3. Tổng hợp & Gantt')
-    .addItem('📈 Cập nhật tổng hợp + Gantt', 'menuCapNhatTongHopGanttV1')
+    .addItem('📈 Cập nhật theo tuần', 'menuCapNhatTongHopGanttTheoTuanV1')
+    .addItem('🗓️ Cập nhật theo tháng', 'menuCapNhatTongHopGanttTheoThangV1')
+    .addItem('📆 Cập nhật theo quý', 'menuCapNhatTongHopGanttTheoQuyV1')
     .addItem('👁️ Hiện/ẩn kế hoạch gốc trên Gantt', 'menuToggleDuongGangKeHoachGocV1')
     .addSeparator()
     .addItem('🗂️ Tạo nhóm WBS tổng hợp', 'menuTaoNhomWbsTongHopV1')
@@ -310,15 +313,37 @@ function menuChayTinhLaiTienDoV1() {
   return result;
 }
 function menuCapNhatTongHopGanttV1() {
+  return menuCapNhatTongHopGanttTheoTuanV1();
+}
+
+function menuCapNhatTongHopGanttTheoTuanV1() {
+  return menuCapNhatTongHopGanttTheoKyV1_('WEEK', 'tuần');
+}
+
+function menuCapNhatTongHopGanttTheoThangV1() {
+  return menuCapNhatTongHopGanttTheoKyV1_('MONTH', 'tháng');
+}
+
+function menuCapNhatTongHopGanttTheoQuyV1() {
+  return menuCapNhatTongHopGanttTheoKyV1_('QUARTER', 'quý');
+}
+
+function menuCapNhatTongHopGanttTheoKyV1_(periodType, label) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ss.toast('Đang cập nhật tổng hợp + Gantt...', 'Quản lý tiến độ', 5);
+  ss.toast('Đang cập nhật tổng hợp + Gantt theo ' + label + '...', 'Quản lý tiến độ', 5);
 
-  const result = menuChayHamBatBuocV1_(
-    ['capNhatTienDoTongHopV1'],
-    'Cập nhật tổng hợp + Gantt'
-  );
+  const fn = menuLayHamTheoTenV1_(['runTongHopGanttByPeriod']);
+  let result;
 
-  ss.toast('Đã cập nhật tổng hợp + Gantt.', 'Quản lý tiến độ', 5);
+  if (fn) {
+    result = fn.func(periodType);
+  } else if (periodType === 'WEEK') {
+    result = menuChayHamBatBuocV1_(['capNhatTienDoTongHopV1'], 'Cập nhật tổng hợp + Gantt theo tuần');
+  } else {
+    throw new Error('Thiếu runTongHopGanttByPeriod để chạy Gantt theo ' + label + '.');
+  }
+
+  ss.toast('Đã cập nhật tổng hợp + Gantt theo ' + label + '.', 'Quản lý tiến độ', 5);
   return result;
 }
 
