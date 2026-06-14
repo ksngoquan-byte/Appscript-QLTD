@@ -1,10 +1,10 @@
 /*******************************************************
  * FILE: 25_Gantt_Period_View.js
  *
- * MUC TIEU
- * - Bo sung che do Gantt theo WEEK / MONTH / QUARTER.
- * - Giu logic tuan hien tai lam mac dinh/backward compatible.
- * - Chi thay doi truc thoi gian va cach to bar tu cot J tro di.
+ * MỤC TIÊU
+ * - Bổ sung chế độ Gantt theo WEEK / MONTH / QUARTER.
+ * - Giữ logic tuần hiện tại làm mặc định/backward compatible.
+ * - Chỉ thay đổi trục thời gian và cách tô bar từ cột J trở đi.
  *******************************************************/
 
 const GANTT_PERIOD_VIEW_V1 = {
@@ -60,10 +60,10 @@ function runTongHopGanttByPeriod(periodType) {
 
   if (period === GANTT_PERIOD_VIEW_V1.PERIOD.WEEK) {
     if (typeof capNhatTienDoTongHopV1 !== 'function') {
-      throw new Error('Thieu ham capNhatTienDoTongHopV1 de chay Gantt theo tuan.');
+      throw new Error('Thiếu hàm capNhatTienDoTongHopV1 để chạy Gantt theo tuần.');
     }
 
-    Logger.log('[GANTT_PERIOD] WEEK dung logic hien tai capNhatTienDoTongHopV1.');
+    Logger.log('[GANTT_PERIOD] WEEK dùng logic hiện tại capNhatTienDoTongHopV1.');
     return capNhatTienDoTongHopV1();
   }
 
@@ -86,9 +86,9 @@ function runTongHopGanttByPeriod(periodType) {
 
   const ganttMessage = capNhatGanttTongHopTheoKyV1_(targetSheet, data.ganttRows, period);
   const message =
-    'Da cap nhat Tien_do_tong_hop theo ' +
+    'Đã cập nhật Tien_do_tong_hop theo ' +
     tenKyGanttPeriodV1_(period) +
-    '. So dong du lieu: ' +
+    '. Số dòng dữ liệu: ' +
     data.output.length +
     '. ' +
     ganttMessage;
@@ -106,7 +106,7 @@ function validateGanttPeriodTypeV1_(periodType) {
     return value;
   }
 
-  throw new Error('periodType khong hop le. Chi nhan WEEK, MONTH, QUARTER. Gia tri nhan duoc: ' + periodType);
+  throw new Error('periodType không hợp lệ. Chỉ nhận WEEK, MONTH, QUARTER. Giá trị nhận được: ' + periodType);
 }
 
 function docDuLieuTongHopGanttPeriodV1_(sourceSheet) {
@@ -124,7 +124,7 @@ function docDuLieuTongHopGanttPeriodV1_(sourceSheet) {
   );
 
   if (sourceLastCol < GANTT_PERIOD_VIEW_V1.COL.SOURCE_REQUIRED_COUNT) {
-    throw new Error('Sheet Cong_viec thieu cot du lieu bat buoc den cot U.');
+    throw new Error('Sheet Cong_viec thiếu cột dữ liệu bắt buộc đến cột U.');
   }
 
   const values = sourceSheet
@@ -204,13 +204,13 @@ function ghiBangTraiTongHopGanttPeriodV1_(targetSheet, output) {
   const header = [[
     'WBS',
     'ID',
-    'Cong viec / Pham vi',
-    'Chu tri',
-    'So ngay ke hoach',
-    'Cong viec lien ket',
-    'Bat dau hien hanh',
-    'Ket thuc hien hanh',
-    'Ghi chu cap nhat',
+    'Công việc / Phạm vi',
+    'Chủ trì',
+    'Số ngày kế hoạch',
+    'Công việc liên kết',
+    'Bắt đầu hiện hành',
+    'Kết thúc hiện hành',
+    'Ghi chú cập nhật',
   ]];
 
   targetSheet
@@ -253,8 +253,8 @@ function capNhatGanttTongHopTheoKyV1_(sheet, ganttRows, periodType) {
   donVungGanttTheoKyV1_(sheet);
 
   if (validRanges.length === 0) {
-    Logger.log('[GANTT_PERIOD] Khong co ngay hop le de ve Gantt.');
-    return 'Khong co du lieu ngay hop le de ve Gantt.';
+    Logger.log('[GANTT_PERIOD] Không có ngày hợp lệ để vẽ Gantt.');
+    return 'Không có dữ liệu ngày hợp lệ để vẽ Gantt.';
   }
 
   const minStart = validRanges.reduce(function(min, range) {
@@ -282,7 +282,7 @@ function capNhatGanttTongHopTheoKyV1_(sheet, ganttRows, periodType) {
   sheet.setFrozenColumns(9);
 
   SpreadsheetApp.flush();
-  return 'So cot ' + tenKyGanttPeriodV1_(periodType) + ': ' + periods.length + '.';
+  return 'Số cột ' + tenKyGanttPeriodV1_(periodType) + ': ' + periods.length + '.';
 }
 
 function layKhoangNgayTongHopGanttPeriodV1_(ganttRows) {
@@ -300,7 +300,7 @@ function themKhoangNgayNeuHopLeGanttPeriodV1_(ranges, startValue, endValue, rowN
   if (!laNgayHopLeGanttPeriodV1_(startValue) && !laNgayHopLeGanttPeriodV1_(endValue)) return;
 
   if (!laNgayHopLeGanttPeriodV1_(startValue) || !laNgayHopLeGanttPeriodV1_(endValue)) {
-    Logger.log('[GANTT_PERIOD] Bo qua ' + label + ' dong ' + rowNumber + ': thieu ngay bat dau hoac ket thuc.');
+    Logger.log('[GANTT_PERIOD] Bỏ qua ' + label + ' dòng ' + rowNumber + ': thiếu ngày bắt đầu hoặc kết thúc.');
     return;
   }
 
@@ -308,7 +308,7 @@ function themKhoangNgayNeuHopLeGanttPeriodV1_(ranges, startValue, endValue, rowN
   const end = boGioGanttPeriodV1_(endValue);
 
   if (end.getTime() < start.getTime()) {
-    Logger.log('[GANTT_PERIOD] Bo qua ' + label + ' dong ' + rowNumber + ': ngay ket thuc nho hon ngay bat dau.');
+    Logger.log('[GANTT_PERIOD] Bỏ qua ' + label + ' dòng ' + rowNumber + ': ngày kết thúc nhỏ hơn ngày bắt đầu.');
     return;
   }
 
@@ -352,7 +352,7 @@ function taoDanhSachKyGanttPeriodV1_(minStart, maxEnd, periodType) {
     });
 
     if (periods.length >= GANTT_PERIOD_VIEW_V1.LIMIT.MAX_PERIODS) {
-      Logger.log('[GANTT_PERIOD] Vuot gioi han ky, cat tai ' + GANTT_PERIOD_VIEW_V1.LIMIT.MAX_PERIODS);
+      Logger.log('[GANTT_PERIOD] Vượt giới hạn kỳ, cắt tại ' + GANTT_PERIOD_VIEW_V1.LIMIT.MAX_PERIODS);
       break;
     }
 
@@ -375,13 +375,13 @@ function capNhatThongSoTongQuanTheoKyV1_(sheet, startDate, endDate, periodCount,
   const now = new Date();
 
   sheet.getRange(2, 1, 1, 8).setValues([[
-    'Tu ngay',
+    'Từ ngày',
     startDate,
-    'Den ngay',
+    'Đến ngày',
     endDate,
-    'So ' + tenKyGanttPeriodV1_(periodType),
+    'Số ' + tenKyGanttPeriodV1_(periodType),
     periodCount,
-    'Cap nhat',
+    'Cập nhật',
     now,
   ]]);
 
@@ -468,7 +468,7 @@ function toMauBarTheoKyV1_(sheet, ganttRows, periods) {
 
       toMauKhoangNgayTheoKyV1_(rowBg, start, end, periods, color);
     } else if (coGiaTriTongHopGanttPeriodV1_(row.start) || coGiaTriTongHopGanttPeriodV1_(row.end)) {
-      Logger.log('[GANTT_PERIOD] Bo qua bar ID ' + row.id + ': thieu ngay bat dau hoac ket thuc.');
+      Logger.log('[GANTT_PERIOD] Bỏ qua bar ID ' + row.id + ': thiếu ngày bắt đầu hoặc kết thúc.');
     }
 
     backgrounds.push(rowBg);
@@ -624,9 +624,9 @@ function taoNhanNhomKyGanttPeriodV1_(dateValue, periodType) {
 }
 
 function tenKyGanttPeriodV1_(periodType) {
-  if (periodType === GANTT_PERIOD_VIEW_V1.PERIOD.WEEK) return 'tuan';
-  if (periodType === GANTT_PERIOD_VIEW_V1.PERIOD.MONTH) return 'thang';
-  if (periodType === GANTT_PERIOD_VIEW_V1.PERIOD.QUARTER) return 'quy';
+  if (periodType === GANTT_PERIOD_VIEW_V1.PERIOD.WEEK) return 'tuần';
+  if (periodType === GANTT_PERIOD_VIEW_V1.PERIOD.MONTH) return 'tháng';
+  if (periodType === GANTT_PERIOD_VIEW_V1.PERIOD.QUARTER) return 'quý';
   return String(periodType || '');
 }
 
@@ -652,7 +652,7 @@ function layBaselineActiveTheoRefChoGanttPeriodV1_() {
 
 function laySheetBatBuocGanttPeriodV1_(ss, sheetName) {
   const sheet = ss.getSheetByName(sheetName);
-  if (!sheet) throw new Error('Khong tim thay sheet ' + sheetName);
+  if (!sheet) throw new Error('Không tìm thấy sheet ' + sheetName);
   return sheet;
 }
 
