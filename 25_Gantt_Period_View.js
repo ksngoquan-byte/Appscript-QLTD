@@ -599,7 +599,7 @@ function taoNhanKyGanttPeriodV1_(dateValue, periodType) {
   const date = boGioGanttPeriodV1_(dateValue);
 
   if (periodType === GANTT_PERIOD_VIEW_V1.PERIOD.MONTH) {
-    return Utilities.formatDate(date, Session.getScriptTimeZone(), 'MM/yyyy');
+    return Utilities.formatDate(date, Session.getScriptTimeZone(), 'MM');
   }
 
   if (periodType === GANTT_PERIOD_VIEW_V1.PERIOD.QUARTER) {
