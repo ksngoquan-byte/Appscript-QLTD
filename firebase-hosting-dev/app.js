@@ -423,53 +423,6 @@ function ensureWeb07InlineStyles() {
       white-space: nowrap;
     }
 
-    .web07-kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
-      gap: 10px;
-      margin: 12px 0 18px;
-    }
-
-    .web07-kpi {
-      border: 1px solid #e1e8ef;
-      border-radius: 10px;
-      padding: 13px;
-      background: #f8fafc;
-    }
-
-    .web07-kpi span {
-      display: block;
-      color: #67738a;
-      font-size: 12px;
-      margin-bottom: 6px;
-    }
-
-    .web07-kpi strong {
-      color: #102033;
-      font-size: 22px;
-    }
-
-    .web07-columns {
-      display: grid;
-      grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr);
-      gap: 14px;
-    }
-
-    .web07-list,
-    .web07-breakdown {
-      border: 1px solid #e1e8ef;
-      border-radius: 10px;
-      padding: 12px;
-      background: #ffffff;
-    }
-
-    .web07-list h3,
-    .web07-breakdown h3 {
-      margin: 0 0 10px;
-      font-size: 15px;
-      color: #102033;
-    }
-
     .web07-table {
       width: 100%;
       border-collapse: collapse;
@@ -723,10 +676,6 @@ function ensureWeb07InlineStyles() {
     @media (max-width: 900px) {
       .web07-panel {
         width: calc(100vw - 28px);
-      }
-
-      .web07-columns {
-        grid-template-columns: 1fr;
       }
 
       .web07-gantt-box {
@@ -1183,6 +1132,9 @@ function ensureDeptPlanInlineStyles() {
 }
 
 function formatIsoDateVi(isoDate) {
+  if (isoDate instanceof Date && !isNaN(isoDate.getTime())) {
+    return `${pad2(isoDate.getDate())}/${pad2(isoDate.getMonth() + 1)}/${isoDate.getFullYear()}`;
+  }
   const parts = String(isoDate || '').split('-');
   if (parts.length !== 3) return isoDate || '';
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
@@ -1654,194 +1606,314 @@ function renderDashboardFromGanttData(payload) {
     return;
   }
 
-  const summary = payload.summary || {};
-  const tasks = Array.isArray(payload.data) ? payload.data : [];
-  const today = new Date();
-  const upcomingLimit = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 14);
-  const todayIso = toIsoDateLocal(today);
-  const overdue = tasks
-    .filter((task) => task.end_date && task.end_date < todayIso && Number(task.progress || 0) < 1)
-    .slice(0, 10);
-  const upcoming = tasks
-    .filter((task) => {
-      if (!task.end_date || Number(task.progress || 0) >= 1) return false;
-      const end = new Date(`${task.end_date}T00:00:00`);
-      return end >= today && end <= upcomingLimit;
-    })
-    .slice(0, 10);
-  const missing = tasks
-    .filter((task) => !task.start_date || !task.end_date || !task.owner)
-    .slice(0, 10);
-  const selectedMilestones = tasks.filter((task) => isMainMilestoneTask(task.id));
-  const upcomingMilestones = tasks
-    .filter((task) => (task.type === 'milestone' || isMainMilestoneTask(task.id)) && task.end_date && task.end_date >= todayIso)
-    .sort((a, b) => String(a.end_date).localeCompare(String(b.end_date)))
-    .slice(0, 10);
-  const milestones = selectedMilestones.length ? selectedMilestones.slice(0, 10) : upcomingMilestones;
-  const ownerRows = buildOwnerDashboardRows(tasks);
-  const pausedCount = tasks.filter((task) => normalizeStatusForFilter(task.status) === 'paused').length;
-  const missingDateCount = tasks.filter((task) => !task.start_date || !task.end_date).length;
+  const model = buildExecutiveDashboardModel(payload);
 
   panel.innerHTML = `
-    <div class="web07-card">
-      <div class="web07-header">
+    <div class="exec-dashboard">
+      <section class="exec-hero">
         <div>
-          <h2>Dashboard điều hành</h2>
-          <p class="web07-subtitle">${escapeHtml(payload.projectCode)} - ${escapeHtml(payload.projectName || '')} · ${escapeHtml(payload.sourceSheet || '')}</p>
+          <p class="exec-eyebrow">Dashboard điều hành</p>
+          <h2>${escapeHtml(payload.projectName || payload.projectCode || 'Dự án')}</h2>
+          <p class="exec-subtitle">${escapeHtml(payload.projectCode || '')} · ${escapeHtml(payload.sourceSheet || '')}</p>
         </div>
-        <span class="web07-chip">Nguồn: ${escapeHtml(payload.source || '')}</span>
-      </div>
-
-      <div class="web07-kpi-grid">
-        ${renderDashboardKpi('Tổng công việc', summary.totalTasks)}
-        ${renderDashboardKpi('Đang làm', summary.inProgress)}
-        ${renderDashboardKpi('Quá hạn', summary.overdue)}
-        ${renderDashboardKpi('Sắp đến hạn 14 ngày', upcoming.length)}
-        ${renderDashboardKpi('Hoàn thành', summary.completed)}
-        ${renderDashboardKpi('Tạm dừng', pausedCount)}
-        ${renderDashboardKpi('Thiếu ngày', missingDateCount)}
-        ${renderDashboardKpi('Mốc chính', summary.milestones || qltdMainMilestoneIds.size)}
-      </div>
-
-      <div class="web07-columns">
-        <div class="web07-list">
-          <h3>Cảnh báo cần xử lý</h3>
-          ${renderTaskAlertTable('Quá hạn chưa hoàn thành', overdue, 'Trễ hạn')}
-          ${renderTaskAlertTable('Đến hạn trong 14 ngày', upcoming, 'Sắp đến hạn')}
-          ${renderTaskAlertTable('Thiếu dữ liệu vận hành', missing, 'Thiếu ngày/chủ trì')}
-          ${renderWarnings(payload.warnings || [])}
+        <div class="exec-progress">
+          <strong>${escapeHtml(model.completionPercent)}%</strong>
+          <span>Hoàn thành dự án</span>
         </div>
-
-        <div class="web07-breakdown">
-          <h3>Theo chủ trì</h3>
-          ${renderOwnerDashboardTable(ownerRows)}
-          <h3>Mốc chính sắp tới</h3>
-          ${renderMilestoneTable(milestones)}
+        <div class="exec-hero-grid">
+          ${renderExecutiveMetric('Việc đang mở', model.openTasks, 'blue')}
+          ${renderExecutiveMetric('Quá hạn', model.overdue.length, 'red')}
+          ${renderExecutiveMetric('Milestone mở', model.openMilestones, 'green')}
+          ${renderExecutiveNextMilestone(model.nextMilestone)}
         </div>
-      </div>
+      </section>
+
+      <section class="exec-grid">
+        ${renderExecutiveListSection('Top 5 quá hạn', ['Hạng mục', 'Công việc', 'Chủ trì', 'Ngày kết thúc', 'Số ngày trễ'], model.overdue, renderExecutiveOverdueRow, 'Không có việc quá hạn.', 'red')}
+        ${renderExecutiveListSection('Mốc lớn đang thực hiện', ['Hạng mục/Mốc lớn', 'Công việc/Mốc', 'Chủ trì', 'Ngày kết thúc', 'Còn lại hoặc trễ'], model.activeMilestones, renderExecutiveMilestoneRow, 'Không có mốc lớn đang thực hiện.', 'blue')}
+        ${renderExecutiveListSection('Deadline 14 ngày tới', ['Hạng mục', 'Công việc', 'Chủ trì', 'Ngày kết thúc', 'Còn lại'], model.upcoming, renderExecutiveUpcomingRow, 'Không có deadline trong 14 ngày tới.', 'blue')}
+        ${renderExecutiveCompletedSection(model.completedThisMonth)}
+      </section>
     </div>
   `;
 
   bindDashboardTaskLinks();
 }
 
-function renderDashboardKpi(label, value) {
+function buildExecutiveDashboardModel(payload) {
+  const today = parseIsoDate(toIsoDateLocal(new Date()));
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const upcomingLimit = addDays(today, 14);
+  const enriched = buildExecutiveTaskContext(Array.isArray(payload.data) ? payload.data : []);
+  const realTasks = enriched.filter((task) => task.isRealTask);
+  const completed = realTasks.filter((task) => task.isCompleted);
+  const openTasks = realTasks.filter((task) => !task.isCompleted);
+  const hasStrictMilestones = enriched.some((task) => task.isMilestone);
+  const milestoneTasks = enriched.filter((task) => task.isMilestone || (!hasStrictMilestones && task.isMilestoneFallback));
+
+  const overdue = openTasks
+    .filter((task) => task.endDate && task.endDate < today)
+    .map((task) => ({ ...task, lateDays: qltdDateDiffDays(task.endDate, today) }))
+    .sort((a, b) => compareExecutivePriority(a, b) || b.lateDays - a.lateDays)
+    .slice(0, 5);
+
+  const upcoming = openTasks
+    .filter((task) => task.endDate && task.endDate >= today && task.endDate <= upcomingLimit)
+    .map((task) => ({ ...task, remainingDays: qltdDateDiffDays(today, task.endDate) }))
+    .sort((a, b) => compareExecutivePriority(a, b) || a.endDate - b.endDate)
+    .slice(0, 10);
+
+  const activeMilestones = milestoneTasks
+    .filter((task) => task.isRealTask && !task.isCompleted)
+    .map((task) => ({
+      ...task,
+      lateDays: task.endDate && task.endDate < today ? qltdDateDiffDays(task.endDate, today) : 0,
+      remainingDays: task.endDate && task.endDate >= today ? qltdDateDiffDays(today, task.endDate) : null
+    }))
+    .sort((a, b) => compareExecutivePriority(a, b) || (a.endDate || new Date(8640000000000000)) - (b.endDate || new Date(8640000000000000)))
+    .slice(0, 10);
+
+  const completedThisMonth = completed
+    .filter((task) => task.actualFinishDate && task.actualFinishDate >= monthStart && task.actualFinishDate < nextMonthStart)
+    .sort((a, b) => compareExecutivePriority(a, b) || b.actualFinishDate - a.actualFinishDate)
+    .slice(0, 10);
+
+  const nextMilestone = activeMilestones
+    .filter((task) => task.endDate && task.endDate >= today)
+    .sort((a, b) => a.endDate - b.endDate)[0] || null;
+
+  return {
+    completionPercent: realTasks.length ? Math.round((completed.length / realTasks.length) * 100) : 0,
+    openTasks: openTasks.length,
+    openMilestones: milestoneTasks.filter((task) => task.isRealTask && !task.isCompleted).length,
+    overdue,
+    upcoming,
+    activeMilestones,
+    completedThisMonth,
+    nextMilestone,
+    usedMilestoneFallback: !hasStrictMilestones
+  };
+}
+
+function buildExecutiveTaskContext(tasks) {
+  const byWbs = {};
+  const byId = {};
+
+  tasks.forEach((task) => {
+    const item = { ...task };
+    item.wbsText = String(task.wbs || task.code || task.id || '').trim();
+    item.wbsLevel = Number(task.wbsLevel || getExecutiveWbsLevel(item.wbsText));
+    item.startDate = qltdFirstValidDate(task.start_date, task.baselineStart);
+    item.endDate = qltdFirstValidDate(task.end_date, task.deadline, task.baselineEnd);
+    item.actualStartDate = qltdFirstValidDate(task.actualStart);
+    item.actualFinishDate = qltdFirstValidDate(task.actualFinish, task.actualEnd);
+    item.hasAnyDate = !!(item.startDate || item.endDate || item.actualStartDate || item.actualFinishDate);
+    item.normalizedStatus = normalizeStatusForFilter(task.status);
+    item.hasActionStatus = item.normalizedStatus !== 'unknown';
+    item.isCompleted = Number(task.progress || 0) >= 1 || item.normalizedStatus === 'completed';
+    item.isCategoryRow = !item.hasAnyDate;
+    item.isRealTask = !!String(task.text || '').trim() && (item.hasAnyDate || item.hasActionStatus);
+    item.isMilestone = isExecutiveStrictMilestone(task);
+    item.isMilestoneFallback = item.wbsLevel >= 1 && item.wbsLevel <= 3;
+    item.priorityIcon = getExecutivePriorityIcon(item);
+    byId[String(item.id || '')] = item;
+    if (item.wbsText) byWbs[item.wbsText] = item;
+  });
+
+  return tasks.map((task) => {
+    const item = byId[String(task.id || '')] || task;
+    const path = buildExecutiveParentPath(item, byWbs);
+    return {
+      ...item,
+      parentPath: path.join(' > '),
+      parentLevel1: path[0] || '',
+      parentLevel2: path[1] || '',
+      parentLevel3: path[2] || '',
+      contextLabel: path.join(' > ') || item.parentLevel1 || item.wbsText || 'Chưa phân nhóm'
+    };
+  });
+}
+
+function isExecutiveStrictMilestone(task) {
+  if (task.type === 'milestone' || isMainMilestoneTask(task.id)) return true;
+  const raw = task.raw || {};
+  const values = [
+    task.is_milestone,
+    task.milestone,
+    task.ma_moc,
+    task.loai_cong_viec,
+    raw.is_milestone,
+    raw.milestone,
+    raw.ma_moc,
+    raw.loai_cong_viec,
+    raw.Moc_chinh,
+    raw['Mốc chính'],
+    raw['Loại công việc']
+  ];
+  return values.some((value) => {
+    const normalized = normalizeSearchText(value).replace(/[^a-z0-9]/g, '');
+    return ['1', 'true', 'yes', 'x', 'co', 'milestone', 'moc', 'mocchinh'].includes(normalized) || normalized.includes('milestone') || normalized.includes('moc');
+  });
+}
+
+function buildExecutiveParentPath(task, byWbs) {
+  const wbs = String(task.wbsText || '').trim();
+  if (!wbs || !wbs.includes('.')) return [];
+
+  const parts = wbs.split('.');
+  const path = [];
+  for (let index = 1; index < parts.length; index += 1) {
+    const parentWbs = parts.slice(0, index).join('.');
+    const parent = byWbs[parentWbs];
+    if (parent && parent.text && parent.text !== task.text) {
+      path.push(parent.text);
+    }
+  }
+  return path.slice(0, 3);
+}
+
+function getExecutiveWbsLevel(wbs) {
+  const text = String(wbs || '').trim();
+  if (!text) return 999;
+  return text.split('.').length;
+}
+
+function getExecutivePriorityIcon(task) {
+  if (task.isMilestone) return '🚩';
+  if (task.wbsLevel === 1) return '🎯';
+  if (task.wbsLevel === 2) return '📌';
+  return '✓';
+}
+
+function compareExecutivePriority(a, b) {
+  if (!!b.isMilestone !== !!a.isMilestone) return Number(b.isMilestone) - Number(a.isMilestone);
+  if ((a.wbsLevel || 999) !== (b.wbsLevel || 999)) return (a.wbsLevel || 999) - (b.wbsLevel || 999);
+  return String(a.wbsText || '').localeCompare(String(b.wbsText || ''), 'vi');
+}
+
+function qltdFirstValidDate(...values) {
+  for (const value of values) {
+    const date = parseIsoDate(value);
+    if (date) return date;
+  }
+  return null;
+}
+
+function qltdDateDiffDays(start, end) {
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
+}
+
+function renderExecutiveMetric(label, value, tone) {
   return `
-    <article class="web07-kpi">
+    <article class="exec-metric ${tone ? `is-${tone}` : ''}">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value ?? 0)}</strong>
     </article>
   `;
 }
 
-function renderTaskAlertTable(title, tasks, note) {
-  if (!tasks.length) {
-    return `<p class="web07-muted">${escapeHtml(title)}: không có.</p>`;
-  }
-
+function renderExecutiveNextMilestone(task) {
   return `
-    <p class="web07-muted">${escapeHtml(title)}</p>
-    <table class="web07-table">
-      <thead>
-        <tr>
-          <th>WBS</th>
-          <th>Công việc</th>
-          <th>Chủ trì</th>
-          <th>Deadline</th>
-          <th>Trạng thái</th>
-          <th>Ghi chú</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tasks.map((task) => `
-          <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-            <td class="mono">${escapeHtml(task.wbs || task.code || task.id || '')}</td>
-            <td>${escapeHtml(task.text || '')}</td>
-            <td>${escapeHtml(task.owner || '')}</td>
-            <td>${escapeHtml(formatIsoDateVi(task.end_date || ''))}</td>
-            <td>${escapeHtml(task.status || '')}</td>
-            <td>${escapeHtml(task.note || task.updateNote || note || '')}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
+    <article class="exec-metric is-blue">
+      <span>Mốc gần nhất</span>
+      <strong title="${escapeHtml(task ? task.text : '')}">${escapeHtml(task ? formatIsoDateVi(toIsoDateLocal(task.endDate)) : 'Không có')}</strong>
+      <em>${escapeHtml(task ? task.text : 'Không có mốc sắp tới')}</em>
+    </article>
   `;
 }
 
-function buildOwnerDashboardRows(tasks) {
-  const map = {};
-  tasks.forEach((task) => {
-    const owner = task.owner || 'Chưa rõ';
-    if (!map[owner]) {
-      map[owner] = { owner, total: 0, overdue: 0, inProgress: 0, completed: 0, missingDate: 0 };
-    }
-    map[owner].total += 1;
-    if (task.isOverdue || (task.end_date && task.end_date < toIsoDateLocal(new Date()) && Number(task.progress || 0) < 1)) map[owner].overdue += 1;
-    if (!task.start_date || !task.end_date) map[owner].missingDate += 1;
-    if (Number(task.progress || 0) >= 1 || normalizeStatusKey(task.status) === 'hoan-thanh') {
-      map[owner].completed += 1;
-    } else if (Number(task.progress || 0) > 0 || normalizeStatusKey(task.status) === 'dang-lam') {
-      map[owner].inProgress += 1;
-    }
-  });
-  return Object.values(map).sort((a, b) => b.overdue - a.overdue || b.total - a.total).slice(0, 12);
-}
-
-function renderOwnerDashboardTable(rows) {
-  if (!rows.length) return '<p class="web07-muted">Chưa có dữ liệu chủ trì.</p>';
+function renderExecutiveListSection(title, headers, rows, rowRenderer, emptyText, tone) {
   return `
-    <table class="web07-table">
-      <thead>
-        <tr>
-          <th>Chủ trì</th>
-          <th>Tổng</th>
-          <th>Quá hạn</th>
-          <th>Đang làm</th>
-          <th>Hoàn thành</th>
-          <th>Thiếu ngày</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map((row) => `
-          <tr>
-            <td>${escapeHtml(row.owner)}</td>
-            <td>${escapeHtml(row.total)}</td>
-            <td>${escapeHtml(row.overdue)}</td>
-            <td>${escapeHtml(row.inProgress)}</td>
-            <td>${escapeHtml(row.completed)}</td>
-            <td>${escapeHtml(row.missingDate)}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
+    <article class="exec-section ${tone ? `is-${tone}` : ''}">
+      <header>
+        <h3>${escapeHtml(title)}</h3>
+        <span>${escapeHtml(rows.length)}</span>
+      </header>
+      ${rows.length ? `
+        <div class="exec-table-wrap">
+          <table class="exec-table">
+            <thead>
+              <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr>
+            </thead>
+            <tbody>${rows.map(rowRenderer).join('')}</tbody>
+          </table>
+        </div>
+      ` : `<p class="exec-empty">${escapeHtml(emptyText)}</p>`}
+    </article>
   `;
 }
 
-function renderMilestoneTable(tasks) {
-  if (!tasks.length) return '<p class="web07-muted">Chưa có mốc chính sắp tới.</p>';
+function renderExecutiveOverdueRow(task) {
   return `
-    <table class="web07-table">
-      <thead>
-        <tr>
-          <th>WBS</th>
-          <th>Tên mốc</th>
-          <th>Chủ trì</th>
-          <th>Deadline</th>
-          <th>Trạng thái</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tasks.map((task) => `
-          <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-            <td>${escapeHtml(task.wbs || task.code || task.id || '')}</td>
-            <td>${escapeHtml(task.text || '')}</td>
-            <td>${escapeHtml(task.owner || '')}</td>
-            <td>${escapeHtml(formatIsoDateVi(task.end_date || ''))}</td>
-            <td>${escapeHtml(task.status || '')}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
+    <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
+      <td class="exec-context" title="${escapeHtml(task.parentPath || task.contextLabel)}">${escapeHtml(task.contextLabel)}</td>
+      <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
+      <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
+      <td>${escapeHtml(formatIsoDateVi(toIsoDateLocal(task.endDate)))}</td>
+      <td class="exec-days"><span class="exec-badge is-red">${escapeHtml(task.lateDays)} ngày</span></td>
+    </tr>
+  `;
+}
+
+function renderExecutiveMilestoneRow(task) {
+  const timeText = task.lateDays > 0 ? `Trễ ${task.lateDays} ngày` : `Còn ${task.remainingDays ?? 0} ngày`;
+  const badgeClass = task.lateDays > 0 ? 'is-red' : 'is-blue';
+  return `
+    <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
+      <td class="exec-context" title="${escapeHtml(task.parentPath || task.contextLabel)}">${escapeHtml(task.contextLabel)}</td>
+      <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
+      <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
+      <td>${escapeHtml(task.endDate ? formatIsoDateVi(toIsoDateLocal(task.endDate)) : '')}</td>
+      <td class="exec-days"><span class="exec-badge ${badgeClass}">${escapeHtml(timeText)}</span></td>
+    </tr>
+  `;
+}
+
+function renderExecutiveUpcomingRow(task) {
+  return `
+    <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
+      <td class="exec-context" title="${escapeHtml(task.parentPath || task.contextLabel)}">${escapeHtml(task.contextLabel)}</td>
+      <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
+      <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
+      <td>${escapeHtml(formatIsoDateVi(toIsoDateLocal(task.endDate)))}</td>
+      <td class="exec-days"><span class="exec-badge is-blue">Còn ${escapeHtml(task.remainingDays)} ngày</span></td>
+    </tr>
+  `;
+}
+
+function renderExecutiveCompletedSection(rows) {
+  return `
+    <article class="exec-section is-green">
+      <header>
+        <h3>Kết quả tháng này</h3>
+        <span>${escapeHtml(rows.length)}</span>
+      </header>
+      ${rows.length ? `
+        <div class="exec-table-wrap">
+          <table class="exec-table">
+            <thead>
+              <tr>
+                <th>Hạng mục</th>
+                <th>Công việc</th>
+                <th>Chủ trì</th>
+                <th>Ngày hoàn thành thực tế</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((task) => `
+                <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
+                  <td class="exec-context" title="${escapeHtml(task.parentPath || task.contextLabel)}">${escapeHtml(task.contextLabel)}</td>
+                  <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
+                  <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
+                  <td>${escapeHtml(formatIsoDateVi(toIsoDateLocal(task.actualFinishDate)))}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : '<p class="exec-empty">Không có việc hoàn thành trong tháng.</p>'}
+    </article>
   `;
 }
 
@@ -3322,6 +3394,9 @@ function getScheduleState(task) {
 }
 
 function parseIsoDate(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
   const text = String(value || '').trim();
   if (!text) return null;
   const date = new Date(`${text.slice(0, 10)}T00:00:00`);

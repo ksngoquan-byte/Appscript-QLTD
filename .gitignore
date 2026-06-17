@@ -2,3 +2,7 @@
 AUDIT_TRUNG_HAM_*.txt
 _legacy_bak_*
 QLTD_LEGACY_BACKUP_*
+firebase-hosting-dev/node_modules/
+firebase-hosting-dev/package-lock.json
+firebase-hosting-dev/*.bak
+firebase-hosting-dev/*.log

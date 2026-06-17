@@ -6,6 +6,8 @@
       "firebase.json",
       "package.json",
       "package-lock.json",
+      "*.bak",
+      "*.log",
       "node_modules/**",
       ".git/**"
     ]
