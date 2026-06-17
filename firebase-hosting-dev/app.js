@@ -1972,7 +1972,6 @@ function renderGanttPanel(payload) {
         </span>
         <button id="ganttDatesToggle" type="button" class="${qltdGanttShowDates ? 'active' : ''}">Ngày trên bar</button>
         <button id="ganttExcelButton" type="button">Xuất Excel</button>
-        <button id="ganttPdfButton" type="button">Xuất PDF</button>
         <select id="ganttZoomSelect">
           <option value="day" ${qltdGanttZoom === 'day' ? 'selected' : ''}>Ngày</option>
           <option value="week" ${qltdGanttZoom === 'week' ? 'selected' : ''}>Tuần</option>
@@ -1996,8 +1995,6 @@ function renderGanttPanel(payload) {
   qltdWeb07DecorateGanttToolbar();
   bindGanttToolbar(payload);
   qltdWeb07BindExcelButton();
-  qltdWeb07BindPdfButton();
-
   if (qltdActiveView !== 'gantt') {
     return;
   }
@@ -2061,11 +2058,6 @@ function bindGanttToolbar(payload) {
       renderGanttPanel(qltdGanttPayload);
       renderDashboardFromGanttData(qltdGanttPayload);
     };
-  }
-
-  const pdfButton = document.getElementById('ganttPdfButton');
-  if (pdfButton) {
-    pdfButton.onclick = qltdWeb07ExportGanttPdf;
   }
 }
 
@@ -2873,42 +2865,7 @@ async function qltdWeb07RestoreGanttPrint(ctx) {
   if (typeof gantt.setSizes === 'function') gantt.setSizes();
 }
 
-async function qltdWeb07ExportGanttPdf() {
-  const ctx = await qltdWeb07PrepareGanttPrint();
 
-  if (!ctx) {
-    exportGanttPrintFallback();
-    return;
-  }
-
-  qltdWeb07BuildGanttPrintRoot(ctx);
-  document.body.classList.add('qltd-printing');
-  await qltdWeb07NextFrame();
-
-  let restored = false;
-  const restoreOnce = () => {
-    if (restored) return;
-    restored = true;
-    window.removeEventListener('afterprint', restoreOnce);
-    qltdWeb07RestoreGanttPrint(ctx).catch((error) => {
-      console.warn('Cannot restore Gantt after print', error);
-    });
-  };
-
-  window.addEventListener('afterprint', restoreOnce, { once: true });
-  window.print();
-
-  setTimeout(() => {
-    restoreOnce();
-  }, 2500);
-}
-
-function qltdWeb07BindPdfButton() {
-  const button = document.getElementById('ganttPdfButton');
-  if (!button) return;
-
-  button.onclick = qltdWeb07ExportGanttPdf;
-}
 
 function qltdWeb07BindExcelButton() {
   const button = document.getElementById('ganttExcelButton');
@@ -2924,8 +2881,6 @@ async function initDhtmlxGantt(tasks, links) {
   qltdWeb07EnsureGanttPolishStyles();
   qltdWeb07DecorateGanttToolbar();
   qltdWeb07BindExcelButton();
-  qltdWeb07BindPdfButton();
-
   const renderSeq = ++qltdDhtmlxGanttRenderSeq;
 
   const datedIds = {};
@@ -3313,18 +3268,6 @@ function toggleMainMilestone(taskId) {
   renderDashboardFromGanttData(qltdGanttPayload);
 }
 
-function exportGanttPrintFallback() {
-  const gantt = getDhtmlxGanttInstance();
-  if (gantt && gantt.setSizes) gantt.setSizes();
-  document.body.classList.add('qltd-printing');
-  setTimeout(() => {
-    window.print();
-    setTimeout(() => {
-      document.body.classList.remove('qltd-printing');
-      if (gantt && gantt.setSizes) gantt.setSizes();
-    }, 500);
-  }, 120);
-}
 
 function getUniqueTaskValues(tasks, key) {
   return Array.from(new Set((tasks || []).map((task) => String(task[key] || '').trim()).filter(Boolean))).sort();
