@@ -7,7 +7,7 @@ import {
   signOut
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js';
 
-window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND3_FIREBASE_FIX';
+window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND4_PDF_PRINT_FF_ARROW_FIX';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBWQoAi2VwMG0Aygckuv1H3CrlNgn_MJQY',
@@ -640,34 +640,67 @@ function ensureWeb07InlineStyles() {
       border-color: var(--dependency-link-color) !important;
     }
 
-    #web07GanttContainer .gantt_task_link .gantt_link_arrow,
-    #web07GanttContainer .gantt_task_link .gantt_link_arrow_right,
-    #web07GanttContainer .gantt_task_link .gantt_link_arrow_left {
+    #web07GanttContainer .gantt_task_link .gantt_link_arrow_right {
       border-left-color: var(--dependency-link-color) !important;
-      border-right-color: var(--dependency-link-color) !important;
+      border-right-color: transparent !important;
     }
 
-    body.qltd-printing .topbar,
-    body.qltd-printing .tabs,
-    body.qltd-printing .content-grid,
-    body.qltd-printing #web07DashboardPanel,
-    body.qltd-printing #deptPlanPanel {
+    #web07GanttContainer .gantt_task_link .gantt_link_arrow_left {
+      border-right-color: var(--dependency-link-color) !important;
+      border-left-color: transparent !important;
+    }
+
+    body.qltd-printing > :not(.qltd-gantt-print-root) {
       display: none !important;
     }
 
     @media print {
-      .topbar,
-      .tabs,
-      .content-grid,
-      #web07DashboardPanel,
-      #deptPlanPanel,
-      .web07-toolbar {
+      @page {
+        size: A4 landscape;
+        margin: 8mm;
+      }
+
+      body.qltd-printing > :not(.qltd-gantt-print-root) {
         display: none !important;
       }
 
-      #web07GanttPanel {
-        width: 100% !important;
+      body.qltd-printing {
         margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+      }
+
+      .qltd-gantt-print-root {
+        display: block !important;
+        position: static !important;
+        width: max-content !important;
+        min-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+        page-break-before: avoid !important;
+        break-before: avoid !important;
+      }
+
+      .qltd-gantt-print-title {
+        margin: 0 0 8px !important;
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        line-height: 1.25 !important;
+        color: #111827 !important;
+      }
+
+      .qltd-gantt-print-root .web07-toolbar {
+        display: none !important;
+      }
+
+      .qltd-gantt-print-root #web07GanttPanel,
+      .qltd-gantt-print-root #web07GanttContainer {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
       }
     }
 
@@ -2191,10 +2224,18 @@ function qltdWeb07EnsureGanttPolishStyles() {
     }
 
     #web07GanttContainer .gantt_task_link .gantt_line_wrapper,
-    #web07GanttContainer .gantt_task_link .gantt_link_arrow,
-    #web07GanttContainer .gantt_line_wrapper,
-    #web07GanttContainer .gantt_link_arrow {
+    #web07GanttContainer .gantt_line_wrapper {
       transform: translateY(var(--qltd-web07-link-y-shift)) !important;
+    }
+
+    #web07GanttContainer .gantt_task_link .gantt_link_arrow_right {
+      border-left-color: var(--dependency-link-color, #64748b) !important;
+      border-right-color: transparent !important;
+    }
+
+    #web07GanttContainer .gantt_task_link .gantt_link_arrow_left {
+      border-right-color: var(--dependency-link-color, #64748b) !important;
+      border-left-color: transparent !important;
     }
 
     #web07GanttContainer .gantt_task_line.qltd-task-overdue,
@@ -2245,20 +2286,74 @@ function qltdWeb07EnsureGanttPolishStyles() {
       font-weight: 600;
     }
 
-    body.qltd-printing #web07GanttPanel {
-      width: var(--qltd-web07-print-width, 100%) !important;
-      max-width: none !important;
-      margin: 0 !important;
+    body.qltd-printing > :not(.qltd-gantt-print-root) {
+      display: none !important;
     }
 
-    body.qltd-printing #web07GanttContainer,
-    body.qltd-printing #web07GanttContainer .gantt_container,
-    body.qltd-printing #web07GanttContainer .gantt_layout,
-    body.qltd-printing #web07GanttContainer .gantt_grid,
-    body.qltd-printing #web07GanttContainer .gantt_task,
-    body.qltd-printing #web07GanttContainer .gantt_data_area,
-    body.qltd-printing #web07GanttContainer .gantt_task_bg {
+    .qltd-gantt-print-root {
+      display: none;
+    }
+
+    .qltd-gantt-print-root .web07-toolbar {
+      display: none !important;
+    }
+
+    .qltd-gantt-print-root #web07GanttPanel,
+    .qltd-gantt-print-root #web07GanttContainer,
+    .qltd-gantt-print-root #web07GanttContainer .gantt_container,
+    .qltd-gantt-print-root #web07GanttContainer .gantt_layout,
+    .qltd-gantt-print-root #web07GanttContainer .gantt_grid,
+    .qltd-gantt-print-root #web07GanttContainer .gantt_task,
+    .qltd-gantt-print-root #web07GanttContainer .gantt_data_area,
+    .qltd-gantt-print-root #web07GanttContainer .gantt_task_bg {
       overflow: visible !important;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 8mm;
+      }
+
+      html,
+      body.qltd-printing {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+      }
+
+      body.qltd-printing > :not(.qltd-gantt-print-root) {
+        display: none !important;
+      }
+
+      .qltd-gantt-print-root {
+        display: block !important;
+        position: static !important;
+        width: var(--qltd-web07-print-width, 100%) !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+        page-break-before: avoid !important;
+        break-before: avoid !important;
+      }
+
+      .qltd-gantt-print-title {
+        margin: 0 0 8px !important;
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        line-height: 1.25 !important;
+        color: #111827 !important;
+      }
+
+      .qltd-gantt-print-root #web07GanttPanel,
+      .qltd-gantt-print-root #web07GanttContainer {
+        width: var(--qltd-web07-print-width, 100%) !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+      }
     }
   `;
   document.head.appendChild(style);
@@ -2427,7 +2522,44 @@ async function qltdWeb07PrepareGanttPrint() {
   gantt.render();
   await qltdWeb07NextFrame();
 
-  return { gantt, container, panel, prev };
+  if (typeof gantt.scrollTo === 'function') {
+    gantt.scrollTo(0, 0);
+    await qltdWeb07NextFrame();
+  }
+
+  return { gantt, container, panel, prev, full };
+}
+
+function qltdWeb07RemoveGanttPrintRoots() {
+  document.querySelectorAll('.qltd-gantt-print-root').forEach((root) => root.remove());
+}
+
+function qltdWeb07BuildGanttPrintRoot(ctx) {
+  if (!ctx || !ctx.container) return null;
+
+  qltdWeb07RemoveGanttPrintRoots();
+
+  const root = document.createElement('section');
+  root.className = 'qltd-gantt-print-root';
+  root.setAttribute('aria-hidden', 'true');
+  root.style.width = `${ctx.full.width}px`;
+
+  const title = document.createElement('h1');
+  title.className = 'qltd-gantt-print-title';
+  const projectName = qltdGanttPayload && (qltdGanttPayload.projectName || qltdGanttPayload.projectCode);
+  title.textContent = projectName ? `Gantt - ${projectName}` : 'Gantt tiến độ';
+  root.appendChild(title);
+
+  const ganttClone = ctx.container.cloneNode(true);
+  ganttClone.style.width = `${ctx.full.width}px`;
+  ganttClone.style.minWidth = `${ctx.full.width}px`;
+  ganttClone.style.height = `${ctx.full.height}px`;
+  ganttClone.style.minHeight = `${ctx.full.height}px`;
+  ganttClone.style.overflow = 'visible';
+  root.appendChild(ganttClone);
+
+  document.body.appendChild(root);
+  return root;
 }
 
 async function qltdWeb07RestoreGanttPrint(ctx) {
@@ -2435,6 +2567,7 @@ async function qltdWeb07RestoreGanttPrint(ctx) {
 
   const { gantt, container, panel, prev } = ctx;
   document.body.classList.remove('qltd-printing');
+  qltdWeb07RemoveGanttPrintRoots();
   document.documentElement.style.setProperty('--qltd-web07-print-width', prev.printWidth || '');
   if (!prev.printWidth) document.documentElement.style.removeProperty('--qltd-web07-print-width');
 
@@ -2472,16 +2605,26 @@ async function qltdWeb07ExportGanttPdf() {
     return;
   }
 
+  qltdWeb07BuildGanttPrintRoot(ctx);
   document.body.classList.add('qltd-printing');
   await qltdWeb07NextFrame();
 
-  window.print();
-
-  setTimeout(() => {
+  let restored = false;
+  const restoreOnce = () => {
+    if (restored) return;
+    restored = true;
+    window.removeEventListener('afterprint', restoreOnce);
     qltdWeb07RestoreGanttPrint(ctx).catch((error) => {
       console.warn('Cannot restore Gantt after print', error);
     });
-  }, 500);
+  };
+
+  window.addEventListener('afterprint', restoreOnce, { once: true });
+  window.print();
+
+  setTimeout(() => {
+    restoreOnce();
+  }, 2500);
 }
 
 function qltdWeb07BindPdfButton() {
