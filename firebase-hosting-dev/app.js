@@ -7,7 +7,7 @@ import {
   signOut
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js';
 
-window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND4_PDF_PRINT_FF_ARROW_FIX';
+window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBWQoAi2VwMG0Aygckuv1H3CrlNgn_MJQY',
@@ -40,6 +40,8 @@ let qltdGanttShowLinks = true;
 let qltdGanttShowDates = true;
 let qltdActiveView = 'dashboard';
 let qltdDhtmlxLoadPromise = null;
+let qltdExcelJsLoadPromise = null;
+let qltdHtmlToImageLoadPromise = null;
 let qltdDhtmlxGanttInitialized = false;
 let qltdDhtmlxGanttRenderSeq = 0;
 let qltdMainMilestoneIds = new Set();
@@ -1969,6 +1971,7 @@ function renderGanttPanel(payload) {
           <span class="web07-link-sample ff"></span>FF
         </span>
         <button id="ganttDatesToggle" type="button" class="${qltdGanttShowDates ? 'active' : ''}">Ngày trên bar</button>
+        <button id="ganttExcelButton" type="button">Xuất Excel</button>
         <button id="ganttPdfButton" type="button">Xuất PDF</button>
         <select id="ganttZoomSelect">
           <option value="day" ${qltdGanttZoom === 'day' ? 'selected' : ''}>Ngày</option>
@@ -1992,6 +1995,7 @@ function renderGanttPanel(payload) {
   qltdWeb07EnsureGanttPolishStyles();
   qltdWeb07DecorateGanttToolbar();
   bindGanttToolbar(payload);
+  qltdWeb07BindExcelButton();
   qltdWeb07BindPdfButton();
 
   if (qltdActiveView !== 'gantt') {
@@ -2534,6 +2538,47 @@ function qltdWeb07RemoveGanttPrintRoots() {
   document.querySelectorAll('.qltd-gantt-print-root').forEach((root) => root.remove());
 }
 
+function qltdWeb07LoadBrowserScript(src, globalName) {
+  if (globalName && window[globalName]) return Promise.resolve(window[globalName]);
+
+  return new Promise((resolve, reject) => {
+    const existing = Array.from(document.scripts).find((script) => script.src === src);
+    if (existing) {
+      existing.addEventListener('load', () => resolve(globalName ? window[globalName] : true), { once: true });
+      existing.addEventListener('error', () => reject(new Error(`Không tải được thư viện: ${src}`)), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.crossOrigin = 'anonymous';
+    script.onload = () => resolve(globalName ? window[globalName] : true);
+    script.onerror = () => reject(new Error(`Không tải được thư viện: ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+function qltdWeb07LoadExcelJs() {
+  if (!qltdExcelJsLoadPromise) {
+    qltdExcelJsLoadPromise = qltdWeb07LoadBrowserScript(
+      'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',
+      'ExcelJS'
+    );
+  }
+  return qltdExcelJsLoadPromise;
+}
+
+function qltdWeb07LoadHtmlToImage() {
+  if (!qltdHtmlToImageLoadPromise) {
+    qltdHtmlToImageLoadPromise = qltdWeb07LoadBrowserScript(
+      'https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js',
+      'htmlToImage'
+    );
+  }
+  return qltdHtmlToImageLoadPromise;
+}
+
 function qltdWeb07BuildGanttPrintRoot(ctx) {
   if (!ctx || !ctx.container) return null;
 
@@ -2560,6 +2605,237 @@ function qltdWeb07BuildGanttPrintRoot(ctx) {
 
   document.body.appendChild(root);
   return root;
+}
+
+function qltdWeb07CollectGanttLinks(gantt) {
+  const links = [];
+
+  if (gantt && typeof gantt.eachLink === 'function') {
+    try {
+      gantt.eachLink((link) => {
+        links.push({ ...link });
+      });
+    } catch (error) {
+      console.warn('Cannot read DHTMLX links for Excel export', error);
+    }
+  }
+
+  if (!links.length && qltdGanttPayload && Array.isArray(qltdGanttPayload.links)) {
+    return qltdGanttPayload.links.map((link) => ({ ...link }));
+  }
+
+  return links;
+}
+
+function qltdWeb07BuildLinkTextByTarget(gantt) {
+  const links = qltdWeb07CollectGanttLinks(gantt);
+  const sourceNameById = {};
+
+  qltdWeb07GetVisibleGanttTasks(gantt).forEach((task) => {
+    sourceNameById[String(task.id)] = task.wbs || task.code || task.text || task.id;
+  });
+
+  const byTarget = {};
+  links.forEach((link) => {
+    const targetId = String(link.target || '');
+    const sourceId = String(link.source || '');
+    if (!targetId || !sourceId) return;
+
+    const relation = String(link.relation || relationFromDhtmlxType(link.type) || 'FS').toUpperCase();
+    const sourceLabel = sourceNameById[sourceId] || sourceId;
+    if (!byTarget[targetId]) byTarget[targetId] = { predecessors: [], relations: [] };
+    byTarget[targetId].predecessors.push(sourceLabel);
+    byTarget[targetId].relations.push(relation);
+  });
+
+  return byTarget;
+}
+
+function qltdWeb07BuildGanttDataRows(gantt) {
+  const linkTextByTarget = qltdWeb07BuildLinkTextByTarget(gantt);
+
+  return qltdWeb07GetVisibleGanttTasks(gantt).map((task) => {
+    const linkInfo = linkTextByTarget[String(task.id)] || {};
+    return {
+      wbs: task.wbs || task.id || '',
+      text: task.text || '',
+      owner: task.owner || '',
+      duration: qltdWeb07GetTaskDuration(task),
+      start: qltdWeb07FormatDdMmYy(task.start_date || task.baselineStart || ''),
+      end: qltdWeb07FormatDdMmYy(task.end_date || task.baselineEnd || ''),
+      predecessors: (linkInfo.predecessors || []).join(', ') || task.predecessorRaw || '',
+      relation: Array.from(new Set(linkInfo.relations || [])).join(', '),
+      status: task.status || '',
+      note: task.updateNote || task.note || ''
+    };
+  });
+}
+
+function qltdWeb07SafeFilename(value) {
+  return String(value || 'gantt')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/gi, 'd')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80) || 'gantt';
+}
+
+function qltdWeb07DownloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+async function qltdWeb07CaptureGanttPng(ctx) {
+  const htmlToImage = await qltdWeb07LoadHtmlToImage();
+  if (!htmlToImage || typeof htmlToImage.toPng !== 'function') {
+    throw new Error('Thư viện html-to-image chưa sẵn sàng.');
+  }
+
+  const width = Math.ceil(ctx.full.width);
+  const height = Math.ceil(ctx.full.height);
+
+  return htmlToImage.toPng(ctx.container, {
+    width,
+    height,
+    cacheBust: true,
+    pixelRatio: 1,
+    backgroundColor: '#ffffff',
+    style: {
+      width: `${width}px`,
+      minWidth: `${width}px`,
+      height: `${height}px`,
+      minHeight: `${height}px`,
+      overflow: 'visible'
+    }
+  });
+}
+
+async function qltdWeb07ExportGanttExcel() {
+  const button = document.getElementById('ganttExcelButton');
+  const prevText = button ? button.textContent : '';
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Đang xuất...';
+  }
+
+  let ctx = null;
+  try {
+    const ExcelJS = await qltdWeb07LoadExcelJs();
+    ctx = await qltdWeb07PrepareGanttPrint();
+
+    if (!ExcelJS || !ctx) {
+      throw new Error('Chưa thể chuẩn bị Gantt để xuất Excel.');
+    }
+
+    const imageDataUrl = await qltdWeb07CaptureGanttPng(ctx);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'QLTD Firebase WebApp';
+    workbook.created = new Date();
+    workbook.modified = new Date();
+
+    const printSheet = workbook.addWorksheet('Gantt_Print', {
+      pageSetup: {
+        paperSize: 9,
+        orientation: 'landscape',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        horizontalCentered: true,
+        verticalCentered: false,
+        margins: { left: 0.25, right: 0.25, top: 0.3, bottom: 0.3, header: 0.1, footer: 0.1 }
+      },
+      properties: { defaultRowHeight: 18 }
+    });
+
+    const maxExcelImageWidth = 2600;
+    const imageScale = Math.min(1, maxExcelImageWidth / Math.max(ctx.full.width, 1));
+    const imageWidth = Math.round(ctx.full.width * imageScale);
+    const imageHeight = Math.round(ctx.full.height * imageScale);
+    const imageId = workbook.addImage({ base64: imageDataUrl, extension: 'png' });
+
+    for (let col = 1; col <= 18; col += 1) {
+      printSheet.getColumn(col).width = 18;
+    }
+    for (let row = 1; row <= Math.max(1, Math.ceil(imageHeight / 24)); row += 1) {
+      printSheet.getRow(row).height = 18;
+    }
+    printSheet.addImage(imageId, {
+      tl: { col: 0, row: 0 },
+      ext: { width: imageWidth, height: imageHeight },
+      editAs: 'oneCell'
+    });
+
+    const dataSheet = workbook.addWorksheet('Gantt_Data', {
+      pageSetup: {
+        paperSize: 9,
+        orientation: 'landscape',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        margins: { left: 0.25, right: 0.25, top: 0.3, bottom: 0.3, header: 0.1, footer: 0.1 }
+      },
+      views: [{ state: 'frozen', ySplit: 1 }]
+    });
+
+    dataSheet.columns = [
+      { header: 'WBS', key: 'wbs', width: 16 },
+      { header: 'Công việc', key: 'text', width: 48 },
+      { header: 'Chủ trì', key: 'owner', width: 20 },
+      { header: 'Số ngày', key: 'duration', width: 12 },
+      { header: 'BĐ', key: 'start', width: 14 },
+      { header: 'KT', key: 'end', width: 14 },
+      { header: 'Tiền nhiệm', key: 'predecessors', width: 26 },
+      { header: 'Loại liên kết', key: 'relation', width: 16 },
+      { header: 'Trạng thái', key: 'status', width: 18 },
+      { header: 'Ghi chú', key: 'note', width: 36 }
+    ];
+    dataSheet.addRows(qltdWeb07BuildGanttDataRows(ctx.gantt));
+    dataSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    dataSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+    dataSheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        cell.alignment = { vertical: 'top', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFD9E1EA' } },
+          left: { style: 'thin', color: { argb: 'FFD9E1EA' } },
+          bottom: { style: 'thin', color: { argb: 'FFD9E1EA' } },
+          right: { style: 'thin', color: { argb: 'FFD9E1EA' } }
+        };
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const projectCode = qltdGanttPayload && (qltdGanttPayload.projectCode || qltdGanttPayload.projectName);
+    const filename = `${qltdWeb07SafeFilename(projectCode)}_gantt_${toIsoDateLocal(new Date())}.xlsx`;
+    qltdWeb07DownloadBlob(
+      new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      filename
+    );
+  } catch (error) {
+    console.error('Cannot export Gantt Excel', error);
+    alert(`Không xuất được Excel: ${error.message || error}`);
+  } finally {
+    if (ctx) {
+      try {
+        await qltdWeb07RestoreGanttPrint(ctx);
+      } catch (restoreError) {
+        console.warn('Cannot restore Gantt after Excel export', restoreError);
+      }
+    }
+
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevText || 'Xuất Excel';
+    }
+  }
 }
 
 async function qltdWeb07RestoreGanttPrint(ctx) {
@@ -2634,12 +2910,20 @@ function qltdWeb07BindPdfButton() {
   button.onclick = qltdWeb07ExportGanttPdf;
 }
 
+function qltdWeb07BindExcelButton() {
+  const button = document.getElementById('ganttExcelButton');
+  if (!button) return;
+
+  button.onclick = qltdWeb07ExportGanttExcel;
+}
+
 async function initDhtmlxGantt(tasks, links) {
   const container = document.getElementById('web07GanttContainer');
   if (!container) return;
 
   qltdWeb07EnsureGanttPolishStyles();
   qltdWeb07DecorateGanttToolbar();
+  qltdWeb07BindExcelButton();
   qltdWeb07BindPdfButton();
 
   const renderSeq = ++qltdDhtmlxGanttRenderSeq;

@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "qltd-entiz-dev-208a3",
     "public": ".",
     "ignore": [
       "firebase.json",
