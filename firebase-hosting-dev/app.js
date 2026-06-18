@@ -126,13 +126,29 @@ function formatRole(role) {
   return role || 'Kh\u00f4ng x\u00e1c \u0111\u1ecbnh';
 }
 
-function normalizePermissions(permissions = {}) {
+function normalizeRoleKey(role) {
+  return String(role || '').trim().toUpperCase();
+}
+
+function isReadOnlyViewer(profile = currentUserProfile) {
+  return normalizeRoleKey(profile && profile.role) === 'VIEWER';
+}
+
+function canEditPlanning(profile = currentUserProfile) {
+  const role = normalizeRoleKey(profile && profile.role);
+  return ['ADMIN', 'PMO', 'EDITOR'].includes(role);
+}
+
+function normalizePermissions(permissions = {}, role = '') {
+  const roleKey = normalizeRoleKey(role);
+  const canViewCore = ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER'].includes(roleKey);
+
   return {
-    dashboard: !!permissions.dashboard,
-    gantt: !!permissions.gantt,
-    lookup: !!permissions.lookup,
-    reportUpdate: !!permissions.reportUpdate,
-    admin: !!permissions.admin
+    dashboard: !!permissions.dashboard || canViewCore,
+    gantt: !!permissions.gantt || canViewCore,
+    lookup: !!permissions.lookup || canViewCore,
+    reportUpdate: roleKey !== 'VIEWER' && !!permissions.reportUpdate,
+    admin: roleKey === 'ADMIN' || !!permissions.admin
   };
 }
 
@@ -157,7 +173,7 @@ function setNavVisibility(label, allowed) {
 
 function applyPermissions(profile = {}) {
   currentUserProfile = profile;
-  currentPermissions = normalizePermissions(profile.permissions || DEFAULT_PERMISSIONS);
+  currentPermissions = normalizePermissions(profile.permissions || DEFAULT_PERMISSIONS, profile.role);
 
   setNavVisibility('Dashboard', currentPermissions.dashboard);
   setNavVisibility('Gantt', currentPermissions.gantt);
@@ -1610,23 +1626,29 @@ function renderDashboardFromGanttData(payload) {
 
   panel.innerHTML = `
     <div class="exec-dashboard">
-      <section class="exec-hero">
+      <section class="exec-header">
         <div>
-          <p class="exec-eyebrow">Dashboard điều hành</p>
+          <p class="exec-eyebrow">Dashboard điều hành dự án</p>
           <h2>${escapeHtml(payload.projectName || payload.projectCode || 'Dự án')}</h2>
-          <p class="exec-subtitle">${escapeHtml(payload.projectCode || '')} · ${escapeHtml(payload.sourceSheet || '')}</p>
+          <p class="exec-subtitle">
+            ${escapeHtml(payload.projectCode || '')}
+            ${payload.sourceSheet ? ` · ${escapeHtml(payload.sourceSheet)}` : ''}
+            · Cập nhật ${escapeHtml(model.updatedAtLabel)}
+          </p>
         </div>
-        <div class="exec-progress">
-          <strong>${escapeHtml(model.completionPercent)}%</strong>
-          <span>Hoàn thành dự án</span>
-        </div>
-        <div class="exec-hero-grid">
-          ${renderExecutiveMetric('Việc đang mở', model.openTasks, 'blue')}
-          ${renderExecutiveMetric('Quá hạn', model.overdue.length, 'red')}
-          ${renderExecutiveMetric('Milestone mở', model.openMilestones, 'green')}
-          ${renderExecutiveNextMilestone(model.nextMilestone)}
-        </div>
+        <button id="execRefreshButton" class="exec-refresh" type="button">Refresh</button>
       </section>
+
+      <section class="exec-kpi-grid" aria-label="KPI điều hành">
+        ${renderExecutiveKpiCard('Tổng công việc', model.kpis.totalTasks, '100% dữ liệu thật', 'info')}
+        ${renderExecutiveKpiCard('Hoàn thành', model.kpis.completed, `${model.completionPercent}% tổng số`, 'green')}
+        ${renderExecutiveKpiCard('Đang thực hiện', model.kpis.inProgress, `${model.inProgressPercent}% tổng số`, 'blue')}
+        ${renderExecutiveKpiCard('Chưa bắt đầu', model.kpis.notStarted, `${model.notStartedPercent}% tổng số`, 'gray')}
+        ${renderExecutiveKpiCard('Quá hạn', model.kpis.overdue, `${model.overduePercent}% tổng số`, 'red')}
+        ${renderExecutiveKpiCard('Mốc lớn đang thực hiện', model.kpis.activeMilestones, model.usedMilestoneFallback ? 'WBS cấp I/II/III' : 'Milestone hệ thống', 'blue')}
+      </section>
+
+      ${renderExecutiveAlerts(model.alerts)}
 
       <section class="exec-grid">
         ${renderExecutiveListSection('Top 5 quá hạn', ['Hạng mục', 'Công việc', 'Chủ trì', 'Ngày kết thúc', 'Số ngày trễ'], model.overdue, renderExecutiveOverdueRow, 'Không có việc quá hạn.', 'red')}
@@ -1638,6 +1660,10 @@ function renderDashboardFromGanttData(payload) {
   `;
 
   bindDashboardTaskLinks();
+  const refreshButton = document.getElementById('execRefreshButton');
+  if (refreshButton) {
+    refreshButton.onclick = () => loadGanttDataForSelectedProject(payload.projectCode || getStoredProjectCode());
+  }
 }
 
 function buildExecutiveDashboardModel(payload) {
@@ -1647,10 +1673,13 @@ function buildExecutiveDashboardModel(payload) {
   const upcomingLimit = addDays(today, 14);
   const enriched = buildExecutiveTaskContext(Array.isArray(payload.data) ? payload.data : []);
   const realTasks = enriched.filter((task) => task.isRealTask);
+  const dashboardTasks = realTasks.filter((task) => task.highestVisibleTask);
   const completed = realTasks.filter((task) => task.isCompleted);
-  const openTasks = realTasks.filter((task) => !task.isCompleted);
+  const openTasks = dashboardTasks.filter((task) => !task.isCompleted);
+  const inProgress = realTasks.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress');
+  const notStarted = realTasks.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started');
   const hasStrictMilestones = enriched.some((task) => task.isMilestone);
-  const milestoneTasks = enriched.filter((task) => task.isMilestone || (!hasStrictMilestones && task.isMilestoneFallback));
+  const milestoneTasks = dashboardTasks.filter((task) => task.isMilestone || (!hasStrictMilestones && task.isMilestoneFallback));
 
   const overdue = openTasks
     .filter((task) => task.endDate && task.endDate < today)
@@ -1683,8 +1712,51 @@ function buildExecutiveDashboardModel(payload) {
     .filter((task) => task.endDate && task.endDate >= today)
     .sort((a, b) => a.endDate - b.endDate)[0] || null;
 
+  const severeOverdue = overdue.filter((task) => task.lateDays > 14);
+  const deadline3Days = upcoming.filter((task) => task.remainingDays <= 3);
+  const lateMilestones = activeMilestones.filter((task) => task.lateDays > 0);
+  const lateManagementTasks = overdue.filter((task) => task.wbsLevel <= 2);
+  const alerts = [
+    ...severeOverdue.map((task) => ({
+      tone: 'red',
+      taskId: task.id,
+      title: 'Việc quá hạn trên 14 ngày',
+      text: `${task.text || 'Công việc'} · trễ ${task.lateDays} ngày`
+    })),
+    ...lateMilestones.map((task) => ({
+      tone: 'red',
+      taskId: task.id,
+      title: 'Milestone quá hạn',
+      text: `${task.text || 'Mốc lớn'} · trễ ${task.lateDays} ngày`
+    })),
+    ...deadline3Days.map((task) => ({
+      tone: 'blue',
+      taskId: task.id,
+      title: 'Deadline trong 3 ngày',
+      text: `${task.text || 'Công việc'} · còn ${task.remainingDays} ngày`
+    })),
+    ...lateManagementTasks.map((task) => ({
+      tone: 'red',
+      taskId: task.id,
+      title: 'Task cấp I/II quá hạn',
+      text: `${task.text || 'Công việc'} · ${task.wbsText || 'WBS'}`
+    }))
+  ].slice(0, 6);
+
   return {
     completionPercent: realTasks.length ? Math.round((completed.length / realTasks.length) * 100) : 0,
+    inProgressPercent: realTasks.length ? Math.round((inProgress.length / realTasks.length) * 100) : 0,
+    notStartedPercent: realTasks.length ? Math.round((notStarted.length / realTasks.length) * 100) : 0,
+    overduePercent: realTasks.length ? Math.round((overdue.length / realTasks.length) * 100) : 0,
+    kpis: {
+      totalTasks: realTasks.length,
+      completed: completed.length,
+      inProgress: inProgress.length,
+      notStarted: notStarted.length,
+      overdue: overdue.length,
+      activeMilestones: milestoneTasks.filter((task) => !task.isCompleted).length
+    },
+    updatedAtLabel: getDashboardUpdatedAtLabel(payload),
     openTasks: openTasks.length,
     openMilestones: milestoneTasks.filter((task) => task.isRealTask && !task.isCompleted).length,
     overdue,
@@ -1692,6 +1764,7 @@ function buildExecutiveDashboardModel(payload) {
     activeMilestones,
     completedThisMonth,
     nextMilestone,
+    alerts,
     usedMilestoneFallback: !hasStrictMilestones
   };
 }
@@ -1712,10 +1785,11 @@ function buildExecutiveTaskContext(tasks) {
     item.normalizedStatus = normalizeStatusForFilter(task.status);
     item.hasActionStatus = item.normalizedStatus !== 'unknown';
     item.isCompleted = Number(task.progress || 0) >= 1 || item.normalizedStatus === 'completed';
-    item.isCategoryRow = !item.hasAnyDate;
+    item.durationDays = Number(task.duration || task.durationDays || task.planDays || task.plannedDays || task.soNgayKeHoach || 0);
+    item.isCategoryRow = !item.startDate && !item.endDate && !item.actualStartDate && !item.actualFinishDate && !item.durationDays;
     item.isRealTask = !!String(task.text || '').trim() && (item.hasAnyDate || item.hasActionStatus);
     item.isMilestone = isExecutiveStrictMilestone(task);
-    item.isMilestoneFallback = item.wbsLevel >= 1 && item.wbsLevel <= 3;
+    item.isMilestoneFallback = item.wbsLevel >= 1 && item.wbsLevel <= 2;
     item.priorityIcon = getExecutivePriorityIcon(item);
     byId[String(item.id || '')] = item;
     if (item.wbsText) byWbs[item.wbsText] = item;
@@ -1724,15 +1798,38 @@ function buildExecutiveTaskContext(tasks) {
   return tasks.map((task) => {
     const item = byId[String(task.id || '')] || task;
     const path = buildExecutiveParentPath(item, byWbs);
+    const incompleteRealAncestor = findIncompleteRealAncestor(item, byWbs);
     return {
       ...item,
       parentPath: path.join(' > '),
       parentLevel1: path[0] || '',
       parentLevel2: path[1] || '',
       parentLevel3: path[2] || '',
-      contextLabel: path.join(' > ') || item.parentLevel1 || item.wbsText || 'Chưa phân nhóm'
+      contextLabel: path.join(' > ') || item.parentLevel1 || item.wbsText || 'Chưa phân nhóm',
+      highestVisibleTask: !incompleteRealAncestor
     };
   });
+}
+
+function findIncompleteRealAncestor(task, byWbs) {
+  const wbs = String(task.wbsText || '').trim();
+  if (!wbs || !wbs.includes('.')) return null;
+
+  const parts = wbs.split('.');
+  for (let index = parts.length - 1; index >= 1; index -= 1) {
+    const parentWbs = parts.slice(0, index).join('.');
+    const parent = byWbs[parentWbs];
+    if (parent && parent.isRealTask && !parent.isCompleted) return parent;
+  }
+
+  return null;
+}
+
+function getDashboardUpdatedAtLabel(payload) {
+  const raw = payload.updatedAt || payload.lastUpdatedAt || payload.generatedAt || payload.timestamp || '';
+  const parsed = raw ? new Date(raw) : new Date();
+  if (Number.isNaN(parsed.getTime())) return new Date().toLocaleString('vi-VN');
+  return parsed.toLocaleString('vi-VN');
 }
 
 function isExecutiveStrictMilestone(task) {
@@ -1780,10 +1877,10 @@ function getExecutiveWbsLevel(wbs) {
 }
 
 function getExecutivePriorityIcon(task) {
-  if (task.isMilestone) return '🚩';
-  if (task.wbsLevel === 1) return '🎯';
-  if (task.wbsLevel === 2) return '📌';
-  return '✓';
+  if (task.isMilestone) return 'M';
+  if (task.wbsLevel === 1) return 'I';
+  if (task.wbsLevel === 2) return 'II';
+  return '';
 }
 
 function compareExecutivePriority(a, b) {
@@ -1810,6 +1907,49 @@ function renderExecutiveMetric(label, value, tone) {
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value ?? 0)}</strong>
     </article>
+  `;
+}
+
+function renderExecutiveKpiCard(label, value, subtext, tone) {
+  return `
+    <article class="exec-kpi-card ${tone ? `is-${tone}` : ''}">
+      <div class="exec-kpi-icon" aria-hidden="true"></div>
+      <div>
+        <strong>${escapeHtml(value ?? 0)}</strong>
+        <span>${escapeHtml(label)}</span>
+        <em>${escapeHtml(subtext || '')}</em>
+      </div>
+    </article>
+  `;
+}
+
+function renderExecutiveAlerts(alerts = []) {
+  if (!alerts.length) {
+    return `
+      <section class="exec-alerts is-ok">
+        <header>
+          <h3>Executive Alerts</h3>
+          <span>Không có cảnh báo nghiêm trọng</span>
+        </header>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="exec-alerts">
+      <header>
+        <h3>Executive Alerts</h3>
+        <span>${escapeHtml(alerts.length)} cảnh báo cần theo dõi</span>
+      </header>
+      <div class="exec-alert-list">
+        ${alerts.map((alert) => `
+          <button type="button" class="exec-alert ${alert.tone ? `is-${alert.tone}` : ''}" data-task-id="${escapeHtml(alert.taskId || '')}">
+            <strong>${escapeHtml(alert.title)}</strong>
+            <span title="${escapeHtml(alert.text || '')}">${escapeHtml(alert.text || '')}</span>
+          </button>
+        `).join('')}
+      </div>
+    </section>
   `;
 }
 
@@ -1926,6 +2066,15 @@ function bindDashboardTaskLinks() {
       setTimeout(() => focusGanttTask(taskId), 120);
     };
   });
+
+  document.querySelectorAll('.exec-alert[data-task-id]').forEach((button) => {
+    button.onclick = () => {
+      const taskId = button.getAttribute('data-task-id');
+      showWeb07View('gantt');
+      if (qltdGanttPayload) renderGanttPanel(qltdGanttPayload);
+      setTimeout(() => focusGanttTask(taskId), 120);
+    };
+  });
 }
 
 function renderBreakdown(map = {}) {
@@ -1990,6 +2139,9 @@ function renderGanttPanel(payload) {
 
   const owners = getUniqueTaskValues(payload.data || [], 'owner');
   loadMainMilestonesForProject(payload.projectCode);
+  const canEdit = canEditPlanning();
+  const canExport = !isReadOnlyViewer();
+  if (!canEdit) qltdMainMilestoneSelectMode = false;
 
   panel.innerHTML = `
     <div class="web07-card">
@@ -2033,9 +2185,11 @@ function renderGanttPanel(payload) {
           <option value="wbs-1-4">Cấp 1-4</option>
           <option value="main-milestones">Chỉ mốc chính</option>
         </select>
-        <button id="ganttMilestoneModeButton" type="button" class="${qltdMainMilestoneSelectMode ? 'active' : ''}">Chọn mốc chính${qltdMainMilestoneIds.size ? ` (${qltdMainMilestoneIds.size})` : ''}</button>
-        <button id="ganttMilestoneResetButton" type="button">Reset mốc</button>
-        <span id="ganttMilestoneBadge" class="web07-muted">Mốc chính: ${qltdMainMilestoneIds.size}</span>
+        ${canEdit ? `
+          <button id="ganttMilestoneModeButton" type="button" class="${qltdMainMilestoneSelectMode ? 'active' : ''}">Chọn mốc chính${qltdMainMilestoneIds.size ? ` (${qltdMainMilestoneIds.size})` : ''}</button>
+          <button id="ganttMilestoneResetButton" type="button">Reset mốc</button>
+          <span id="ganttMilestoneBadge" class="web07-muted">Mốc chính: ${qltdMainMilestoneIds.size}</span>
+        ` : ''}
         <button id="ganttLinksToggle" type="button" class="${qltdGanttShowLinks ? 'active' : ''}">Mũi tên</button>
         <span id="ganttLinkLegend" class="web07-link-legend ${qltdGanttShowLinks ? '' : 'is-muted'}">
           <span class="web07-link-sample"></span>FS
@@ -2043,7 +2197,7 @@ function renderGanttPanel(payload) {
           <span class="web07-link-sample ff"></span>FF
         </span>
         <button id="ganttDatesToggle" type="button" class="${qltdGanttShowDates ? 'active' : ''}">Ngày trên bar</button>
-        <button id="ganttExcelButton" type="button">Xuất Excel</button>
+        ${canExport ? '<button id="ganttExcelButton" type="button">Xuất Excel</button>' : ''}
         <select id="ganttZoomSelect">
           <option value="day" ${qltdGanttZoom === 'day' ? 'selected' : ''}>Ngày</option>
           <option value="week" ${qltdGanttZoom === 'week' ? 'selected' : ''}>Tuần</option>
