@@ -120,9 +120,11 @@ function renderDenied(user) {
 
 function formatRole(role) {
   if (role === 'ADMIN') return 'Admin';
+  if (role === 'PMO') return 'PMO';
   if (role === 'EDITOR') return 'Editor';
   if (role === 'REPORTER') return 'Reporter';
   if (role === 'VIEWER') return 'Viewer';
+  if (role === 'GUEST_VIEWER') return 'Guest Viewer';
   return role || 'Kh\u00f4ng x\u00e1c \u0111\u1ecbnh';
 }
 
@@ -131,7 +133,8 @@ function normalizeRoleKey(role) {
 }
 
 function isReadOnlyViewer(profile = currentUserProfile) {
-  return normalizeRoleKey(profile && profile.role) === 'VIEWER';
+  const role = normalizeRoleKey(profile && profile.role);
+  return role === 'VIEWER' || role === 'GUEST_VIEWER' || !canEditPlanning(profile);
 }
 
 function canEditPlanning(profile = currentUserProfile) {
@@ -141,7 +144,7 @@ function canEditPlanning(profile = currentUserProfile) {
 
 function normalizePermissions(permissions = {}, role = '') {
   const roleKey = normalizeRoleKey(role);
-  const canViewCore = ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER'].includes(roleKey);
+  const canViewCore = ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER', 'GUEST_VIEWER'].includes(roleKey);
 
   return {
     dashboard: !!permissions.dashboard || canViewCore,
@@ -260,7 +263,7 @@ function renderProjectOptions(projects = []) {
 
 async function loadProjectsForSelector() {
   try {
-    const payload = await fetchBackendJson('listProjects', { email: currentUserProfile && currentUserProfile.email });
+    const payload = await fetchBackendJson('listProjects');
     if (!payload.success) {
       throw new Error(payload.message || 'listProjects failed');
     }
@@ -1549,7 +1552,7 @@ function renderNoProjectDashboardState() {
   if (!panel) return;
   panel.innerHTML = `
     <div class="web07-card">
-      <p class="empty-state">Chưa có dự án ACTIVE hoặc tài khoản chưa được cấp quyền xem dự án.</p>
+      <p class="empty-state">Chưa có dự án ACTIVE.</p>
     </div>
   `;
 }
@@ -1560,7 +1563,7 @@ function renderNoProjectGanttState() {
   resetWeb07DhtmlxGantt('renderNoProjectGanttState');
   panel.innerHTML = `
     <div class="web07-card">
-      <p class="empty-state">Chưa có dự án ACTIVE hoặc tài khoản chưa được cấp quyền xem dự án.</p>
+      <p class="empty-state">Chưa có dự án ACTIVE.</p>
     </div>
   `;
 }
@@ -3660,10 +3663,32 @@ async function fetchBackendProfile(email) {
   return fetchBackendJson('profile', { email });
 }
 
+function buildAuthenticatedViewerProfile(user, base = {}) {
+  return {
+    ...base,
+    success: true,
+    email: user && user.email,
+    role: 'GUEST_VIEWER',
+    apiStatus: base.apiStatus || 'CONNECTED',
+    permissions: {
+      dashboard: true,
+      gantt: true,
+      lookup: true,
+      reportUpdate: false,
+      admin: false
+    }
+  };
+}
+
 function renderApp(user, role, profile = {}) {
   showOnly(els.appShell);
-  const displayRole = formatRole(role);
-  applyPermissions(profile);
+  const effectiveProfile = {
+    ...profile,
+    email: profile.email || (user && user.email),
+    role: profile.role || role || 'GUEST_VIEWER'
+  };
+  const displayRole = formatRole(effectiveProfile.role);
+  applyPermissions(effectiveProfile);
   ensureWeb07Panels();
   bindWeb07Navigation();
   showWeb07View('dashboard');
@@ -3684,7 +3709,7 @@ function renderApp(user, role, profile = {}) {
 
 function renderApiError(user, error) {
   console.error('Apps Script DEV API connection failed', error);
-  renderApp(user, null, { apiStatus: 'ERROR', permissions: DEFAULT_PERMISSIONS });
+  renderApp(user, 'GUEST_VIEWER', buildAuthenticatedViewerProfile(user, { apiStatus: 'ERROR' }));
 }
 
 async function handleSignIn() {
@@ -3731,7 +3756,10 @@ function boot() {
       const profile = await fetchBackendProfile(user.email);
 
       if (!profile.success) {
-        renderDenied(user);
+        renderApp(user, 'GUEST_VIEWER', buildAuthenticatedViewerProfile(user, {
+          apiStatus: profile.apiStatus || 'CONNECTED',
+          profileMessage: profile.message || ''
+        }));
         return;
       }
 
