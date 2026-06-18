@@ -137,6 +137,31 @@ function isReadOnlyViewer(profile = currentUserProfile) {
   return role === 'VIEWER' || role === 'GUEST_VIEWER' || !canEditPlanning(profile);
 }
 
+function isAuthenticatedUser(profile = currentUserProfile) {
+  return !!(profile && profile.email);
+}
+
+function canSelectMainMilestone(profile = currentUserProfile) {
+  return isAuthenticatedUser(profile);
+}
+
+function canResetMainMilestone(profile = currentUserProfile) {
+  return canEditPlanning(profile);
+}
+
+function canExportExcel(profile = currentUserProfile) {
+  return isAuthenticatedUser(profile);
+}
+
+function canApprove(profile = currentUserProfile) {
+  const role = normalizeRoleKey(profile && profile.role);
+  return ['ADMIN', 'PMO'].includes(role);
+}
+
+function canAdmin(profile = currentUserProfile) {
+  return normalizeRoleKey(profile && profile.role) === 'ADMIN';
+}
+
 function canEditPlanning(profile = currentUserProfile) {
   const role = normalizeRoleKey(profile && profile.role);
   return ['ADMIN', 'PMO', 'EDITOR'].includes(role);
@@ -151,7 +176,7 @@ function normalizePermissions(permissions = {}, role = '') {
     gantt: !!permissions.gantt || canViewCore,
     lookup: !!permissions.lookup || canViewCore,
     reportUpdate: roleKey !== 'VIEWER' && !!permissions.reportUpdate,
-    admin: roleKey === 'ADMIN' || !!permissions.admin
+    admin: canAdmin({ role }) || !!permissions.admin
   };
 }
 
@@ -2186,9 +2211,10 @@ function renderGanttPanel(payload) {
 
   const owners = getUniqueTaskValues(payload.data || [], 'owner');
   loadMainMilestonesForProject(payload.projectCode);
-  const canEdit = canEditPlanning();
-  const canExport = !isReadOnlyViewer();
-  if (!canEdit) qltdMainMilestoneSelectMode = false;
+  const canSelectMilestone = canSelectMainMilestone();
+  const canResetMilestone = canResetMainMilestone();
+  const canExport = canExportExcel();
+  if (!canSelectMilestone) qltdMainMilestoneSelectMode = false;
 
   panel.innerHTML = `
     <div class="web07-card">
@@ -2232,9 +2258,9 @@ function renderGanttPanel(payload) {
           <option value="wbs-1-4">Cấp 1-4</option>
           <option value="main-milestones">Chỉ mốc chính</option>
         </select>
-        ${canEdit ? `
+        ${canSelectMilestone ? `
           <button id="ganttMilestoneModeButton" type="button" class="${qltdMainMilestoneSelectMode ? 'active' : ''}">Chọn mốc chính${qltdMainMilestoneIds.size ? ` (${qltdMainMilestoneIds.size})` : ''}</button>
-          <button id="ganttMilestoneResetButton" type="button">Reset mốc</button>
+          ${canResetMilestone ? '<button id="ganttMilestoneResetButton" type="button">Reset mốc</button>' : ''}
           <span id="ganttMilestoneBadge" class="web07-muted">Mốc chính: ${qltdMainMilestoneIds.size}</span>
         ` : ''}
         <button id="ganttLinksToggle" type="button" class="${qltdGanttShowLinks ? 'active' : ''}">Mũi tên</button>
@@ -2318,6 +2344,7 @@ function bindGanttToolbar(payload) {
   const milestoneModeButton = document.getElementById('ganttMilestoneModeButton');
   if (milestoneModeButton) {
     milestoneModeButton.onclick = () => {
+      if (!canSelectMainMilestone()) return;
       qltdMainMilestoneSelectMode = !qltdMainMilestoneSelectMode;
       renderGanttPanel(qltdGanttPayload);
     };
@@ -2326,6 +2353,7 @@ function bindGanttToolbar(payload) {
   const milestoneResetButton = document.getElementById('ganttMilestoneResetButton');
   if (milestoneResetButton) {
     milestoneResetButton.onclick = () => {
+      if (!canResetMainMilestone()) return;
       qltdMainMilestoneIds = new Set();
       saveMainMilestonesForProject(payload.projectCode || getStoredProjectCode());
       renderGanttPanel(qltdGanttPayload);
@@ -2983,6 +3011,11 @@ async function qltdWeb07CaptureGanttPng(ctx) {
 }
 
 async function qltdWeb07ExportGanttExcel() {
+  if (!canExportExcel()) {
+    alert('Bạn cần đăng nhập để xuất Excel.');
+    return;
+  }
+
   const button = document.getElementById('ganttExcelButton');
   const prevText = button ? button.textContent : '';
 
@@ -3530,6 +3563,8 @@ function isMainMilestoneTask(taskId) {
 }
 
 function toggleMainMilestone(taskId) {
+  if (!canSelectMainMilestone()) return;
+
   const id = String(taskId);
   if (qltdMainMilestoneIds.has(id)) {
     qltdMainMilestoneIds.delete(id);
