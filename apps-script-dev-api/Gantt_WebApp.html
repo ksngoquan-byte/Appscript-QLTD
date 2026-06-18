@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://unpkg.com/frappe-gantt@0.6.1/dist/frappe-gantt.css">
+    <style>
+      :root {
+        --bg: #eef2f6;
+        --panel: #ffffff;
+        --text: #172033;
+        --muted: #667085;
+        --border: #d8dde6;
+        --border-strong: #aeb7c5;
+        --accent: #1668dc;
+        --accent-soft: #e8f1ff;
+        --header: #f7f9fc;
+        --selected: #fff7d6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        background: var(--bg);
+        font-family: Arial, sans-serif;
+        font-size: 13px;
+      }
+
+      .app {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100vh;
+        min-height: 0;
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px 16px;
+        padding: 10px 12px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .meta {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        min-width: 0;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+
+      .meta strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .view-group {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+        background: #fff;
+      }
+
+      button,
+      select,
+      input {
+        height: 32px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        font: inherit;
+      }
+
+      button {
+        min-width: 58px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      .view-group button {
+        border: 0;
+        border-right: 1px solid var(--border);
+        border-radius: 0;
+      }
+
+      .view-group button:last-child {
+        border-right: 0;
+      }
+
+      button:hover,
+      select:hover,
+      input:hover {
+        border-color: var(--accent);
+      }
+
+      button.active {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      select,
+      input {
+        border-radius: 6px;
+        padding: 0 9px;
+      }
+
+      #searchInput {
+        width: 220px;
+      }
+
+      .body {
+        display: grid;
+        grid-template-columns: minmax(500px, 42%) minmax(520px, 1fr);
+        min-height: 0;
+        padding: 10px 12px 12px;
+        gap: 10px;
+      }
+
+      .pane {
+        min-height: 0;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .grid-pane {
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+
+      .pane-title {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 10px;
+        border-bottom: 1px solid var(--border);
+        background: var(--header);
+        font-weight: 600;
+      }
+
+      .table-scroll {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        table-layout: fixed;
+      }
+
+      th,
+      td {
+        height: 34px;
+        padding: 6px 8px;
+        border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--header);
+        color: #344054;
+        font-weight: 600;
+      }
+
+      th:last-child,
+      td:last-child {
+        border-right: 0;
+      }
+
+      tbody tr {
+        cursor: pointer;
+      }
+
+      tbody tr:hover {
+        background: var(--accent-soft);
+      }
+
+      tbody tr.selected {
+        background: var(--selected);
+      }
+
+      .col-wbs { width: 72px; }
+      .col-id { width: 70px; }
+      .col-name { width: 240px; }
+      .col-owner { width: 110px; }
+      .col-date { width: 92px; }
+      .col-duration { width: 72px; text-align: right; }
+      .col-status { width: 118px; }
+
+      .gantt-pane {
+        position: relative;
+        overflow: auto;
+      }
+
+      #state {
+        display: none;
+        padding: 24px;
+        color: var(--muted);
+      }
+
+      #state.visible {
+        display: block;
+      }
+
+      #state.error {
+        color: #b42318;
+      }
+
+      #gantt {
+        min-width: 980px;
+        min-height: 620px;
+      }
+
+      .gantt .bar-wrapper.task-done .bar { fill: #16a34a; }
+      .gantt .bar-wrapper.task-doing .bar { fill: #2563eb; }
+      .gantt .bar-wrapper.task-late .bar { fill: #dc2626; }
+      .gantt .bar-wrapper.task-summary .bar { fill: #475467; }
+      .gantt .bar-wrapper.task-normal .bar { fill: #98a2b3; }
+      .gantt .bar-progress { fill: rgba(255, 255, 255, 0.36); }
+      .gantt .handle { display: none; }
+      .gantt .bar-label { font-size: 11px; }
+
+      .gantt .bar-wrapper.selected .bar {
+        stroke: #f59e0b;
+        stroke-width: 3px;
+      }
+
+      .details-container {
+        padding: 10px 12px;
+        min-width: 280px;
+      }
+
+      .details-container h5 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+
+      .details-container p {
+        margin: 4px 0;
+        color: #344054;
+      }
+
+      .details-container b {
+        color: #101828;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="toolbar">
+        <div class="meta">
+          <span>Sheet: <strong id="sheetName">...</strong></span>
+          <span>Số việc: <strong id="taskCount">0</strong></span>
+          <span>Đang hiển thị: <strong id="visibleCount">0</strong></span>
+        </div>
+        <div class="controls">
+          <div class="view-group" aria-label="View mode">
+            <button type="button" data-view="Day">Day</button>
+            <button type="button" data-view="Week" class="active">Week</button>
+            <button type="button" data-view="Month">Month</button>
+            <button type="button" data-view="Quarter Day">Quarter</button>
+          </div>
+          <select id="dateFormatSelect" aria-label="Date format">
+            <option value="dd/MM">dd/MM</option>
+            <option value="dd/MM/yyyy" selected>dd/MM/yyyy</option>
+            <option value="MMM yyyy">MMM yyyy</option>
+          </select>
+          <input id="searchInput" type="search" placeholder="Tìm tên công việc">
+          <select id="ownerFilter" aria-label="Filter owner">
+            <option value="">Tất cả chủ trì</option>
+          </select>
+          <select id="statusFilter" aria-label="Filter status">
+            <option value="">Tất cả trạng thái</option>
+          </select>
+          <button type="button" id="reloadButton">Tải lại</button>
+        </div>
+      </div>
+
+      <div class="body">
+        <section class="pane grid-pane">
+          <div class="pane-title">
+            <span>Danh sách công việc</span>
+            <span id="gridHint"></span>
+          </div>
+          <div class="table-scroll" id="tableScroll">
+            <table>
+              <thead>
+                <tr>
+                  <th class="col-wbs">WBS</th>
+                  <th class="col-id">ID</th>
+                  <th class="col-name">Tên công việc</th>
+                  <th class="col-owner">Chủ trì</th>
+                  <th class="col-date">Bắt đầu</th>
+                  <th class="col-date">Kết thúc</th>
+                  <th class="col-duration">Số ngày</th>
+                  <th class="col-status">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody id="taskRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="pane gantt-pane" id="ganttPane">
+          <div id="state" class="visible">Đang tải dữ liệu...</div>
+          <svg id="gantt"></svg>
+        </section>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/frappe-gantt@0.6.1/dist/frappe-gantt.min.js"></script>
+    <script>
+      let gantt = null;
+      let allTasks = [];
+      let filteredTasks = [];
+      let selectedTaskId = '';
+      let currentView = 'Week';
+
+      const stateEl = document.getElementById('state');
+      const sheetNameEl = document.getElementById('sheetName');
+      const taskCountEl = document.getElementById('taskCount');
+      const visibleCountEl = document.getElementById('visibleCount');
+      const reloadButton = document.getElementById('reloadButton');
+      const viewButtons = Array.from(document.querySelectorAll('[data-view]'));
+      const dateFormatSelect = document.getElementById('dateFormatSelect');
+      const searchInput = document.getElementById('searchInput');
+      const ownerFilter = document.getElementById('ownerFilter');
+      const statusFilter = document.getElementById('statusFilter');
+      const taskRowsEl = document.getElementById('taskRows');
+      const gridHintEl = document.getElementById('gridHint');
+      const ganttPane = document.getElementById('ganttPane');
+      const ganttEl = document.getElementById('gantt');
+
+      function loadTasks() {
+        showState('Đang tải dữ liệu...');
+        ganttEl.innerHTML = '';
+        taskRowsEl.innerHTML = '';
+
+        google.script.run
+          .withSuccessHandler(function(payload) {
+            allTasks = (payload && payload.tasks) || [];
+            sheetNameEl.textContent = payload && payload.sheetName ? payload.sheetName : '';
+            taskCountEl.textContent = allTasks.length;
+            populateFilters(allTasks);
+            applyFilters();
+          })
+          .withFailureHandler(showError)
+          .ganttWeb_getTasks({});
+      }
+
+      function populateFilters(tasks) {
+        const ownerValue = ownerFilter.value;
+        const statusValue = statusFilter.value;
+        fillSelect(ownerFilter, uniqueValues(tasks.map(function(task) { return task.owner; })), 'Tất cả chủ trì');
+        fillSelect(statusFilter, uniqueValues(tasks.map(function(task) { return task.status; })), 'Tất cả trạng thái');
+        ownerFilter.value = valueExists(ownerFilter, ownerValue) ? ownerValue : '';
+        statusFilter.value = valueExists(statusFilter, statusValue) ? statusValue : '';
+      }
+
+      function fillSelect(select, values, emptyText) {
+        select.innerHTML = '<option value="">' + escapeHtml(emptyText) + '</option>' +
+          values.map(function(value) {
+            return '<option value="' + escapeHtml(value) + '">' + escapeHtml(value) + '</option>';
+          }).join('');
+      }
+
+      function uniqueValues(values) {
+        const seen = {};
+        return values
+          .map(function(value) { return String(value || '').trim(); })
+          .filter(function(value) {
+            if (!value || seen[value]) return false;
+            seen[value] = true;
+            return true;
+          })
+          .sort(function(a, b) { return a.localeCompare(b, 'vi'); });
+      }
+
+      function valueExists(select, value) {
+        return Array.from(select.options).some(function(option) {
+          return option.value === value;
+        });
+      }
+
+      function applyFilters() {
+        const query = normalizeText(searchInput.value);
+        const owner = ownerFilter.value;
+        const status = statusFilter.value;
+
+        filteredTasks = allTasks.filter(function(task) {
+          const matchesName = !query || normalizeText(task.name).indexOf(query) !== -1;
+          const matchesOwner = !owner || task.owner === owner;
+          const matchesStatus = !status || task.status === status;
+          return matchesName && matchesOwner && matchesStatus;
+        });
+
+        visibleCountEl.textContent = filteredTasks.length;
+        gridHintEl.textContent = filteredTasks.length ? '' : 'Không có dòng phù hợp';
+        renderGrid(filteredTasks);
+        renderGantt(filteredTasks);
+      }
+
+      function renderGrid(tasks) {
+        const dateMode = dateFormatSelect.value;
+        taskRowsEl.innerHTML = tasks.map(function(task) {
+          const selectedClass = task.id === selectedTaskId ? ' class="selected"' : '';
+          return [
+            '<tr data-task-id="' + escapeHtml(task.id) + '"' + selectedClass + '>',
+            cell(task.wbs, 'col-wbs'),
+            cell(task.id, 'col-id'),
+            cell(task.name, 'col-name'),
+            cell(task.owner, 'col-owner'),
+            cell(formatDateDisplay(task.start, dateMode), 'col-date'),
+            cell(formatDateDisplay(task.end, dateMode), 'col-date'),
+            cell(task.duration || '', 'col-duration'),
+            cell(task.status, 'col-status'),
+            '</tr>'
+          ].join('');
+        }).join('');
+
+        Array.from(taskRowsEl.querySelectorAll('tr')).forEach(function(row) {
+          row.addEventListener('click', function() {
+            selectTask(row.dataset.taskId);
+          });
+        });
+      }
+
+      function cell(value, className) {
+        return '<td class="' + className + '" title="' + escapeHtml(value || '') + '">' + escapeHtml(value || '') + '</td>';
+      }
+
+      function renderGantt(tasks) {
+        ganttEl.innerHTML = '';
+        gantt = null;
+
+        if (!allTasks.length) {
+          showState('Không có công việc đủ ID, tên, ngày bắt đầu và ngày kết thúc để hiển thị.');
+          return;
+        }
+
+        if (!tasks.length) {
+          showState('Không có công việc phù hợp bộ lọc.');
+          return;
+        }
+
+        hideState();
+        const visibleIds = {};
+        tasks.forEach(function(task) {
+          visibleIds[task.id] = true;
+        });
+        const ganttTasks = tasks.map(function(task) {
+          return toGanttTask(task, visibleIds);
+        });
+
+        try {
+          gantt = new Gantt('#gantt', ganttTasks, {
+            view_mode: currentView,
+            readonly: true,
+            custom_popup_html: buildPopup,
+            on_date_change: function() {
+              loadTasks();
+            },
+            on_progress_change: function() {
+              loadTasks();
+            }
+          });
+        } catch (error) {
+          if (currentView === 'Quarter Day') {
+            currentView = 'Month';
+            syncViewButtons();
+            renderGantt(tasks);
+            return;
+          }
+          showError(error);
+          return;
+        }
+
+        if (selectedTaskId) {
+          highlightGanttTask(selectedTaskId, false);
+        }
+      }
+
+      function toGanttTask(task, visibleIds) {
+        const dependencies = String(task.dependencies || '')
+          .split(',')
+          .map(function(id) { return id.trim(); })
+          .filter(function(id) { return id && visibleIds[id]; })
+          .join(',');
+
+        return Object.assign({}, task, {
+          name: truncateText(task.name, 42),
+          fullName: task.name,
+          dependencies: dependencies
+        });
+      }
+
+      function buildPopup(task) {
+        return [
+          '<div class="details-container">',
+          '<h5>' + escapeHtml(task.fullName || task.name || '') + '</h5>',
+          '<p><b>ID:</b> ' + escapeHtml(task.id || '') + '</p>',
+          '<p><b>WBS:</b> ' + escapeHtml(task.wbs || '') + '</p>',
+          '<p><b>Chủ trì:</b> ' + escapeHtml(task.owner || '') + '</p>',
+          '<p><b>Bắt đầu:</b> ' + escapeHtml(formatDateDisplay(task.start, dateFormatSelect.value)) + '</p>',
+          '<p><b>Kết thúc:</b> ' + escapeHtml(formatDateDisplay(task.end, dateFormatSelect.value)) + '</p>',
+          '<p><b>Số ngày:</b> ' + escapeHtml(task.duration || '') + '</p>',
+          '<p><b>Trạng thái:</b> ' + escapeHtml(task.status || '') + '</p>',
+          '<p><b>Mã công việc:</b> ' + escapeHtml(task.taskCode || '') + '</p>',
+          '<p><b>Công việc liên kết gốc:</b> ' + escapeHtml(task.predecessorRaw || '') + '</p>',
+          '<p><b>Cảnh báo tiến độ:</b> ' + escapeHtml(task.warning || '') + '</p>',
+          '</div>'
+        ].join('');
+      }
+
+      function selectTask(taskId) {
+        selectedTaskId = taskId;
+        Array.from(taskRowsEl.querySelectorAll('tr')).forEach(function(row) {
+          row.classList.toggle('selected', row.dataset.taskId === taskId);
+        });
+        highlightGanttTask(taskId, true);
+      }
+
+      function highlightGanttTask(taskId, shouldScroll) {
+        Array.from(document.querySelectorAll('.gantt .bar-wrapper.selected')).forEach(function(el) {
+          el.classList.remove('selected');
+        });
+
+        let target = document.querySelector('.gantt .bar-wrapper[data-id="' + cssAttrEscape(taskId) + '"]');
+        if (!target) {
+          const index = filteredTasks.findIndex(function(task) { return task.id === taskId; });
+          target = index >= 0 ? document.querySelectorAll('.gantt .bar-wrapper')[index] : null;
+        }
+
+        if (!target) return;
+
+        target.classList.add('selected');
+
+        if (shouldScroll) {
+          const box = target.getBBox ? target.getBBox() : null;
+          if (box) {
+            ganttPane.scrollTo({
+              left: Math.max(0, box.x - 80),
+              top: Math.max(0, box.y - 100),
+              behavior: 'smooth'
+            });
+          } else {
+            target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+          }
+        }
+      }
+
+      function setView(view) {
+        currentView = view;
+        syncViewButtons();
+
+        if (gantt) {
+          try {
+            gantt.change_view_mode(view);
+          } catch (error) {
+            currentView = 'Month';
+            syncViewButtons();
+            gantt.change_view_mode('Month');
+          }
+          if (selectedTaskId) highlightGanttTask(selectedTaskId, false);
+        }
+      }
+
+      function syncViewButtons() {
+        viewButtons.forEach(function(button) {
+          button.classList.toggle('active', button.dataset.view === currentView);
+        });
+      }
+
+      function formatDateDisplay(dateString, mode) {
+        if (!dateString) return '';
+        const parts = String(dateString).split('-');
+        if (parts.length !== 3) return dateString;
+
+        const year = Number(parts[0]);
+        const month = Number(parts[1]);
+        const day = Number(parts[2]);
+        const date = new Date(year, month - 1, day);
+        if (isNaN(date.getTime())) return dateString;
+
+        const dd = String(day).padStart(2, '0');
+        const mm = String(month).padStart(2, '0');
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        if (mode === 'dd/MM') return dd + '/' + mm;
+        if (mode === 'MMM yyyy') return monthNames[month - 1] + ' ' + year;
+        return dd + '/' + mm + '/' + year;
+      }
+
+      function truncateText(value, maxLength) {
+        const text = String(value || '');
+        if (text.length <= maxLength) return text;
+        return text.slice(0, Math.max(0, maxLength - 1)) + '…';
+      }
+
+      function normalizeText(value) {
+        return String(value || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/đ/g, 'd');
+      }
+
+      function showState(message) {
+        stateEl.textContent = message;
+        stateEl.classList.add('visible');
+        stateEl.classList.remove('error');
+      }
+
+      function hideState() {
+        stateEl.textContent = '';
+        stateEl.classList.remove('visible', 'error');
+      }
+
+      function showError(error) {
+        const message = error && error.message ? error.message : String(error || 'Không tải được dữ liệu.');
+        stateEl.textContent = message;
+        stateEl.classList.add('visible', 'error');
+        sheetNameEl.textContent = '';
+        taskCountEl.textContent = '0';
+        visibleCountEl.textContent = '0';
+        taskRowsEl.innerHTML = '';
+        ganttEl.innerHTML = '';
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function cssAttrEscape(value) {
+        return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      }
+
+      viewButtons.forEach(function(button) {
+        button.addEventListener('click', function() {
+          setView(button.dataset.view);
+        });
+      });
+
+      [dateFormatSelect, searchInput, ownerFilter, statusFilter].forEach(function(control) {
+        control.addEventListener('input', applyFilters);
+        control.addEventListener('change', applyFilters);
+      });
+
+      reloadButton.addEventListener('click', loadTasks);
+      loadTasks();
+    </script>
+  </body>
+</html>

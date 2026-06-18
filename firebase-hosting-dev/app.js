@@ -13,6 +13,19 @@ import {
   serverTimestamp,
   setDoc
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
+import {
+  getExecutiveTaskDueDate,
+  isExecutiveCategoryRow,
+  isExecutiveTaskCompleted,
+  isExecutiveTaskOverdue
+} from './dashboard-overdue.js';
+import {
+  getMainMilestoneTaskKey,
+  isMainMilestoneKeySelected,
+  normalizeMainMilestoneTaskKeys,
+  toggleMainMilestoneTaskKey
+} from './main-milestone-logic.js';
+import { buildDepartmentDashboardModel } from './department-dashboard.js';
 
 window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
 
@@ -56,6 +69,10 @@ let qltdCurrentMainMilestoneProjectKey = '';
 let qltdMainMilestoneIds = new Set();
 let qltdMainMilestoneSelectMode = false;
 let qltdMainMilestoneGanttClickEventId = null;
+let qltdDashboardMode = 'project';
+let qltdDepartmentDashboardDeptCode = '';
+let qltdDepartmentDashboardProjectCode = '';
+const qltdDepartmentDashboardCache = new Map();
 const qltdWeeklyDrafts = {};
 
 const els = {
@@ -1430,7 +1447,7 @@ function renderSelectedDeptPlan() {
           <tr>
             <th>Mã</th>
             <th>Mục tiêu/công việc gốc</th>
-            <th>Deadline</th>
+            <th>Hạn hoàn thành</th>
             <th>Slot chi tiết</th>
             <th>Trạng thái</th>
           </tr>
@@ -1744,10 +1761,17 @@ function renderDashboardFromGanttData(payload) {
     return;
   }
 
+  if (payload.projectCode) qltdDepartmentDashboardCache.set(String(payload.projectCode), payload);
+  if (qltdDashboardMode === 'department') {
+    loadAndRenderDepartmentDashboard();
+    return;
+  }
+
   const model = buildExecutiveDashboardModel(payload);
 
   panel.innerHTML = `
     <div class="exec-dashboard">
+      ${renderDashboardModeSwitch('project')}
       <section class="exec-header">
         <div>
           <p class="exec-eyebrow">Dashboard điều hành dự án</p>
@@ -1767,7 +1791,7 @@ function renderDashboardFromGanttData(payload) {
         ${renderExecutiveKpiCard('Đang thực hiện', model.kpis.inProgress, `${model.inProgressPercent}% tổng số`, 'blue')}
         ${renderExecutiveKpiCard('Chưa bắt đầu', model.kpis.notStarted, `${model.notStartedPercent}% tổng số`, 'gray')}
         ${renderExecutiveKpiCard('Quá hạn', model.kpis.overdue, `${model.overduePercent}% tổng số`, 'red')}
-        ${renderExecutiveKpiCard('Mốc lớn đang thực hiện', model.kpis.activeMilestones, model.usedMilestoneFallback ? 'WBS cấp I/II/III' : 'Milestone hệ thống', 'blue')}
+        ${renderExecutiveKpiCard('Mốc lớn đang thực hiện', model.kpis.activeMilestones, model.usedMilestoneFallback ? 'WBS cấp I/II/III' : 'Mốc lớn hệ thống', 'blue')}
       </section>
 
       ${renderExecutiveAlerts(model.alerts)}
@@ -1775,17 +1799,187 @@ function renderDashboardFromGanttData(payload) {
       <section class="exec-grid">
         ${renderExecutiveListSection('Top 5 quá hạn', ['Hạng mục', 'Công việc', 'Chủ trì', 'Ngày kết thúc', 'Số ngày trễ'], model.overdue, renderExecutiveOverdueRow, 'Không có việc quá hạn.', 'red')}
         ${renderExecutiveListSection('Mốc lớn đang thực hiện', ['Hạng mục/Mốc lớn', 'Công việc/Mốc', 'Chủ trì', 'Ngày kết thúc', 'Còn lại hoặc trễ'], model.activeMilestones, renderExecutiveMilestoneRow, 'Không có mốc lớn đang thực hiện.', 'blue')}
-        ${renderExecutiveListSection('Deadline 14 ngày tới', ['Hạng mục', 'Công việc', 'Chủ trì', 'Ngày kết thúc', 'Còn lại'], model.upcoming, renderExecutiveUpcomingRow, 'Không có deadline trong 14 ngày tới.', 'blue')}
+        ${renderExecutiveListSection('Đến hạn trong 14 ngày tới', ['Hạng mục', 'Công việc', 'Chủ trì', 'Ngày kết thúc', 'Còn lại'], model.upcoming, renderExecutiveUpcomingRow, 'Không có việc đến hạn trong 14 ngày tới.', 'blue')}
         ${renderExecutiveCompletedSection(model.completedThisMonth)}
       </section>
     </div>
   `;
 
   bindDashboardTaskLinks();
+  bindDashboardModeSwitch();
   const refreshButton = document.getElementById('execRefreshButton');
   if (refreshButton) {
     refreshButton.onclick = () => loadGanttDataForSelectedProject(payload.projectCode || getStoredProjectCode());
   }
+}
+
+function renderDashboardModeSwitch(activeMode) {
+  return `<nav class="dept-dashboard-switch" aria-label="Chế độ Dashboard">
+    <button type="button" data-dashboard-mode="project" class="${activeMode === 'project' ? 'active' : ''}">Dashboard dự án</button>
+    <button type="button" data-dashboard-mode="department" class="${activeMode === 'department' ? 'active' : ''}">Dashboard phòng/ban</button>
+  </nav>`;
+}
+
+function bindDashboardModeSwitch() {
+  document.querySelectorAll('[data-dashboard-mode]').forEach((button) => {
+    button.onclick = () => {
+      const mode = button.dataset.dashboardMode;
+      if (mode === qltdDashboardMode) return;
+      qltdDashboardMode = mode;
+      if (mode === 'department') loadAndRenderDepartmentDashboard();
+      else if (qltdGanttPayload) renderDashboardFromGanttData(qltdGanttPayload);
+    };
+  });
+}
+
+async function getDepartmentDashboardPayloads(projectCode, forceRefresh) {
+  const projects = projectCode
+    ? qltdProjectRegistry.filter((project) => String(project.projectCode) === String(projectCode))
+    : qltdProjectRegistry;
+  const warnings = [];
+  const payloads = (await Promise.all(projects.map(async (project) => {
+    const code = String(project.projectCode || '');
+    if (!forceRefresh && qltdDepartmentDashboardCache.has(code)) return qltdDepartmentDashboardCache.get(code);
+    try {
+      const payload = await fetchBackendJson('ganttData', { projectCode: code });
+      if (!payload || payload.success === false) throw new Error(payload && (payload.message || payload.error) || 'INVALID_PAYLOAD');
+      qltdDepartmentDashboardCache.set(code, payload);
+      return payload;
+    } catch (error) {
+      warnings.push(`${code}: ${error.message || error}`);
+      return null;
+    }
+  }))).filter(Boolean);
+  return { payloads, warnings };
+}
+
+async function loadAndRenderDepartmentDashboard(forceRefresh = false) {
+  const panel = document.getElementById('web07DashboardPanel');
+  if (!panel) return;
+  qltdDashboardMode = 'department';
+  panel.innerHTML = `<div class="exec-dashboard">${renderDashboardModeSwitch('department')}<section class="exec-section"><p class="exec-empty">Đang tổng hợp dữ liệu phòng/ban...</p></section></div>`;
+  bindDashboardModeSwitch();
+  const result = await getDepartmentDashboardPayloads(qltdDepartmentDashboardProjectCode, forceRefresh);
+  renderDepartmentDashboard(result.payloads, result.warnings);
+}
+
+function renderDepartmentDashboard(payloads, warnings = []) {
+  const panel = document.getElementById('web07DashboardPanel');
+  if (!panel) return;
+  let model = buildDepartmentDashboardModel(payloads, { deptCode: qltdDepartmentDashboardDeptCode, projectCode: qltdDepartmentDashboardProjectCode });
+  if (qltdDepartmentDashboardDeptCode && !model.departments.some((dept) => dept.code === qltdDepartmentDashboardDeptCode)) {
+    qltdDepartmentDashboardDeptCode = '';
+    model = buildDepartmentDashboardModel(payloads, { deptCode: '', projectCode: qltdDepartmentDashboardProjectCode });
+  }
+  const deptLabel = model.departments.find((dept) => dept.code === qltdDepartmentDashboardDeptCode)?.name || 'Tất cả phòng/ban';
+  panel.innerHTML = `<div class="exec-dashboard dept-dashboard">
+    ${renderDashboardModeSwitch('department')}
+    <section class="exec-header"><div><p class="exec-eyebrow">Dashboard Phòng/Ban</p><h2>${escapeHtml(deptLabel)}</h2><p class="exec-subtitle">${qltdDepartmentDashboardProjectCode ? 'Một dự án' : 'Toàn bộ dự án ACTIVE'} · ${model.tasks.length} công việc</p></div><button id="deptDashboardRefresh" class="exec-refresh" type="button">Refresh</button></section>
+    <section class="dept-dashboard-filters"><label>Phòng/Ban<select id="deptDashboardDeptFilter"><option value="">Tất cả phòng/ban</option>${model.departments.map((dept) => `<option value="${escapeHtml(dept.code)}" ${dept.code === qltdDepartmentDashboardDeptCode ? 'selected' : ''}>${escapeHtml(dept.code)} - ${escapeHtml(dept.name)}</option>`).join('')}</select></label>
+    <label>Dự án<select id="deptDashboardProjectFilter"><option value="">Tất cả dự án</option>${qltdProjectRegistry.map((project) => `<option value="${escapeHtml(project.projectCode)}" ${String(project.projectCode) === qltdDepartmentDashboardProjectCode ? 'selected' : ''}>${escapeHtml(project.projectCode)} - ${escapeHtml(project.projectName)}</option>`).join('')}</select></label></section>
+    ${warnings.length ? `<div class="dept-dashboard-warning">Không tải được ${warnings.length} dự án: ${escapeHtml(warnings.join(' · '))}</div>` : ''}
+    <section class="exec-kpi-grid dept-kpi-grid">
+      ${renderExecutiveKpiCard('Tổng việc được giao', model.kpis.total, 'Theo đơn vị chủ trì', 'info')}${renderExecutiveKpiCard('Hoàn thành', model.kpis.completed, 'Đã có kết quả thực tế', 'green')}
+      ${renderExecutiveKpiCard('Đang thực hiện', model.kpis.inProgress, 'Chưa hoàn thành', 'blue')}${renderExecutiveKpiCard('Chưa bắt đầu', model.kpis.notStarted, 'Chưa hoàn thành', 'gray')}
+      ${renderExecutiveKpiCard('Quá hạn', model.kpis.overdue, 'Không phụ thuộc trạng thái', 'red')}${renderExecutiveKpiCard('Đến hạn 14 ngày', model.kpis.upcoming, 'Không gồm việc quá hạn', 'blue')}
+      ${renderExecutiveKpiCard('Mốc chính liên quan', model.kpis.milestones, 'Theo sao vàng global', 'info')}
+    </section>
+    <section class="exec-grid">${renderDepartmentList('Top 5 quá hạn', model.overdue, 'overdue')}${renderDepartmentList('Đến hạn trong 14 ngày tới', model.upcoming, 'upcoming')}${renderDepartmentList('Kết quả tháng này', model.completedThisMonth, 'completed')}${renderDepartmentList('Mốc chính liên quan', model.milestones, 'milestone')}${!qltdDepartmentDashboardProjectCode ? renderDepartmentProjectSummary(model.projectSummary) : ''}${renderDepartmentEfficiency(model.departmentEfficiency)}</section>
+  </div>`;
+  bindDashboardModeSwitch();
+  bindDashboardTaskLinks();
+  bindDepartmentEfficiencyRows(payloads, warnings);
+  document.getElementById('deptDashboardRefresh').onclick = () => loadAndRenderDepartmentDashboard(true);
+  document.getElementById('deptDashboardDeptFilter').onchange = (event) => { qltdDepartmentDashboardDeptCode = event.target.value; renderDepartmentDashboard(payloads, warnings); };
+  document.getElementById('deptDashboardProjectFilter').onchange = (event) => { qltdDepartmentDashboardProjectCode = event.target.value; loadAndRenderDepartmentDashboard(); };
+}
+
+function renderDepartmentList(title, rows, type) {
+  const completed = type === 'completed';
+  const columns = completed
+    ? [
+      { label: 'Dự án', className: 'is-text' },
+      { label: 'Hạng mục', className: 'is-text' },
+      { label: 'Công việc', className: 'is-text' },
+      { label: 'Chủ trì', className: 'is-text' },
+      { label: 'Hoàn thành thực tế', className: 'is-date' }
+    ]
+    : [
+      { label: 'Dự án', className: 'is-text' },
+      { label: 'Hạng mục', className: 'is-text' },
+      { label: 'Công việc', className: 'is-text' },
+      { label: 'Chủ trì', className: 'is-text' },
+      { label: 'Ngày kết thúc', className: 'is-date' },
+      { label: 'Còn lại/Trễ', className: 'is-status' }
+    ];
+  const body = rows.map((task) => {
+    const finish = completed ? task.actualFinishDate : task.endDate;
+    const dueBadge = getDepartmentDueBadge(task);
+    const categoryLabel = task.contextLabel || '—';
+    return `<tr class="web07-alert-row" data-project-code="${escapeHtml(task.projectCode || '')}" data-task-id="${escapeHtml(getDepartmentTaskLinkId(task))}"><td class="is-text" title="${escapeHtml(task.projectName || task.projectCode || '')}">${escapeHtml(task.projectName || task.projectCode)}</td><td class="exec-context is-text" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(categoryLabel)}</td><td class="exec-task is-text" title="${escapeHtml(task.text || '')}">${escapeHtml(task.text)}</td><td class="is-text" title="${escapeHtml(task.owner || 'Chưa rõ')}">${escapeHtml(task.owner || 'Chưa rõ')}</td><td class="is-date">${escapeHtml(finish ? formatIsoDateVi(toIsoDateLocal(finish)) : '')}</td>${completed ? '' : `<td class="is-status"><span class="exec-badge ${dueBadge.className}">${escapeHtml(dueBadge.text)}</span></td>`}</tr>`;
+  }).join('');
+  return `<article class="exec-section ${type === 'overdue' ? 'is-red' : completed ? 'is-green' : 'is-blue'}"><header><h3>${escapeHtml(title)}</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>` : '<p class="exec-empty">Không có dữ liệu phù hợp.</p>'}</article>`;
+}
+
+function renderDepartmentProjectSummary(rows) {
+  const columns = [
+    { label: 'Dự án', className: 'is-text' },
+    { label: 'Tổng việc', className: 'is-number' },
+    { label: 'Hoàn thành', className: 'is-number' },
+    { label: 'Đang thực hiện', className: 'is-number' },
+    { label: 'Chưa bắt đầu', className: 'is-number' },
+    { label: 'Quá hạn', className: 'is-number' },
+    { label: 'Đến hạn 14 ngày', className: 'is-number' },
+    { label: 'Tỷ lệ hoàn thành', className: 'is-status' }
+  ];
+  return `<article class="exec-section dept-project-summary"><header><h3>Tổng hợp theo dự án</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-summary-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr><td class="exec-task is-text" title="${escapeHtml(row.projectName || row.projectCode || '')}">${escapeHtml(row.projectName)}</td><td class="is-number">${row.total}</td><td class="is-number">${row.completed}</td><td class="is-number">${row.inProgress}</td><td class="is-number">${row.notStarted}</td><td class="is-number">${row.overdue}</td><td class="is-number">${row.upcoming}</td><td class="is-status"><span class="exec-badge is-blue">${row.completionPercent}%</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="exec-empty">Không có dự án phù hợp.</p>'}</article>`;
+}
+
+function renderDepartmentEfficiency(rows = []) {
+  const columns = [
+    { label: 'Phòng/Ban', className: 'is-text' },
+    { label: 'Tổng việc', className: 'is-number' },
+    { label: 'Hoàn thành', className: 'is-number' },
+    { label: 'Đang thực hiện', className: 'is-number' },
+    { label: 'Chưa bắt đầu', className: 'is-number' },
+    { label: 'Quá hạn', className: 'is-status' },
+    { label: 'Tỷ lệ hoàn thành', className: 'is-progress' }
+  ];
+  const body = rows.map((row) => {
+    const overdueClass = row.overdue > 0 ? 'is-red' : 'is-green';
+    const overdueText = `${row.overdue > 0 ? '⚠' : '✓'} ${row.overdue}`;
+    return `<tr class="dept-efficiency-row" data-dept-code="${escapeHtml(row.deptCode)}"><td class="exec-task is-text" title="${escapeHtml(row.deptName || row.deptCode)}">${escapeHtml(row.deptCode)} - ${escapeHtml(row.deptName || row.deptCode)}</td><td class="is-number">${row.total}</td><td class="is-number">${row.completed}</td><td class="is-number">${row.inProgress}</td><td class="is-number">${row.notStarted}</td><td class="is-status"><span class="exec-badge ${overdueClass}">${escapeHtml(overdueText)}</span></td><td class="is-progress">${renderDepartmentProgressBar(row.completionPercent)}</td></tr>`;
+  }).join('');
+  return `<article class="exec-section dept-efficiency-summary"><header><h3>Hiệu quả phòng/ban</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-efficiency-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>` : '<p class="exec-empty">Không có phòng/ban phù hợp.</p>'}</article>`;
+}
+
+function renderDepartmentProgressBar(percent) {
+  const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  return `<div class="dept-progress" aria-label="${safePercent}%"><span style="width: ${safePercent}%"></span><strong>${safePercent}%</strong></div>`;
+}
+
+function bindDepartmentEfficiencyRows(payloads, warnings) {
+  document.querySelectorAll('.dept-efficiency-row[data-dept-code]').forEach((row) => {
+    row.onclick = () => {
+      qltdDepartmentDashboardDeptCode = row.getAttribute('data-dept-code') || '';
+      const selector = document.getElementById('deptDashboardDeptFilter');
+      if (selector) selector.value = qltdDepartmentDashboardDeptCode;
+      renderDepartmentDashboard(payloads, warnings);
+    };
+  });
+}
+
+function getDepartmentTaskLinkId(task) {
+  return task && (task.id || task.code || task.wbs || task.rawRowNumber || '');
+}
+
+function getDepartmentDueBadge(task) {
+  if (task && task.isCompleted) return { text: 'Hoàn thành', className: 'is-green' };
+  if (!task || !task.endDate) return { text: 'Chưa có hạn', className: 'is-gray' };
+  if (task.lateDays > 0 || task.isOverdue) return { text: `Trễ ${task.lateDays} ngày`, className: 'is-red' };
+  const remainingDays = task.remainingDays ?? 0;
+  if (remainingDays === 0) return { text: 'Hôm nay', className: 'is-yellow' };
+  return { text: `Còn ${remainingDays} ngày`, className: 'is-blue' };
 }
 
 function buildExecutiveDashboardModel(payload) {
@@ -1798,18 +1992,20 @@ function buildExecutiveDashboardModel(payload) {
   const dashboardTasks = realTasks.filter((task) => task.highestVisibleTask);
   const completed = realTasks.filter((task) => task.isCompleted);
   const openTasks = dashboardTasks.filter((task) => !task.isCompleted);
+  const allOpenTasks = realTasks.filter((task) => !task.isCompleted);
   const inProgress = realTasks.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress');
   const notStarted = realTasks.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started');
   const hasStrictMilestones = enriched.some((task) => task.isMilestone);
   const milestoneTasks = dashboardTasks.filter((task) => task.isMilestone || (!hasStrictMilestones && task.isMilestoneFallback));
 
-  const overdue = openTasks
-    .filter((task) => task.endDate && task.endDate < today)
+  const allOverdue = allOpenTasks
+    .filter((task) => isExecutiveTaskOverdue(task, today))
     .map((task) => ({ ...task, lateDays: qltdDateDiffDays(task.endDate, today) }))
-    .sort((a, b) => compareExecutivePriority(a, b) || b.lateDays - a.lateDays)
-    .slice(0, 5);
+    .sort((a, b) => compareExecutivePriority(a, b) || b.lateDays - a.lateDays);
 
-  const upcoming = openTasks
+  const overdue = allOverdue.slice(0, 5);
+
+  const upcoming = allOpenTasks
     .filter((task) => task.endDate && task.endDate >= today && task.endDate <= upcomingLimit)
     .map((task) => ({ ...task, remainingDays: qltdDateDiffDays(today, task.endDate) }))
     .sort((a, b) => compareExecutivePriority(a, b) || a.endDate - b.endDate)
@@ -1848,20 +2044,20 @@ function buildExecutiveDashboardModel(payload) {
     ...lateMilestones.map((task) => ({
       tone: 'red',
       taskId: task.id,
-      title: 'Milestone quá hạn',
+      title: 'Mốc lớn quá hạn',
       text: `${task.text || 'Mốc lớn'} · trễ ${task.lateDays} ngày`
     })),
     ...deadline3Days.map((task) => ({
       tone: 'blue',
       taskId: task.id,
-      title: 'Deadline trong 3 ngày',
+      title: 'Đến hạn trong 3 ngày',
       text: `${task.text || 'Công việc'} · còn ${task.remainingDays} ngày`
     })),
     ...lateManagementTasks.map((task) => ({
       tone: 'red',
       taskId: task.id,
-      title: 'Task cấp I/II quá hạn',
-      text: `${task.text || 'Công việc'} · ${task.wbsText || 'WBS'}`
+      title: 'Công việc cấp I/II quá hạn',
+      text: `${task.text || 'Công việc'}${task.contextLabel ? ` · ${task.contextLabel}` : ''}`
     }))
   ].slice(0, 6);
 
@@ -1869,13 +2065,13 @@ function buildExecutiveDashboardModel(payload) {
     completionPercent: realTasks.length ? Math.round((completed.length / realTasks.length) * 100) : 0,
     inProgressPercent: realTasks.length ? Math.round((inProgress.length / realTasks.length) * 100) : 0,
     notStartedPercent: realTasks.length ? Math.round((notStarted.length / realTasks.length) * 100) : 0,
-    overduePercent: realTasks.length ? Math.round((overdue.length / realTasks.length) * 100) : 0,
+    overduePercent: realTasks.length ? Math.round((allOverdue.length / realTasks.length) * 100) : 0,
     kpis: {
       totalTasks: realTasks.length,
       completed: completed.length,
       inProgress: inProgress.length,
       notStarted: notStarted.length,
-      overdue: overdue.length,
+      overdue: allOverdue.length,
       activeMilestones: milestoneTasks.filter((task) => !task.isCompleted).length
     },
     updatedAtLabel: getDashboardUpdatedAtLabel(payload),
@@ -1899,17 +2095,18 @@ function buildExecutiveTaskContext(tasks) {
     const item = { ...task };
     item.wbsText = String(task.wbs || task.code || task.id || '').trim();
     item.wbsLevel = Number(task.wbsLevel || getExecutiveWbsLevel(item.wbsText));
-    item.startDate = qltdFirstValidDate(task.start_date, task.baselineStart);
-    item.endDate = qltdFirstValidDate(task.end_date, task.deadline, task.baselineEnd);
+    const raw = task.raw || {};
+    item.startDate = qltdFirstValidDate(task.start_date, task.planned_start, task.baselineStart, task.planStart);
+    item.endDate = getExecutiveTaskDueDate(task);
     item.actualStartDate = qltdFirstValidDate(task.actualStart);
     item.actualFinishDate = qltdFirstValidDate(task.actualFinish, task.actualEnd);
     item.hasAnyDate = !!(item.startDate || item.endDate || item.actualStartDate || item.actualFinishDate);
     item.normalizedStatus = normalizeStatusForFilter(task.status);
     item.hasActionStatus = item.normalizedStatus !== 'unknown';
-    item.isCompleted = Number(task.progress || 0) >= 1 || item.normalizedStatus === 'completed';
+    item.isCompleted = isExecutiveTaskCompleted(item);
     item.durationDays = Number(task.duration || task.durationDays || task.planDays || task.plannedDays || task.soNgayKeHoach || 0);
-    item.isCategoryRow = !item.startDate && !item.endDate && !item.actualStartDate && !item.actualFinishDate && !item.durationDays;
-    item.isRealTask = !!String(task.text || '').trim() && (item.hasAnyDate || item.hasActionStatus);
+    item.isCategoryRow = isExecutiveCategoryRow(task, item, raw);
+    item.isRealTask = !item.isCategoryRow && !!String(task.text || '').trim() && (item.hasAnyDate || item.hasActionStatus);
     item.isMilestone = isExecutiveStrictMilestone(task);
     item.isMilestoneFallback = item.wbsLevel >= 1 && item.wbsLevel <= 2;
     item.priorityIcon = getExecutivePriorityIcon(item);
@@ -1927,10 +2124,25 @@ function buildExecutiveTaskContext(tasks) {
       parentLevel1: path[0] || '',
       parentLevel2: path[1] || '',
       parentLevel3: path[2] || '',
-      contextLabel: path.join(' > ') || item.parentLevel1 || item.wbsText || 'Chưa phân nhóm',
+      contextLabel: getExecutiveTaskCategoryFromColF(item),
       highestVisibleTask: !incompleteRealAncestor
     };
   });
+}
+
+function getExecutiveTaskCategoryFromColF(task) {
+  const raw = task && task.raw || {};
+  const values = [
+    task && task.hangMuc,
+    raw['Hạng mục'],
+    raw['Hang muc'],
+    raw['HANG_MUC'],
+    raw.hang_muc,
+    raw.hangMuc,
+    raw.COL_6
+  ];
+  const value = values.find((item) => String(item || '').trim());
+  return value === undefined ? '' : String(value).trim();
 }
 
 function findIncompleteRealAncestor(task, byWbs) {
@@ -2050,7 +2262,7 @@ function renderExecutiveAlerts(alerts = []) {
     return `
       <section class="exec-alerts is-ok">
         <header>
-          <h3>Executive Alerts</h3>
+          <h3>Cảnh báo điều hành</h3>
           <span>Không có cảnh báo nghiêm trọng</span>
         </header>
       </section>
@@ -2060,7 +2272,7 @@ function renderExecutiveAlerts(alerts = []) {
   return `
     <section class="exec-alerts">
       <header>
-        <h3>Executive Alerts</h3>
+        <h3>Cảnh báo điều hành</h3>
         <span>${escapeHtml(alerts.length)} cảnh báo cần theo dõi</span>
       </header>
       <div class="exec-alert-list">
@@ -2109,7 +2321,7 @@ function renderExecutiveListSection(title, headers, rows, rowRenderer, emptyText
 function renderExecutiveOverdueRow(task) {
   return `
     <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-      <td class="exec-context" title="${escapeHtml(task.parentPath || task.contextLabel)}">${escapeHtml(task.contextLabel)}</td>
+      <td class="exec-context" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(task.contextLabel || '')}</td>
       <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
       <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
       <td>${escapeHtml(formatIsoDateVi(toIsoDateLocal(task.endDate)))}</td>
@@ -2123,7 +2335,7 @@ function renderExecutiveMilestoneRow(task) {
   const badgeClass = task.lateDays > 0 ? 'is-red' : 'is-blue';
   return `
     <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-      <td class="exec-context" title="${escapeHtml(task.parentPath || task.contextLabel)}">${escapeHtml(task.contextLabel)}</td>
+      <td class="exec-context" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(task.contextLabel || '')}</td>
       <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
       <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
       <td>${escapeHtml(task.endDate ? formatIsoDateVi(toIsoDateLocal(task.endDate)) : '')}</td>
@@ -2135,7 +2347,7 @@ function renderExecutiveMilestoneRow(task) {
 function renderExecutiveUpcomingRow(task) {
   return `
     <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-      <td class="exec-context" title="${escapeHtml(task.parentPath || task.contextLabel)}">${escapeHtml(task.contextLabel)}</td>
+      <td class="exec-context" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(task.contextLabel || '')}</td>
       <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
       <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
       <td>${escapeHtml(formatIsoDateVi(toIsoDateLocal(task.endDate)))}</td>
@@ -2165,7 +2377,7 @@ function renderExecutiveCompletedSection(rows) {
             <tbody>
               ${rows.map((task) => `
                 <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-                  <td class="exec-context" title="${escapeHtml(task.parentPath || task.contextLabel)}">${escapeHtml(task.contextLabel)}</td>
+                  <td class="exec-context" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(task.contextLabel || '')}</td>
                   <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
                   <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
                   <td>${escapeHtml(formatIsoDateVi(toIsoDateLocal(task.actualFinishDate)))}</td>
@@ -2181,22 +2393,38 @@ function renderExecutiveCompletedSection(rows) {
 
 function bindDashboardTaskLinks() {
   document.querySelectorAll('.web07-alert-row[data-task-id]').forEach((row) => {
-    row.onclick = () => {
+    row.onclick = async () => {
       const taskId = row.getAttribute('data-task-id');
-      showWeb07View('gantt');
-      if (qltdGanttPayload) renderGanttPanel(qltdGanttPayload);
-      setTimeout(() => focusGanttTask(taskId), 120);
+      const projectCode = row.getAttribute('data-project-code') || '';
+      await openDashboardTaskInGantt(taskId, projectCode);
     };
   });
 
   document.querySelectorAll('.exec-alert[data-task-id]').forEach((button) => {
-    button.onclick = () => {
+    button.onclick = async () => {
       const taskId = button.getAttribute('data-task-id');
-      showWeb07View('gantt');
-      if (qltdGanttPayload) renderGanttPanel(qltdGanttPayload);
-      setTimeout(() => focusGanttTask(taskId), 120);
+      const projectCode = button.getAttribute('data-project-code') || '';
+      await openDashboardTaskInGantt(taskId, projectCode);
     };
   });
+}
+
+async function openDashboardTaskInGantt(taskId, projectCode = '') {
+  if (!taskId) return;
+  const targetProjectCode = String(projectCode || '').trim();
+  const currentProjectCode = String(qltdGanttPayload && qltdGanttPayload.projectCode || getStoredProjectCode() || '').trim();
+
+  if (targetProjectCode && targetProjectCode !== currentProjectCode) {
+    const selector = document.getElementById('projectSelector');
+    if (selector) selector.value = targetProjectCode;
+    setStoredProjectCode(targetProjectCode);
+    loadDeptPlansForSelectedProject(targetProjectCode);
+    await loadGanttDataForSelectedProject(targetProjectCode);
+  }
+
+  showWeb07View('gantt');
+  if (qltdGanttPayload) renderGanttPanel(qltdGanttPayload);
+  setTimeout(() => focusGanttTask(taskId), 140);
 }
 
 function renderBreakdown(map = {}) {
@@ -2406,7 +2634,7 @@ function bindGanttToolbar(payload) {
       if (!canResetMainMilestone()) return;
       const scroll = getGanttScrollState();
       qltdMainMilestoneIds = new Set();
-      await saveMainMilestonesForProject(payload.projectCode || getStoredProjectCode());
+      await resetMainMilestonesForProject(payload.projectCode || getStoredProjectCode());
       const depthFilter = document.getElementById('ganttDepthFilter');
       if (depthFilter && depthFilter.value === 'main-milestones') {
         depthFilter.value = 'all';
@@ -2451,7 +2679,7 @@ function applyGanttFilters() {
 
 function shouldShowByDepth(task, depthFilter) {
   if (depthFilter === 'main-milestones') {
-    return isMainMilestoneSelectedTask(task);
+    return isMainMilestoneKeySelected(qltdMainMilestoneIds, task);
   }
   if (depthFilter === 'wbs-1-2') return getTaskWbsLevel(task) <= 2;
   if (depthFilter === 'wbs-1-3') return getTaskWbsLevel(task) <= 3;
@@ -3709,11 +3937,68 @@ function cacheMainMilestonesForProject(projectCode = getStoredProjectCode(), pay
   }
 }
 
+function getMainMilestonesFromApiPayload(payload) {
+  if (!payload) return [];
+  const directValues = [
+    ...(Array.isArray(payload.ids) ? payload.ids : []),
+    ...(Array.isArray(payload.codes) ? payload.codes : []),
+    ...(Array.isArray(payload.mainMilestoneIds) ? payload.mainMilestoneIds : []),
+    ...(Array.isArray(payload.mainMilestoneCodes) ? payload.mainMilestoneCodes : []),
+    ...(Array.isArray(payload.mainMilestones) ? payload.mainMilestones : []),
+    ...(Array.isArray(payload.items) ? payload.items.flatMap((item) => [item && item.id, item && item.code]) : [])
+  ];
+  const taskValues = (Array.isArray(payload.data) ? payload.data : []).flatMap((task) => {
+    const raw = task.raw || {};
+    const marker = task.mainMilestone ?? task.isMainMilestone ?? raw.Moc_chinh ?? raw['Mốc chính'];
+    const normalized = normalizeSearchText(marker).replace(/[^a-z0-9]/g, '');
+    if (!['1', 'true', 'yes', 'x', 'co', 'mocchinh'].includes(normalized)) return [];
+    return [task.id, task.code].filter(Boolean);
+  });
+  return [...directValues, ...taskValues].map(String).filter(Boolean);
+}
+
+function hasMainMilestoneApiSource(payload) {
+  if (!payload) return false;
+  const source = String(payload.mainMilestoneSource || '').toUpperCase();
+  return source === 'APPS_SCRIPT' || source === 'GOOGLE_SHEET' ||
+    Object.prototype.hasOwnProperty.call(payload, 'mainMilestoneIds') ||
+    Object.prototype.hasOwnProperty.call(payload, 'mainMilestoneCodes') ||
+    Object.prototype.hasOwnProperty.call(payload, 'mainMilestones');
+}
+
 async function loadMainMilestonesForProject(projectCode, payload = qltdGanttPayload) {
   const projectKey = getMainMilestoneProjectKey(projectCode, payload);
   const aliases = getMainMilestoneProjectKeyAliases(projectCode, payload);
   qltdCurrentMainMilestoneProjectKey = projectKey;
-  qltdMainMilestoneIds = new Set(readCachedMainMilestones(projectKey, payload));
+  const payloadIds = getMainMilestonesFromApiPayload(payload);
+  qltdMainMilestoneIds = normalizeMainMilestoneTaskKeys(
+    payloadIds.length ? payloadIds : readCachedMainMilestones(projectKey, payload),
+    payload && payload.data
+  );
+
+  try {
+    const response = await fetchBackendJson('getMainMilestones', {
+      projectCode: projectKey,
+      email: currentUserProfile && currentUserProfile.email || ''
+    });
+    if (response && response.success !== false) {
+      const backendIds = getMainMilestonesFromApiPayload(response);
+      qltdMainMilestoneIds = normalizeMainMilestoneTaskKeys(backendIds, payload && payload.data);
+      cacheMainMilestonesForProject(projectKey, payload);
+      console.log('[mainMilestone] loaded from Apps Script API', backendIds);
+      return;
+    }
+    console.warn('Apps Script main milestone API rejected read; trying compatibility source', response);
+  } catch (error) {
+    console.warn('Apps Script main milestone API unavailable; trying compatibility source', error);
+  }
+
+  if (hasMainMilestoneApiSource(payload)) {
+    qltdMainMilestoneIds = normalizeMainMilestoneTaskKeys(payloadIds, payload && payload.data);
+    cacheMainMilestonesForProject(projectKey, payload);
+    console.log('[mainMilestone] loaded from Apps Script API payload', payloadIds);
+    return;
+  }
 
   if (!db || !aliases.length) return;
 
@@ -3742,7 +4027,7 @@ async function loadMainMilestonesForProject(projectCode, payload = qltdGanttPayl
     const data = matchedSnapshot.data() || {};
     const ids = Array.isArray(data.milestoneIds) ? data.milestoneIds : [];
     const codes = Array.isArray(data.milestoneCodes) ? data.milestoneCodes : [];
-    qltdMainMilestoneIds = new Set([...ids, ...codes].map(String).filter(Boolean));
+    qltdMainMilestoneIds = normalizeMainMilestoneTaskKeys([...ids, ...codes], payload && payload.data);
     cacheMainMilestonesForProject(projectKey, payload);
     console.log('[mainMilestone] projectKey', projectKey);
     if (matchedKey && matchedKey !== projectKey) console.log('[mainMilestone] matched legacy key', matchedKey);
@@ -3757,6 +4042,24 @@ async function saveMainMilestonesForProject(projectCode = getStoredProjectCode()
   const projectKey = getMainMilestoneProjectKey(projectCode, payload);
   qltdCurrentMainMilestoneProjectKey = projectKey;
   cacheMainMilestonesForProject(projectKey, payload);
+
+  try {
+    const response = await fetchBackendJson('saveMainMilestones', {
+      projectCode: projectKey,
+      ids: JSON.stringify(Array.from(qltdMainMilestoneIds)),
+      codes: JSON.stringify([]),
+      email: currentUserProfile && currentUserProfile.email || ''
+    });
+    if (response && response.success !== false) {
+      console.log('[mainMilestone] saved to Apps Script API', Array.from(qltdMainMilestoneIds));
+      return;
+    }
+    console.error('Apps Script rejected main milestone save', response);
+    alert('Không lưu được mốc chính: ' + String(response && (response.message || response.error) || 'API_ERROR'));
+    return;
+  } catch (error) {
+    console.warn('Apps Script main milestone save unavailable; trying Firestore compatibility source', error);
+  }
 
   const ref = getMainMilestoneDocRef(projectKey);
   if (!ref) return;
@@ -3775,14 +4078,51 @@ async function saveMainMilestonesForProject(projectCode = getStoredProjectCode()
   }
 }
 
+async function resetMainMilestonesForProject(projectCode = getStoredProjectCode(), payload = qltdGanttPayload) {
+  const projectKey = getMainMilestoneProjectKey(projectCode, payload);
+  qltdCurrentMainMilestoneProjectKey = projectKey;
+  qltdMainMilestoneIds = new Set();
+  cacheMainMilestonesForProject(projectKey, payload);
+
+  try {
+    const response = await fetchBackendJson('resetMainMilestones', {
+      projectCode: projectKey,
+      email: currentUserProfile && currentUserProfile.email || ''
+    });
+    if (response && response.success !== false) {
+      console.log('[mainMilestone] reset through Apps Script API', projectKey);
+      return;
+    }
+    console.error('Apps Script rejected main milestone reset', response);
+    alert('Không reset được mốc chính: ' + String(response && (response.message || response.error) || 'API_ERROR'));
+    return;
+  } catch (error) {
+    console.warn('Apps Script main milestone reset unavailable; saving empty Firestore fallback', error);
+  }
+
+  const ref = getMainMilestoneDocRef(projectKey);
+  if (!ref) return;
+  try {
+    await setDoc(ref, {
+      projectCode: String(projectKey || ''),
+      milestoneIds: [],
+      milestoneCodes: [],
+      updatedBy: currentUserProfile && currentUserProfile.email || '',
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  } catch (error) {
+    console.error('Cannot reset global main milestone ids', error);
+    alert('Không reset được mốc chính dùng chung.');
+  }
+}
+
 function isMainMilestoneTask(taskId) {
-  return qltdMainMilestoneIds.has(String(taskId));
+  const task = (qltdGanttPayload && qltdGanttPayload.data || []).find((item) => String(item.id) === String(taskId));
+  return task ? isMainMilestoneSelectedTask(task) : qltdMainMilestoneIds.has(String(taskId));
 }
 
 function isMainMilestoneSelectedTask(task) {
-  if (!task) return false;
-  return qltdMainMilestoneIds.has(String(task.id || '')) ||
-    qltdMainMilestoneIds.has(String(task.code || ''));
+  return isMainMilestoneKeySelected(qltdMainMilestoneIds, task);
 }
 
 function updateMainMilestoneToolbarState() {
@@ -3809,12 +4149,9 @@ async function toggleMainMilestone(taskId) {
     task = null;
   }
 
-  const id = String(taskId);
-  if (qltdMainMilestoneIds.has(id)) {
-    qltdMainMilestoneIds.delete(id);
-  } else {
-    qltdMainMilestoneIds.add(id);
-  }
+  const sourceTask = task || (qltdGanttPayload && qltdGanttPayload.data || [])
+    .find((item) => String(item.id) === String(taskId)) || { id: taskId };
+  toggleMainMilestoneTaskKey(qltdMainMilestoneIds, sourceTask);
 
   await saveMainMilestonesForProject(qltdGanttPayload && qltdGanttPayload.projectCode);
   updateMainMilestoneToolbarState();
