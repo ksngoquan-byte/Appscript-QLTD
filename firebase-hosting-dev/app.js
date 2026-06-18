@@ -46,6 +46,7 @@ let qltdDhtmlxGanttInitialized = false;
 let qltdDhtmlxGanttRenderSeq = 0;
 let qltdMainMilestoneIds = new Set();
 let qltdMainMilestoneSelectMode = false;
+let qltdMainMilestoneGanttClickEventId = null;
 const qltdWeeklyDrafts = {};
 
 const els = {
@@ -355,7 +356,9 @@ function ensureDeptSelector() {
 
   wrapper = document.createElement('div');
   wrapper.id = 'deptSelectorPanel';
-  wrapper.className = 'nav-control nav-dept-control';
+  wrapper.className = 'nav-control nav-dept-control hidden';
+  wrapper.hidden = true;
+  wrapper.setAttribute('aria-hidden', 'true');
   wrapper.innerHTML = `
     <label class="nav-control-label" for="deptSelector">Ph\u00f2ng/ban</label>
     <select id="deptSelector" class="nav-control-select" disabled>
@@ -2369,13 +2372,19 @@ function applyGanttFilters() {
   const status = document.getElementById('ganttStatusFilter')?.value || 'all';
   const progressFilter = document.getElementById('ganttProgressFilter')?.value || 'all';
   const depthFilter = document.getElementById('ganttDepthFilter')?.value || 'all';
-  const tasks = (qltdGanttPayload.data || []).filter((task) => {
-    const matchSearch = !search || normalizeSearchText(`${task.wbs || ''} ${task.id || ''} ${task.code || ''} ${task.text || ''}`).includes(search);
+  const allTasks = qltdGanttPayload.data || [];
+  const mainMilestoneContextIds = depthFilter === 'main-milestones'
+    ? buildMainMilestoneContextIds(allTasks)
+    : null;
+  const tasks = allTasks.filter((task) => {
+    const taskId = String(task.id || '');
+    const isMainContext = !!(mainMilestoneContextIds && mainMilestoneContextIds.has(taskId));
+    const matchSearch = !search || normalizeSearchText(`${task.wbs || ''} ${task.id || ''} ${task.code || ''} ${task.text || ''}`).includes(search) || isMainContext;
     const taskOwner = task.owner || '__blank__';
-    const matchOwner = !owner || taskOwner === owner;
-    const matchStatus = status === 'all' || normalizeStatusForFilter(task.status) === status;
-    const matchProgress = progressFilter === 'all' || getScheduleState(task) === progressFilter;
-    const matchDepth = shouldShowByDepth(task, depthFilter);
+    const matchOwner = !owner || taskOwner === owner || isMainContext;
+    const matchStatus = status === 'all' || normalizeStatusForFilter(task.status) === status || isMainContext;
+    const matchProgress = progressFilter === 'all' || getScheduleState(task) === progressFilter || isMainContext;
+    const matchDepth = shouldShowByDepth(task, depthFilter, mainMilestoneContextIds);
     return matchSearch && matchOwner && matchStatus && matchProgress && matchDepth;
   });
 
@@ -2392,8 +2401,48 @@ function applyGanttFilters() {
   initDhtmlxGantt(safeTasks, links);
 }
 
-function shouldShowByDepth(task, depthFilter) {
-  if (depthFilter === 'main-milestones') return isMainMilestoneTask(task.id) || task.type === 'milestone';
+function buildMainMilestoneContextIds(tasks = []) {
+  const ids = new Set();
+  const byId = new Map();
+  const byWbs = new Map();
+
+  tasks.forEach((task) => {
+    if (!task) return;
+    const id = String(task.id || '');
+    if (id) byId.set(id, task);
+    const wbs = String(task.wbs || '').trim();
+    if (wbs) byWbs.set(wbs, task);
+  });
+
+  tasks.forEach((task) => {
+    if (!task || !isMainMilestoneTask(task.id)) return;
+
+    const id = String(task.id || '');
+    if (id) ids.add(id);
+
+    let parentId = String(task.parent || '0');
+    while (parentId && parentId !== '0' && byId.has(parentId)) {
+      ids.add(parentId);
+      parentId = String((byId.get(parentId) || {}).parent || '0');
+    }
+
+    const wbs = String(task.wbs || '').trim();
+    if (wbs && wbs.includes('.')) {
+      const parts = wbs.split('.');
+      for (let index = 1; index < parts.length; index += 1) {
+        const parent = byWbs.get(parts.slice(0, index).join('.'));
+        if (parent && parent.id) ids.add(String(parent.id));
+      }
+    }
+  });
+
+  return ids;
+}
+
+function shouldShowByDepth(task, depthFilter, mainMilestoneContextIds = null) {
+  if (depthFilter === 'main-milestones') {
+    return !!(mainMilestoneContextIds && mainMilestoneContextIds.has(String(task && task.id || '')));
+  }
   if (depthFilter === 'wbs-1-2') return getTaskWbsLevel(task) <= 2;
   if (depthFilter === 'wbs-1-3') return getTaskWbsLevel(task) <= 3;
   if (depthFilter === 'wbs-1-4') return getTaskWbsLevel(task) <= 4;
@@ -3352,6 +3401,8 @@ async function initDhtmlxGantt(tasks, links) {
     return qltdGanttShowDates ? qltdWeb07FormatDdMm(task.start_date || start) : '';
   };
 
+  bindMainMilestoneGanttEvents(gantt);
+
   try {
     const hasGanttDom = !!container.querySelector('.gantt_container');
     if (!qltdDhtmlxGanttInitialized || !hasGanttDom) {
@@ -3402,6 +3453,31 @@ async function initDhtmlxGantt(tasks, links) {
     } catch (error) {
       console.warn('WEB07F: gantt final render ignored', error);
     }
+  });
+}
+
+function bindMainMilestoneGanttEvents(gantt) {
+  if (!gantt || typeof gantt.attachEvent !== 'function') return;
+
+  if (qltdMainMilestoneGanttClickEventId && typeof gantt.detachEvent === 'function') {
+    try {
+      gantt.detachEvent(qltdMainMilestoneGanttClickEventId);
+    } catch (error) {
+      console.warn('Cannot detach previous main milestone event', error);
+    }
+  }
+
+  qltdMainMilestoneGanttClickEventId = gantt.attachEvent('onTaskClick', (taskId, event) => {
+    const target = event && event.target;
+    const star = target && typeof target.closest === 'function'
+      ? target.closest('.main-milestone-cell')
+      : null;
+
+    if (!star) return true;
+    if (!canSelectMainMilestone()) return false;
+
+    toggleMainMilestone(taskId);
+    return false;
   });
 }
 
