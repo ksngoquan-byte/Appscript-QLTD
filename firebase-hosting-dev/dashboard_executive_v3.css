@@ -6,6 +6,16 @@
   color: #0f172a;
 }
 
+body.qltd-dashboard-mode #web07DashboardPanel {
+  width: calc(100vw - 56px) !important;
+  max-width: none !important;
+}
+
+body.qltd-dashboard-mode #web07DashboardPanel.web07-panel {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .exec-header,
 .exec-kpi-card,
 .exec-alerts,
@@ -366,6 +376,10 @@ body.qltd-gantt-mode #web07GanttPanel {
 @media (max-width: 900px) {
   .exec-dashboard {
     padding: 14px 14px 32px;
+  }
+
+  body.qltd-dashboard-mode #web07DashboardPanel {
+    width: calc(100vw - 28px) !important;
   }
 
   .exec-header {

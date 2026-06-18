@@ -222,7 +222,13 @@ function renderProjectOptions(projects = []) {
     option.textContent = 'Ch\u01b0a c\u00f3 d\u1ef1 \u00e1n ACTIVE';
     selector.appendChild(option);
     selector.disabled = true;
-    if (status) status.textContent = 'Ch\u01b0a c\u00f3 d\u1ef1 \u00e1n';
+    qltdGanttPayload = null;
+    if (status) {
+      status.textContent = 'Ch\u01b0a c\u00f3 d\u1ef1 \u00e1n';
+      status.classList.remove('hidden');
+    }
+    renderNoProjectDashboardState();
+    renderNoProjectGanttState();
     return;
   }
 
@@ -239,7 +245,10 @@ function renderProjectOptions(projects = []) {
   loadDeptPlansForSelectedProject(selector.value);
   loadGanttDataForSelectedProject(selector.value);
 
-  if (status) status.textContent = '';
+  if (status) {
+    status.textContent = '';
+    status.classList.add('hidden');
+  }
 
   selector.disabled = false;
   selector.onchange = () => {
@@ -260,7 +269,12 @@ async function loadProjectsForSelector() {
     console.error('Cannot load project registry', error);
     ensureProjectSelector();
     const status = document.getElementById('projectSelectorStatus');
-    if (status) status.textContent = 'Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c danh s\u00e1ch d\u1ef1 \u00e1n';
+    if (status) {
+      status.textContent = 'Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c danh s\u00e1ch d\u1ef1 \u00e1n';
+      status.classList.remove('hidden');
+    }
+    renderDashboardError(error);
+    renderGanttError(error);
   }
 }
 
@@ -369,12 +383,20 @@ function ensureWeb07InlineStyles() {
   style.id = 'web07InlineStyles';
   style.textContent = `
     .web07-panel {
-      width: min(1160px, calc(100vw - 48px));
+      width: min(1800px, calc(100vw - 48px));
+      max-width: none;
+      margin: 18px auto 40px;
+    }
+
+    body.qltd-dashboard-mode #web07DashboardPanel {
+      width: calc(100vw - 56px);
+      max-width: none;
       margin: 18px auto 40px;
     }
 
     body.qltd-gantt-mode .web07-panel {
-      width: min(1160px, calc(100vw - 48px));
+      width: min(1800px, calc(100vw - 48px));
+      max-width: none;
     }
 
     body.qltd-gantt-mode #web07GanttPanel {
@@ -728,6 +750,7 @@ function ensureWeb07Panels() {
 function showWeb07View(viewName) {
   qltdActiveView = viewName;
   ensureWeb07Panels();
+  document.body.classList.toggle('qltd-dashboard-mode', viewName === 'dashboard');
   document.body.classList.toggle('qltd-gantt-mode', viewName === 'gantt');
 
   const dashboard = document.getElementById('web07DashboardPanel');
@@ -736,7 +759,7 @@ function showWeb07View(viewName) {
   const placeholder = document.querySelector('.placeholder-panel');
   const summary = document.querySelector('.content-grid');
 
-  if (summary) summary.classList.toggle('hidden', viewName === 'gantt' || viewName === 'report');
+  if (summary) summary.classList.add('hidden');
   if (placeholder) placeholder.classList.add('hidden');
   if (dashboard) dashboard.classList.toggle('hidden', viewName !== 'dashboard');
   if (ganttPanel) ganttPanel.classList.toggle('hidden', viewName !== 'gantt');
@@ -1517,6 +1540,27 @@ function renderDashboardLoading(projectCode) {
   panel.innerHTML = `
     <div class="web07-card">
       <p class="empty-state">Đang tải Dashboard cho ${escapeHtml(projectCode)}...</p>
+    </div>
+  `;
+}
+
+function renderNoProjectDashboardState() {
+  const panel = document.getElementById('web07DashboardPanel');
+  if (!panel) return;
+  panel.innerHTML = `
+    <div class="web07-card">
+      <p class="empty-state">Chưa có dự án ACTIVE hoặc tài khoản chưa được cấp quyền xem dự án.</p>
+    </div>
+  `;
+}
+
+function renderNoProjectGanttState() {
+  const panel = document.getElementById('web07GanttPanel');
+  if (!panel) return;
+  resetWeb07DhtmlxGantt('renderNoProjectGanttState');
+  panel.innerHTML = `
+    <div class="web07-card">
+      <p class="empty-state">Chưa có dự án ACTIVE hoặc tài khoản chưa được cấp quyền xem dự án.</p>
     </div>
   `;
 }
