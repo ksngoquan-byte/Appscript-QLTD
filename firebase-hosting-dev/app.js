@@ -51,6 +51,8 @@ let qltdExcelJsLoadPromise = null;
 let qltdHtmlToImageLoadPromise = null;
 let qltdDhtmlxGanttInitialized = false;
 let qltdDhtmlxGanttRenderSeq = 0;
+let qltdProjectRegistry = [];
+let qltdCurrentMainMilestoneProjectKey = '';
 let qltdMainMilestoneIds = new Set();
 let qltdMainMilestoneSelectMode = false;
 let qltdMainMilestoneGanttClickEventId = null;
@@ -249,6 +251,7 @@ function findAppHeaderContainer() {
 
 function renderProjectOptions(projects = []) {
   ensureProjectSelector();
+  qltdProjectRegistry = Array.isArray(projects) ? projects : [];
 
   const selector = document.getElementById('projectSelector');
   const status = document.getElementById('projectSelectorStatus');
@@ -1571,7 +1574,7 @@ async function loadGanttDataForSelectedProject(projectCode) {
   try {
     const payload = await fetchBackendJson('ganttData', { projectCode });
     qltdGanttPayload = payload;
-    await loadMainMilestonesForProject(projectCode);
+    await loadMainMilestonesForProject(projectCode, payload);
     renderDashboardFromGanttData(payload);
     renderGanttPanel(payload);
   } catch (error) {
@@ -3622,18 +3625,74 @@ function focusGanttTask(taskId) {
   }
 }
 
-function getMainMilestoneStorageKey(projectCode = getStoredProjectCode()) {
-  return `qltd.mainMilestones.${projectCode || 'unknown'}`;
+function normalizeMainMilestoneProjectKey(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  const exact = qltdProjectRegistry.find((project) => String(project.projectCode || '').trim() === raw);
+  if (exact && exact.projectCode) return String(exact.projectCode).trim();
+
+  const displayMatch = raw.match(/^(.+?)\s+-\s+.+$/);
+  const displayCode = displayMatch ? displayMatch[1].trim() : '';
+  if (displayCode) {
+    const registryMatch = qltdProjectRegistry.find((project) => String(project.projectCode || '').trim() === displayCode);
+    if (registryMatch && registryMatch.projectCode) return String(registryMatch.projectCode).trim();
+    return displayCode;
+  }
+
+  return raw;
 }
 
-function getMainMilestoneDocRef(projectCode = getStoredProjectCode()) {
-  if (!db || !projectCode) return null;
-  return doc(db, 'qltdMainMilestones', String(projectCode));
+function getMainMilestoneProjectKey(projectCode = getStoredProjectCode(), payload = qltdGanttPayload) {
+  const candidates = [
+    projectCode,
+    payload && payload.projectCode,
+    getStoredProjectCode()
+  ];
+
+  for (const candidate of candidates) {
+    const key = normalizeMainMilestoneProjectKey(candidate);
+    if (key) return key;
+  }
+
+  return '';
 }
 
-function readCachedMainMilestones(projectCode) {
+function getMainMilestoneProjectKeyAliases(projectCode = getStoredProjectCode(), payload = qltdGanttPayload) {
+  const candidates = [
+    getMainMilestoneProjectKey(projectCode, payload),
+    projectCode,
+    payload && payload.projectCode,
+    payload && payload.projectName,
+    payload && payload.projectCode && payload.projectName ? `${payload.projectCode} - ${payload.projectName}` : '',
+    getStoredProjectCode()
+  ];
+
+  const aliases = [];
+  candidates.forEach((candidate) => {
+    const raw = String(candidate || '').trim();
+    if (raw && !aliases.includes(raw)) aliases.push(raw);
+
+    const normalized = normalizeMainMilestoneProjectKey(raw);
+    if (normalized && !aliases.includes(normalized)) aliases.push(normalized);
+  });
+
+  return aliases;
+}
+
+function getMainMilestoneStorageKey(projectCode = getStoredProjectCode(), payload = qltdGanttPayload) {
+  const projectKey = getMainMilestoneProjectKey(projectCode, payload);
+  return `qltd.mainMilestones.${projectKey || 'unknown'}`;
+}
+
+function getMainMilestoneDocRef(projectKey = qltdCurrentMainMilestoneProjectKey || getMainMilestoneProjectKey()) {
+  if (!db || !projectKey) return null;
+  return doc(db, 'qltdMainMilestones', String(projectKey));
+}
+
+function readCachedMainMilestones(projectCode, payload = qltdGanttPayload) {
   try {
-    const raw = localStorage.getItem(getMainMilestoneStorageKey(projectCode));
+    const raw = localStorage.getItem(getMainMilestoneStorageKey(projectCode, payload));
     const ids = raw ? JSON.parse(raw) : [];
     return Array.isArray(ids) ? ids.map(String) : [];
   } catch (error) {
@@ -3642,47 +3701,69 @@ function readCachedMainMilestones(projectCode) {
   }
 }
 
-function cacheMainMilestonesForProject(projectCode = getStoredProjectCode()) {
+function cacheMainMilestonesForProject(projectCode = getStoredProjectCode(), payload = qltdGanttPayload) {
   try {
-    localStorage.setItem(getMainMilestoneStorageKey(projectCode), JSON.stringify(Array.from(qltdMainMilestoneIds)));
+    localStorage.setItem(getMainMilestoneStorageKey(projectCode, payload), JSON.stringify(Array.from(qltdMainMilestoneIds)));
   } catch (error) {
     console.warn('Cannot cache main milestone ids', error);
   }
 }
 
-async function loadMainMilestonesForProject(projectCode) {
-  qltdMainMilestoneIds = new Set(readCachedMainMilestones(projectCode));
+async function loadMainMilestonesForProject(projectCode, payload = qltdGanttPayload) {
+  const projectKey = getMainMilestoneProjectKey(projectCode, payload);
+  const aliases = getMainMilestoneProjectKeyAliases(projectCode, payload);
+  qltdCurrentMainMilestoneProjectKey = projectKey;
+  qltdMainMilestoneIds = new Set(readCachedMainMilestones(projectKey, payload));
 
-  const ref = getMainMilestoneDocRef(projectCode);
-  if (!ref) return;
+  if (!db || !aliases.length) return;
 
   try {
-    const snapshot = await getDoc(ref);
-    if (!snapshot.exists()) {
+    let matchedSnapshot = null;
+    let matchedKey = '';
+
+    for (const alias of aliases) {
+      const snapshot = await getDoc(getMainMilestoneDocRef(alias));
+      if (snapshot.exists()) {
+        matchedSnapshot = snapshot;
+        matchedKey = alias;
+        break;
+      }
+    }
+
+    if (!matchedSnapshot) {
       qltdMainMilestoneIds = new Set();
-      cacheMainMilestonesForProject(projectCode);
+      cacheMainMilestonesForProject(projectKey, payload);
+      console.log('[mainMilestone] projectKey', projectKey);
+      console.log('[mainMilestone] loaded ids', []);
+      console.log('[mainMilestone] role/canSelect', currentUserProfile && currentUserProfile.role, canSelectMainMilestone());
       return;
     }
 
-    const data = snapshot.data() || {};
+    const data = matchedSnapshot.data() || {};
     const ids = Array.isArray(data.milestoneIds) ? data.milestoneIds : [];
     const codes = Array.isArray(data.milestoneCodes) ? data.milestoneCodes : [];
     qltdMainMilestoneIds = new Set([...ids, ...codes].map(String).filter(Boolean));
-    cacheMainMilestonesForProject(projectCode);
+    cacheMainMilestonesForProject(projectKey, payload);
+    console.log('[mainMilestone] projectKey', projectKey);
+    if (matchedKey && matchedKey !== projectKey) console.log('[mainMilestone] matched legacy key', matchedKey);
+    console.log('[mainMilestone] loaded ids', Array.from(qltdMainMilestoneIds));
+    console.log('[mainMilestone] role/canSelect', currentUserProfile && currentUserProfile.role, canSelectMainMilestone());
   } catch (error) {
     console.warn('Cannot load global main milestone ids; using local cache', error);
   }
 }
 
-async function saveMainMilestonesForProject(projectCode = getStoredProjectCode()) {
-  cacheMainMilestonesForProject(projectCode);
+async function saveMainMilestonesForProject(projectCode = getStoredProjectCode(), payload = qltdGanttPayload) {
+  const projectKey = getMainMilestoneProjectKey(projectCode, payload);
+  qltdCurrentMainMilestoneProjectKey = projectKey;
+  cacheMainMilestonesForProject(projectKey, payload);
 
-  const ref = getMainMilestoneDocRef(projectCode);
+  const ref = getMainMilestoneDocRef(projectKey);
   if (!ref) return;
 
   try {
     await setDoc(ref, {
-      projectCode: String(projectCode || ''),
+      projectCode: String(projectKey || ''),
       milestoneIds: Array.from(qltdMainMilestoneIds),
       milestoneCodes: [],
       updatedBy: currentUserProfile && currentUserProfile.email || '',
