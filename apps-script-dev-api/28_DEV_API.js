@@ -17,6 +17,22 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiProfile_(params.email);
   }
 
+  if (action === 'budget_getprojects') {
+    return qltdDevApiJson_(qltdBudgetGetProjects_(params));
+  }
+
+  if (action === 'budget_getprojectdepts') {
+    return qltdDevApiJson_(qltdBudgetGetProjectDepts_(params));
+  }
+
+  if (action === 'budget_getdepttasks') {
+    return qltdDevApiJson_(qltdBudgetGetDeptTasks_(params));
+  }
+
+  if (action === 'budget_getdashboard') {
+    return qltdDevApiJson_(qltdBudgetGetDashboard_(params));
+  }
+
   if (action === 'listprojects') {
     return qltdDevApiListProjects_(params.email);
   }
