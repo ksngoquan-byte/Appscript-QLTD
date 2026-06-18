@@ -6,6 +6,13 @@ import {
   signInWithPopup,
   signOut
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js';
+import {
+  doc,
+  getDoc,
+  getFirestore,
+  serverTimestamp,
+  setDoc
+} from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 
 window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
 
@@ -68,6 +75,7 @@ const els = {
 };
 
 let auth = null;
+let db = null;
 let currentUserProfile = null;
 let currentPermissions = { ...DEFAULT_PERMISSIONS };
 
@@ -142,8 +150,12 @@ function isAuthenticatedUser(profile = currentUserProfile) {
   return !!(profile && profile.email);
 }
 
-function canSelectMainMilestone(profile = currentUserProfile) {
+function canViewMainMilestoneColumn(profile = currentUserProfile) {
   return isAuthenticatedUser(profile);
+}
+
+function canSelectMainMilestone(profile = currentUserProfile) {
+  return canEditPlanning(profile);
 }
 
 function canResetMainMilestone(profile = currentUserProfile) {
@@ -626,6 +638,10 @@ function ensureWeb07InlineStyles() {
 
     .main-milestone-cell.is-selected {
       color: #d97706;
+    }
+
+    .main-milestone-cell.is-readonly {
+      cursor: default;
     }
 
     #web07GanttContainer .gantt_task_progress {
@@ -1555,6 +1571,7 @@ async function loadGanttDataForSelectedProject(projectCode) {
   try {
     const payload = await fetchBackendJson('ganttData', { projectCode });
     qltdGanttPayload = payload;
+    await loadMainMilestonesForProject(projectCode);
     renderDashboardFromGanttData(payload);
     renderGanttPanel(payload);
   } catch (error) {
@@ -2240,11 +2257,11 @@ function renderGanttPanel(payload) {
   }
 
   const owners = getUniqueTaskValues(payload.data || [], 'owner');
-  loadMainMilestonesForProject(payload.projectCode);
-  const canSelectMilestone = canSelectMainMilestone();
+  const canViewMilestoneColumn = canViewMainMilestoneColumn();
   const canResetMilestone = canResetMainMilestone();
   const canExport = canExportExcel();
-  if (!canSelectMilestone) qltdMainMilestoneSelectMode = false;
+  if (!canViewMilestoneColumn) qltdMainMilestoneSelectMode = false;
+  const milestoneModeLabel = canSelectMainMilestone() ? 'Chọn mốc chính' : 'Hiện sao mốc chính';
 
   panel.innerHTML = `
     <div class="web07-card">
@@ -2288,8 +2305,8 @@ function renderGanttPanel(payload) {
           <option value="wbs-1-4">Cấp 1-4</option>
           <option value="main-milestones">Chỉ mốc chính</option>
         </select>
-        ${canSelectMilestone ? `
-          <button id="ganttMilestoneModeButton" type="button" class="${qltdMainMilestoneSelectMode ? 'active' : ''}">Chọn mốc chính${qltdMainMilestoneIds.size ? ` (${qltdMainMilestoneIds.size})` : ''}</button>
+        ${canViewMilestoneColumn ? `
+          <button id="ganttMilestoneModeButton" type="button" class="${qltdMainMilestoneSelectMode ? 'active' : ''}" data-label="${escapeHtml(milestoneModeLabel)}">${escapeHtml(milestoneModeLabel)}${qltdMainMilestoneIds.size ? ` (${qltdMainMilestoneIds.size})` : ''}</button>
           ${canResetMilestone ? '<button id="ganttMilestoneResetButton" type="button">Reset mốc</button>' : ''}
           <span id="ganttMilestoneBadge" class="web07-muted">Mốc chính: ${qltdMainMilestoneIds.size}</span>
         ` : ''}
@@ -2374,7 +2391,7 @@ function bindGanttToolbar(payload) {
   const milestoneModeButton = document.getElementById('ganttMilestoneModeButton');
   if (milestoneModeButton) {
     milestoneModeButton.onclick = () => {
-      if (!canSelectMainMilestone()) return;
+      if (!canViewMainMilestoneColumn()) return;
       qltdMainMilestoneSelectMode = !qltdMainMilestoneSelectMode;
       renderGanttPanel(qltdGanttPayload);
     };
@@ -2382,11 +2399,11 @@ function bindGanttToolbar(payload) {
 
   const milestoneResetButton = document.getElementById('ganttMilestoneResetButton');
   if (milestoneResetButton) {
-    milestoneResetButton.onclick = () => {
+    milestoneResetButton.onclick = async () => {
       if (!canResetMainMilestone()) return;
       const scroll = getGanttScrollState();
       qltdMainMilestoneIds = new Set();
-      saveMainMilestonesForProject(payload.projectCode || getStoredProjectCode());
+      await saveMainMilestonesForProject(payload.projectCode || getStoredProjectCode());
       const depthFilter = document.getElementById('ganttDepthFilter');
       if (depthFilter && depthFilter.value === 'main-milestones') {
         depthFilter.value = 'all';
@@ -3320,7 +3337,11 @@ async function initDhtmlxGantt(tasks, links) {
       resize: false,
       template: (task) => {
         const selected = isMainMilestoneSelectedTask(task);
-        return `<span class="main-milestone-cell ${selected ? 'is-selected' : ''}" title="${selected ? 'Bỏ chọn mốc chính' : 'Chọn mốc chính'}">${selected ? '&#9733;' : '&#9734;'}</span>`;
+        const canEditMilestone = canSelectMainMilestone();
+        const title = canEditMilestone
+          ? (selected ? 'Bỏ chọn mốc chính' : 'Chọn mốc chính')
+          : 'Mốc chính do PMO thiết lập';
+        return `<span class="main-milestone-cell ${selected ? 'is-selected' : ''} ${canEditMilestone ? '' : 'is-readonly'}" title="${escapeHtml(title)}">${selected ? '&#9733;' : '&#9734;'}</span>`;
       }
     });
   }
@@ -3605,22 +3626,71 @@ function getMainMilestoneStorageKey(projectCode = getStoredProjectCode()) {
   return `qltd.mainMilestones.${projectCode || 'unknown'}`;
 }
 
-function loadMainMilestonesForProject(projectCode) {
+function getMainMilestoneDocRef(projectCode = getStoredProjectCode()) {
+  if (!db || !projectCode) return null;
+  return doc(db, 'qltdMainMilestones', String(projectCode));
+}
+
+function readCachedMainMilestones(projectCode) {
   try {
     const raw = localStorage.getItem(getMainMilestoneStorageKey(projectCode));
     const ids = raw ? JSON.parse(raw) : [];
-    qltdMainMilestoneIds = new Set(Array.isArray(ids) ? ids.map(String) : []);
+    return Array.isArray(ids) ? ids.map(String) : [];
   } catch (error) {
-    console.warn('Cannot load main milestone ids', error);
-    qltdMainMilestoneIds = new Set();
+    console.warn('Cannot read cached main milestone ids', error);
+    return [];
   }
 }
 
-function saveMainMilestonesForProject(projectCode = getStoredProjectCode()) {
+function cacheMainMilestonesForProject(projectCode = getStoredProjectCode()) {
   try {
     localStorage.setItem(getMainMilestoneStorageKey(projectCode), JSON.stringify(Array.from(qltdMainMilestoneIds)));
   } catch (error) {
-    console.warn('Cannot save main milestone ids', error);
+    console.warn('Cannot cache main milestone ids', error);
+  }
+}
+
+async function loadMainMilestonesForProject(projectCode) {
+  qltdMainMilestoneIds = new Set(readCachedMainMilestones(projectCode));
+
+  const ref = getMainMilestoneDocRef(projectCode);
+  if (!ref) return;
+
+  try {
+    const snapshot = await getDoc(ref);
+    if (!snapshot.exists()) {
+      qltdMainMilestoneIds = new Set();
+      cacheMainMilestonesForProject(projectCode);
+      return;
+    }
+
+    const data = snapshot.data() || {};
+    const ids = Array.isArray(data.milestoneIds) ? data.milestoneIds : [];
+    const codes = Array.isArray(data.milestoneCodes) ? data.milestoneCodes : [];
+    qltdMainMilestoneIds = new Set([...ids, ...codes].map(String).filter(Boolean));
+    cacheMainMilestonesForProject(projectCode);
+  } catch (error) {
+    console.warn('Cannot load global main milestone ids; using local cache', error);
+  }
+}
+
+async function saveMainMilestonesForProject(projectCode = getStoredProjectCode()) {
+  cacheMainMilestonesForProject(projectCode);
+
+  const ref = getMainMilestoneDocRef(projectCode);
+  if (!ref) return;
+
+  try {
+    await setDoc(ref, {
+      projectCode: String(projectCode || ''),
+      milestoneIds: Array.from(qltdMainMilestoneIds),
+      milestoneCodes: [],
+      updatedBy: currentUserProfile && currentUserProfile.email || '',
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  } catch (error) {
+    console.error('Cannot save global main milestone ids', error);
+    alert('Không lưu được mốc chính dùng chung. Vui lòng kiểm tra quyền Firebase/Firestore.');
   }
 }
 
@@ -3640,11 +3710,12 @@ function updateMainMilestoneToolbarState() {
 
   const button = document.getElementById('ganttMilestoneModeButton');
   if (button) {
-    button.textContent = `Chọn mốc chính${qltdMainMilestoneIds.size ? ` (${qltdMainMilestoneIds.size})` : ''}`;
+    const label = button.dataset.label || (canSelectMainMilestone() ? 'Chọn mốc chính' : 'Hiện sao mốc chính');
+    button.textContent = `${label}${qltdMainMilestoneIds.size ? ` (${qltdMainMilestoneIds.size})` : ''}`;
   }
 }
 
-function toggleMainMilestone(taskId) {
+async function toggleMainMilestone(taskId) {
   if (!canSelectMainMilestone()) return;
 
   const gantt = getDhtmlxGanttInstance();
@@ -3664,7 +3735,7 @@ function toggleMainMilestone(taskId) {
     qltdMainMilestoneIds.add(id);
   }
 
-  saveMainMilestonesForProject(qltdGanttPayload && qltdGanttPayload.projectCode);
+  await saveMainMilestonesForProject(qltdGanttPayload && qltdGanttPayload.projectCode);
   updateMainMilestoneToolbarState();
   renderDashboardFromGanttData(qltdGanttPayload);
 
@@ -3896,6 +3967,7 @@ function boot() {
 
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
+  db = getFirestore(app);
 
   onAuthStateChanged(auth, async (user) => {
     if (!user) {
