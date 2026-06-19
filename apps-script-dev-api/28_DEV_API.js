@@ -57,6 +57,22 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdBudgetSubmitActualDryRun_(params));
   }
 
+  if (action === 'work_getmytasks') {
+    return qltdDevApiJson_(qltdWorkGetMyTasks_(params));
+  }
+
+  if (action === 'work_getdepttasks') {
+    return qltdDevApiJson_(qltdWorkGetDeptTasks_(params));
+  }
+
+  if (action === 'weekly_getmyreports') {
+    return qltdDevApiJson_(qltdWeeklyGetMyReports_(params));
+  }
+
+  if (action === 'weekly_getdeptreports') {
+    return qltdDevApiJson_(qltdWeeklyGetDeptReports_(params));
+  }
+
   if (action === 'listprojects') {
     return qltdDevApiListProjects_(params.email);
   }
@@ -148,6 +164,26 @@ function qltdDevApiHandlePost_(e) {
 
   if (action === 'budget_rebuildaggregates') {
     return qltdDevApiJson_(qltdBudgetRebuildAggregates_(payload));
+  }
+
+  if (action === 'work_assigntask') {
+    return qltdDevApiJson_(qltdWorkAssignTask_(payload));
+  }
+
+  if (action === 'work_updatetask') {
+    return qltdDevApiJson_(qltdWorkUpdateTask_(payload));
+  }
+
+  if (action === 'weekly_savedraft') {
+    return qltdDevApiJson_(qltdWeeklySaveDraft_(payload));
+  }
+
+  if (action === 'weekly_submit') {
+    return qltdDevApiJson_(qltdWeeklySubmit_(payload));
+  }
+
+  if (action === 'weekly_review') {
+    return qltdDevApiJson_(qltdWeeklyReview_(payload));
   }
 
   return qltdDevApiJson_(qltdBudgetWriteError_('UNKNOWN_POST_ACTION', 'UNKNOWN_POST_ACTION', 'Post action khong hop le.', {
