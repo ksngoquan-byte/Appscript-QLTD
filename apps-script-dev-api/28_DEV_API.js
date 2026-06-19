@@ -142,6 +142,10 @@ function qltdDevApiHandlePost_(e) {
     return qltdDevApiJson_(qltdBudgetSubmitActual_(payload));
   }
 
+  if (action === 'budget_rebuildaggregates') {
+    return qltdDevApiJson_(qltdBudgetRebuildAggregates_(payload));
+  }
+
   return qltdDevApiJson_(qltdBudgetWriteError_('UNKNOWN_POST_ACTION', 'UNKNOWN_POST_ACTION', 'Post action khong hop le.', {
     action: payload.action || ''
   }));

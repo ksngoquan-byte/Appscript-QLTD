@@ -233,6 +233,7 @@ function qltdBudgetReadBudgetItems_() {
     items: parsed.rows.map(function(item) {
       const row = item.raw;
       const budgetType = qltdBudgetNormalizeBudgetType_(qltdBudgetGetCell_(row, parsed.headerMap, 'Loai ngan sach', '')).value || '';
+      const approvedBudgetRaw = qltdBudgetGetCell_(row, parsed.headerMap, 'Ngan sach duoc duyet', '');
       return {
         budgetItemCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma khoan ngan sach', '') || '').trim(),
         projectCode: qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma du an', '')),
@@ -244,7 +245,9 @@ function qltdBudgetReadBudgetItems_() {
         masterTaskCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma cong viec Master', '') || '').trim(),
         budgetGroup: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Nhom ngan sach', '') || '').trim(),
         budgetStage: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Giai doan ngan sach', '') || '').trim(),
-        approvedBudget: qltdBudgetToNumber_(qltdBudgetGetCell_(row, parsed.headerMap, 'Ngan sach duoc duyet', 0)),
+        approvedBudget: qltdBudgetToNumber_(approvedBudgetRaw),
+        hasApprovedBudget: String(approvedBudgetRaw === null || approvedBudgetRaw === undefined ? '' : approvedBudgetRaw).replace(/[,\s]/g, '').trim() !== '' &&
+          !isNaN(Number(String(approvedBudgetRaw).replace(/[,\s]/g, ''))),
         status: qltdBudgetNormalizeStatus_(qltdBudgetGetCell_(row, parsed.headerMap, 'Trang thai', 'ACTIVE')),
         note: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ghi chu', '') || '').trim(),
         rowNumber: item.rowNumber

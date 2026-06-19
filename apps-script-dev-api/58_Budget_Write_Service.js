@@ -70,7 +70,9 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
         pbTarget: pbResult.pbTarget,
         syncStatus: 'SYNCED',
         duplicate: false
-      }, (resolveResult.warnings || []).concat([qltdBudgetWarning_('CACHE_REBUILD_PENDING', 'Chua rebuild CENTRAL_NS_Tong_hop/CENTRAL_NS_Dashboard.')]), [], meta);
+      }, (resolveResult.warnings || []).concat([qltdBudgetWarning_('CACHE_REBUILD_PENDING', 'Chua rebuild CENTRAL_NS_Tong_hop/CENTRAL_NS_Dashboard.', {
+        rebuildAction: 'budget_rebuildAggregates'
+      })]), [], meta);
     }
 
     qltdBudgetUpdateCentralRawSync_(centralWrite, 'SYNCED', qltdBudgetNowIso_(), '');
@@ -85,7 +87,9 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
       target: 'CENTRAL_ONLY',
       syncStatus: 'SYNCED',
       duplicate: false
-    }, (resolveResult.warnings || []).concat([qltdBudgetWarning_('CACHE_REBUILD_PENDING', 'Chua rebuild CENTRAL_NS_Tong_hop/CENTRAL_NS_Dashboard.')]), [], meta);
+    }, (resolveResult.warnings || []).concat([qltdBudgetWarning_('CACHE_REBUILD_PENDING', 'Chua rebuild CENTRAL_NS_Tong_hop/CENTRAL_NS_Dashboard.', {
+      rebuildAction: 'budget_rebuildAggregates'
+    })]), [], meta);
   } catch (error) {
     let message = qltdBudgetSafeErrorMessage_(error);
     if (centralWrite) {

@@ -3,12 +3,14 @@ const QLTD_BUDGET_DRY_RUN_SOURCE = 'budget_dryrun_v1';
 const QLTD_BUDGET_ITEMS_SOURCE = 'budget_items_v1';
 const QLTD_BUDGET_SCHEMA_SOURCE = 'budget_schema_v1';
 const QLTD_BUDGET_WRITE_SOURCE = 'budget_write_v1';
+const QLTD_BUDGET_REBUILD_SOURCE = 'budget_rebuild_v1';
 const QLTD_BUDGET_WRITE_ENABLED = true;
 const QLTD_BUDGET_WRITE_ADMIN_ONLY = true;
 const QLTD_BUDGET_WRITE_CONFIRM_TOKEN = 'YES_WRITE_BUDGET';
 const QLTD_BUDGET_WRITE_PB_HISTORY_IF_EXISTS = false;
 const QLTD_BUDGET_WRITE_LOCK_TIMEOUT_MS = 10000;
 const QLTD_BUDGET_WRITE_CENTRAL_ONLY_SOURCE = 'CENTRAL_ONLY';
+const QLTD_BUDGET_REBUILD_CONFIRM_TOKEN = 'YES_REBUILD_BUDGET';
 
 const QLTD_BUDGET_TYPE = {
   TASK_LINKED: 'TASK_LINKED',
@@ -152,6 +154,20 @@ const QLTD_BUDGET_CENTRAL_DASHBOARD_TWO_LAYER_HEADERS = [
   'Ma khoan ngan sach'
 ];
 
+const QLTD_BUDGET_CENTRAL_SUMMARY_HEADERS = [
+  'Ma du an', 'Ten du an', 'Loai ky', 'Ma ky', 'Ma cong viec Master', 'WBS',
+  'Cong viec', 'Phong/Ban', 'Ngan sach tong the', 'Ke hoach ky', 'Thuc hien ky',
+  'Thuc hien luy ke', 'Con lai', 'Ty le su dung', 'Canh bao', 'Cap nhat cuoi',
+  'Ma khoan ngan sach', 'Ten khoan ngan sach', 'Loai ngan sach', 'Nhom ngan sach',
+  'Giai doan ngan sach', 'Yeu cau ma cong viec Master'
+];
+
+const QLTD_BUDGET_CENTRAL_DASHBOARD_HEADERS = [
+  'Nhom chi tieu', 'Chi tieu', 'Ma du an', 'Ten du an', 'Loai ky', 'Ma ky',
+  'Gia tri', 'Don vi', 'Cap nhat cuoi', 'Ghi chu', 'Ma phong/ban', 'Phong/Ban',
+  'Loai ngan sach', 'Nhom ngan sach', 'Ma khoan ngan sach'
+];
+
 const QLTD_BUDGET_ITEMS_HEADERS = [
   'Ma khoan ngan sach',
   'Ma du an',
@@ -174,21 +190,21 @@ const QLTD_BUDGET_SHEET_SCHEMAS = {
     headerRow: 4,
     title: 'DU LIEU BAO CAO NGAN SACH RAW TRUNG TAM',
     description: 'Du lieu bao cao ngan sach raw trung tam.',
-    requiredHeaders: QLTD_BUDGET_CENTRAL_RAW_TWO_LAYER_HEADERS
+    requiredHeaders: QLTD_BUDGET_CENTRAL_RAW_HEADERS
   },
   CENTRAL_NS_Tong_hop: {
     sheetName: 'CENTRAL_NS_Tong_hop',
     headerRow: 4,
     title: 'TONG HOP NGAN SACH TRUNG TAM',
     description: 'Du lieu tong hop ngan sach trung tam.',
-    requiredHeaders: QLTD_BUDGET_CENTRAL_RAW_TWO_LAYER_HEADERS
+    requiredHeaders: QLTD_BUDGET_CENTRAL_SUMMARY_HEADERS
   },
   CENTRAL_NS_Dashboard: {
     sheetName: 'CENTRAL_NS_Dashboard',
     headerRow: 4,
     title: 'DASHBOARD NGAN SACH TRUNG TAM',
     description: 'Du lieu dashboard ngan sach trung tam.',
-    requiredHeaders: QLTD_BUDGET_CENTRAL_DASHBOARD_TWO_LAYER_HEADERS
+    requiredHeaders: QLTD_BUDGET_CENTRAL_DASHBOARD_HEADERS
   },
   SYS_Sync_Log: {
     sheetName: 'SYS_Sync_Log',
