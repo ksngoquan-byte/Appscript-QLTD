@@ -17,6 +17,22 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiProfile_(params.email);
   }
 
+  if (action === 'work_getmytasks') {
+    return qltdDevApiJson_(qltdWorkGetMyTasks_(params));
+  }
+
+  if (action === 'work_getdepttasks') {
+    return qltdDevApiJson_(qltdWorkGetDeptTasks_(params));
+  }
+
+  if (action === 'weekly_getmyreports') {
+    return qltdDevApiJson_(qltdWeeklyGetMyReports_(params));
+  }
+
+  if (action === 'weekly_getdeptreports') {
+    return qltdDevApiJson_(qltdWeeklyGetDeptReports_(params));
+  }
+
   if (action === 'budget_getprojects') {
     return qltdDevApiJson_(qltdBudgetGetProjects_(params));
   }
@@ -137,6 +153,26 @@ function qltdDevApiHandlePost_(e) {
 
   const payload = parseResult.payload;
   const action = String(payload.action || '').trim().toLowerCase();
+
+  if (action === 'work_assigntask') {
+    return qltdDevApiJson_(qltdWorkAssignTask_(payload));
+  }
+
+  if (action === 'work_updatetask') {
+    return qltdDevApiJson_(qltdWorkUpdateTask_(payload));
+  }
+
+  if (action === 'weekly_savedraft') {
+    return qltdDevApiJson_(qltdWeeklySaveDraft_(payload));
+  }
+
+  if (action === 'weekly_submit') {
+    return qltdDevApiJson_(qltdWeeklySubmit_(payload));
+  }
+
+  if (action === 'weekly_review') {
+    return qltdDevApiJson_(qltdWeeklyReview_(payload));
+  }
 
   if (action === 'budget_submitplan') {
     return qltdDevApiJson_(qltdBudgetSubmitPlan_(payload));
