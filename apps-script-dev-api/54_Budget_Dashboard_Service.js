@@ -11,8 +11,16 @@ function qltdBudgetGetDashboard_(params) {
   };
 
   const warnings = [];
-  const dashboard = qltdBudgetReadOptionalCacheSheet_(QLTD_BUDGET_SHEET.CENTRAL_DASHBOARD, 1, warnings);
-  const summary = qltdBudgetReadOptionalCacheSheet_(QLTD_BUDGET_SHEET.CENTRAL_SUMMARY, 1, warnings);
+  const dashboard = qltdBudgetReadOptionalCacheSheet_(
+    QLTD_BUDGET_SHEET.CENTRAL_DASHBOARD,
+    qltdBudgetGetSheetSchema_(QLTD_BUDGET_SHEET.CENTRAL_DASHBOARD).headerRow,
+    warnings
+  );
+  const summary = qltdBudgetReadOptionalCacheSheet_(
+    QLTD_BUDGET_SHEET.CENTRAL_SUMMARY,
+    qltdBudgetGetSheetSchema_(QLTD_BUDGET_SHEET.CENTRAL_SUMMARY).headerRow,
+    warnings
+  );
 
   const kpis = dashboard.rows
     .filter(function(item) {

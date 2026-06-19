@@ -47,6 +47,10 @@ function qltdBudgetCheckTwoLayerSchema_(params) {
   return qltdBudgetSchemaResponse_(true, action, {
     itemsSheet: result.itemsSheet,
     centralRaw: result.centralRaw,
+    centralSummary: result.centralSummary,
+    centralDashboard: result.centralDashboard,
+    syncLog: result.syncLog,
+    sheets: result.sheets,
     canApplySetup: result.canApplySetup,
     dryRunOnly: true
   }, result.warnings, [], meta);
@@ -64,37 +68,41 @@ function qltdBudgetSetupTwoLayerSchemaDryRun_(params) {
     dryRun: true,
     plannedActions: qltdBudgetBuildTwoLayerSchemaPlan_(result),
     itemsSheet: result.itemsSheet,
-    centralRaw: result.centralRaw
+    centralRaw: result.centralRaw,
+    centralSummary: result.centralSummary,
+    centralDashboard: result.centralDashboard,
+    syncLog: result.syncLog,
+    sheets: result.sheets
   }, result.warnings, [], meta);
 }
 
 function qltdBudgetInspectTwoLayerSchema_() {
   const warnings = [];
-  const itemsSheet = qltdBudgetGetReadonlySheet_(QLTD_BUDGET_SHEET.CENTRAL_ITEMS);
-  const rawSheet = qltdBudgetGetReadonlySheet_(QLTD_BUDGET_SHEET.CENTRAL_RAW);
-
-  const itemsInfo = qltdBudgetInspectSheetHeaders_(
-    itemsSheet,
-    QLTD_BUDGET_SHEET.CENTRAL_ITEMS,
-    QLTD_BUDGET_ITEMS_HEADERS,
-    warnings
-  );
-  const rawInfo = qltdBudgetInspectSheetHeaders_(
-    rawSheet,
-    QLTD_BUDGET_SHEET.CENTRAL_RAW,
-    QLTD_BUDGET_CENTRAL_RAW_TWO_LAYER_HEADERS,
-    warnings
-  );
+  const itemsInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.CENTRAL_ITEMS, warnings);
+  const rawInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.CENTRAL_RAW, warnings);
+  const summaryInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.CENTRAL_SUMMARY, warnings);
+  const dashboardInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.CENTRAL_DASHBOARD, warnings);
+  const syncLogInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.SYS_SYNC_LOG, warnings);
+  const sheets = [itemsInfo, rawInfo, summaryInfo, dashboardInfo, syncLogInfo];
 
   return {
     itemsSheet: itemsInfo,
     centralRaw: rawInfo,
-    canApplySetup: !rawInfo.blocked,
+    centralSummary: summaryInfo,
+    centralDashboard: dashboardInfo,
+    syncLog: syncLogInfo,
+    sheets: sheets,
+    canApplySetup: sheets.every(function(info) {
+      return !info.blocked;
+    }),
     warnings: warnings
   };
 }
 
-function qltdBudgetInspectSheetHeaders_(sheet, sheetName, requiredHeaders, warnings) {
+function qltdBudgetInspectSheetHeaders_(sheetName, warnings) {
+  const schema = qltdBudgetGetSheetSchema_(sheetName);
+  const sheet = qltdBudgetGetReadonlySheet_(sheetName);
+  const requiredHeaders = schema.requiredHeaders || [];
   if (!sheet) {
     warnings.push(qltdBudgetWarning_('SHEET_NOT_FOUND', 'Khong tim thay sheet: ' + sheetName, {
       sheetName: sheetName
@@ -102,22 +110,36 @@ function qltdBudgetInspectSheetHeaders_(sheet, sheetName, requiredHeaders, warni
     return {
       sheetName: sheetName,
       exists: false,
+      titleRow: 1,
+      descriptionRow: 2,
+      blankRow: 3,
+      headerRow: schema.headerRow,
       headersOk: false,
+      title: schema.title,
+      description: schema.description,
       existingHeaders: [],
+      requiredHeaders: requiredHeaders.slice(),
       missingHeaders: requiredHeaders.slice(),
       appendOnly: true,
       blocked: false
     };
   }
 
-  const parsed = qltdBudgetReadSheetAsObjects_(sheet, 1);
+  const parsed = qltdBudgetReadSheetAsObjects_(sheet, schema.headerRow);
   const missingHeaders = qltdBudgetFindMissingHeaders_(parsed.headerMap, requiredHeaders);
 
   return {
     sheetName: sheetName,
     exists: true,
+    titleRow: 1,
+    descriptionRow: 2,
+    blankRow: 3,
+    headerRow: schema.headerRow,
     headersOk: missingHeaders.length === 0,
+    title: schema.title,
+    description: schema.description,
     existingHeaders: parsed.headers,
+    requiredHeaders: requiredHeaders.slice(),
     missingHeaders: missingHeaders,
     appendOnly: true,
     blocked: false
@@ -126,36 +148,54 @@ function qltdBudgetInspectSheetHeaders_(sheet, sheetName, requiredHeaders, warni
 
 function qltdBudgetBuildTwoLayerSchemaPlan_(inspection) {
   const actions = [];
-  if (!inspection.itemsSheet.exists) {
-    actions.push({
-      type: 'CREATE_SHEET',
-      sheetName: QLTD_BUDGET_SHEET.CENTRAL_ITEMS,
-      headers: QLTD_BUDGET_ITEMS_HEADERS,
-      dryRunOnly: true
-    });
-  } else if (inspection.itemsSheet.missingHeaders.length) {
-    actions.push({
-      type: 'APPEND_HEADERS',
-      sheetName: QLTD_BUDGET_SHEET.CENTRAL_ITEMS,
-      headers: inspection.itemsSheet.missingHeaders,
-      dryRunOnly: true
-    });
-  }
+  const sheetInfos = inspection.sheets || [
+    inspection.itemsSheet,
+    inspection.centralRaw,
+    inspection.centralSummary,
+    inspection.centralDashboard,
+    inspection.syncLog
+  ];
 
-  if (!inspection.centralRaw.exists) {
-    actions.push({
-      type: 'MISSING_REQUIRED_SHEET',
-      sheetName: QLTD_BUDGET_SHEET.CENTRAL_RAW,
-      dryRunOnly: true
-    });
-  } else if (inspection.centralRaw.missingHeaders.length) {
-    actions.push({
-      type: 'APPEND_HEADERS',
-      sheetName: QLTD_BUDGET_SHEET.CENTRAL_RAW,
-      headers: inspection.centralRaw.missingHeaders,
-      dryRunOnly: true
-    });
-  }
+  sheetInfos.forEach(function(info) {
+    if (!info.exists && info.sheetName === QLTD_BUDGET_SHEET.CENTRAL_ITEMS) {
+      actions.push({
+        type: 'CREATE_SHEET',
+        sheetName: info.sheetName,
+        titleRow: info.titleRow,
+        descriptionRow: info.descriptionRow,
+        blankRow: info.blankRow,
+        headerRow: info.headerRow,
+        title: info.title,
+        description: info.description,
+        headers: info.requiredHeaders,
+        appendOnly: true,
+        dryRunOnly: true
+      });
+      return;
+    }
+
+    if (!info.exists) {
+      actions.push({
+        type: 'MISSING_REQUIRED_SHEET',
+        sheetName: info.sheetName,
+        headerRow: info.headerRow,
+        appendOnly: true,
+        dryRunOnly: true
+      });
+      return;
+    }
+
+    if (info.missingHeaders.length) {
+      actions.push({
+        type: 'APPEND_HEADERS',
+        sheetName: info.sheetName,
+        headerRow: info.headerRow,
+        headers: info.missingHeaders,
+        appendOnly: true,
+        dryRunOnly: true
+      });
+    }
+  });
 
   if (!actions.length) {
     actions.push({
@@ -180,7 +220,8 @@ function qltdBudgetReadBudgetItems_() {
     };
   }
 
-  const parsed = qltdBudgetReadSheetAsObjects_(sheet, 1);
+  const schema = qltdBudgetGetSheetSchema_(QLTD_BUDGET_SHEET.CENTRAL_ITEMS);
+  const parsed = qltdBudgetReadSheetAsObjects_(sheet, schema.headerRow);
   const missingHeaders = qltdBudgetFindMissingHeaders_(parsed.headerMap, QLTD_BUDGET_ITEMS_HEADERS);
   if (missingHeaders.length) {
     warnings.push(qltdBudgetWarning_('ITEMS_HEADER_MISSING', 'Sheet CENTRAL_NS_Items thieu header.', {

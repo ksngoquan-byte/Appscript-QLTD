@@ -15,7 +15,8 @@ const QLTD_BUDGET_SHEET = {
   CENTRAL_RAW: 'CENTRAL_NS_Raw',
   CENTRAL_ITEMS: 'CENTRAL_NS_Items',
   CENTRAL_DASHBOARD: 'CENTRAL_NS_Dashboard',
-  CENTRAL_SUMMARY: 'CENTRAL_NS_Tong_hop'
+  CENTRAL_SUMMARY: 'CENTRAL_NS_Tong_hop',
+  SYS_SYNC_LOG: 'SYS_Sync_Log'
 };
 
 const QLTD_BUDGET_PROJECT_HEADERS = [
@@ -88,6 +89,14 @@ const QLTD_BUDGET_CENTRAL_RAW_TWO_LAYER_HEADERS = [
   'Yeu cau ma cong viec Master'
 ];
 
+const QLTD_BUDGET_CENTRAL_DASHBOARD_TWO_LAYER_HEADERS = [
+  'Ma phong/ban',
+  'Phong/Ban',
+  'Loai ngan sach',
+  'Nhom ngan sach',
+  'Ma khoan ngan sach'
+];
+
 const QLTD_BUDGET_ITEMS_HEADERS = [
   'Ma khoan ngan sach',
   'Ma du an',
@@ -103,6 +112,44 @@ const QLTD_BUDGET_ITEMS_HEADERS = [
   'Trang thai',
   'Ghi chu'
 ];
+
+const QLTD_BUDGET_SHEET_SCHEMAS = {
+  CENTRAL_NS_Raw: {
+    sheetName: 'CENTRAL_NS_Raw',
+    headerRow: 4,
+    title: 'DU LIEU BAO CAO NGAN SACH RAW TRUNG TAM',
+    description: 'Du lieu bao cao ngan sach raw trung tam.',
+    requiredHeaders: QLTD_BUDGET_CENTRAL_RAW_TWO_LAYER_HEADERS
+  },
+  CENTRAL_NS_Tong_hop: {
+    sheetName: 'CENTRAL_NS_Tong_hop',
+    headerRow: 4,
+    title: 'TONG HOP NGAN SACH TRUNG TAM',
+    description: 'Du lieu tong hop ngan sach trung tam.',
+    requiredHeaders: QLTD_BUDGET_CENTRAL_RAW_TWO_LAYER_HEADERS
+  },
+  CENTRAL_NS_Dashboard: {
+    sheetName: 'CENTRAL_NS_Dashboard',
+    headerRow: 4,
+    title: 'DASHBOARD NGAN SACH TRUNG TAM',
+    description: 'Du lieu dashboard ngan sach trung tam.',
+    requiredHeaders: QLTD_BUDGET_CENTRAL_DASHBOARD_TWO_LAYER_HEADERS
+  },
+  SYS_Sync_Log: {
+    sheetName: 'SYS_Sync_Log',
+    headerRow: 4,
+    title: 'NHAT KY DONG BO HE THONG',
+    description: 'Nhat ky dong bo he thong.',
+    requiredHeaders: []
+  },
+  CENTRAL_NS_Items: {
+    sheetName: 'CENTRAL_NS_Items',
+    headerRow: 4,
+    title: 'DANH MUC KHOAN NGAN SACH',
+    description: 'Danh muc khoan ngan sach dung cho ngan sach gan tien do va ngan sach doc lap phong/ban.',
+    requiredHeaders: QLTD_BUDGET_ITEMS_HEADERS
+  }
+};
 
 function qltdBudgetResponse_(success, action, data, warnings, errors, meta) {
   return {
@@ -164,6 +211,7 @@ function qltdBudgetBuildHeaderMap_(headerRowValues) {
   const map = {};
   (headerRowValues || []).forEach(function(header, index) {
     const raw = String(header || '').trim();
+    if (!raw || /^Unnamed\s*:/i.test(raw)) return;
     const key = qltdBudgetNormalizeKey_(raw);
     if (key && map[key] === undefined) {
       map[key] = index;
@@ -196,7 +244,8 @@ function qltdBudgetReadSheetAsObjects_(sheet, headerRowIndex) {
   }
 
   const headers = values[zeroIndex].map(function(value) {
-    return String(value || '').trim();
+    const header = String(value || '').trim();
+    return /^Unnamed\s*:/i.test(header) ? '' : header;
   });
   const headerMap = qltdBudgetBuildHeaderMap_(headers);
   const rows = [];
@@ -228,6 +277,16 @@ function qltdBudgetReadSheetAsObjects_(sheet, headerRowIndex) {
 function qltdBudgetGetReadonlySheet_(sheetName) {
   const ss = getCurrentSpreadsheet_();
   return ss.getSheetByName(sheetName);
+}
+
+function qltdBudgetGetSheetSchema_(sheetName) {
+  return QLTD_BUDGET_SHEET_SCHEMAS[sheetName] || {
+    sheetName: sheetName,
+    headerRow: 1,
+    title: '',
+    description: '',
+    requiredHeaders: []
+  };
 }
 
 function qltdBudgetReadRequiredCentralSheet_(sheetName, action) {
