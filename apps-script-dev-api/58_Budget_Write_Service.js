@@ -36,7 +36,10 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
     return qltdBudgetWriteFromDryRunError_(action, resolveResult, meta);
   }
 
-  const resolved = resolveResult.data || {};
+  const resolved = qltdBudgetBuildResolvedWriteContext_(resolveResult.data || {});
+  const resolvedGuard = qltdBudgetValidateResolvedWriteContext_(resolved, action, meta);
+  if (resolvedGuard.error) return resolvedGuard.error;
+
   const lock = LockService.getScriptLock();
   let locked = false;
   let centralWrite = null;
@@ -117,6 +120,57 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
   } finally {
     if (locked) lock.releaseLock();
   }
+}
+
+function qltdBudgetBuildResolvedWriteContext_(resolved) {
+  const source = resolved || {};
+  const normalizedPayload = source.normalizedPayload || {};
+  return Object.assign({}, source, {
+    projectCode: normalizedPayload.projectCode || source.projectCode || '',
+    deptCode: normalizedPayload.deptCode || source.deptCode || '',
+    budgetType: normalizedPayload.budgetType || source.budgetType || '',
+    budgetItemCode: normalizedPayload.budgetItemCode || source.budgetItemCode || '',
+    masterTaskCode: normalizedPayload.masterTaskCode || source.masterTaskCode || '',
+    periodType: normalizedPayload.periodType || source.periodType || '',
+    periodCode: normalizedPayload.periodCode || source.periodCode || '',
+    amount: normalizedPayload.amount !== undefined ? normalizedPayload.amount : source.amount,
+    email: normalizedPayload.email || source.email || '',
+    normalizedPayload: normalizedPayload
+  });
+}
+
+function qltdBudgetValidateResolvedWriteContext_(resolved, action, meta) {
+  const requiredFields = ['budgetType', 'periodType', 'periodCode', 'centralRawPreview', 'pbPreview'];
+  const missingFields = requiredFields.filter(function(field) {
+    const value = resolved[field];
+    return value === undefined || value === null || value === '';
+  });
+
+  if (resolved.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED) {
+    if (!resolved.masterTaskCode) missingFields.push('masterTaskCode');
+    const pbPreview = resolved.pbPreview || {};
+    ['targetSpreadsheetId', 'targetSheet', 'targetRowNumber', 'targetColumnLetter'].forEach(function(field) {
+      if (pbPreview[field] === undefined || pbPreview[field] === null || pbPreview[field] === '') {
+        missingFields.push('pbPreview.' + field);
+      }
+    });
+  }
+
+  if (missingFields.length) {
+    return {
+      error: qltdBudgetWriteResponse_(false, 'VALIDATION_ERROR', action, null, [], [{
+        code: 'RESOLVED_CONTEXT_INCOMPLETE',
+        message: 'Resolved budget context thieu truong bat buoc.',
+        missingFields: missingFields
+      }], Object.assign({}, meta || {}, {
+        missingFields: missingFields
+      }))
+    };
+  }
+
+  return {
+    error: null
+  };
 }
 
 function qltdBudgetParsePostJson_(e) {

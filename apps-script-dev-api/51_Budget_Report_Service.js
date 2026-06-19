@@ -108,6 +108,22 @@ function qltdBudgetBuildDryRunPreview_(params, operation, action) {
     payload: payload,
     nowIso: nowIso
   });
+  const normalizedPayload = {
+    projectCode: payload.projectCode,
+    deptCode: payload.deptCode,
+    budgetType: payload.budgetType,
+    budgetItemCode: payload.budgetItemCode,
+    budgetItemName: payload.budgetItemName,
+    budgetGroup: payload.budgetGroup,
+    budgetStage: payload.budgetStage,
+    masterTaskCode: payload.masterTaskCode,
+    periodType: payload.periodType,
+    periodCode: payload.periodCode,
+    amount: payload.amount,
+    basis: payload.basis,
+    note: payload.note,
+    email: payload.email
+  };
 
   return qltdBudgetDryRunResponse_(true, 'OK', action, {
     dryRun: true,
@@ -117,6 +133,11 @@ function qltdBudgetBuildDryRunPreview_(params, operation, action) {
     budgetType: payload.budgetType,
     budgetItemCode: payload.budgetItemCode,
     masterTaskCode: payload.masterTaskCode,
+    periodType: payload.periodType,
+    periodCode: payload.periodCode,
+    amount: payload.amount,
+    email: payload.email,
+    normalizedPayload: normalizedPayload,
     pbPreview: pbPreview,
     centralRawPreview: centralRawPreview
   }, warnings, [], meta);
