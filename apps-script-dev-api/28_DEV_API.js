@@ -105,6 +105,32 @@ function qltdDevApiHandleGet(e) {
   });
 }
 
+function doPost(e) {
+  return qltdDevApiHandlePost_(e);
+}
+
+function qltdDevApiHandlePost_(e) {
+  const parseResult = qltdBudgetParsePostJson_(e);
+  if (parseResult.error) {
+    return qltdDevApiJson_(parseResult.error);
+  }
+
+  const payload = parseResult.payload;
+  const action = String(payload.action || '').trim().toLowerCase();
+
+  if (action === 'budget_submitplan') {
+    return qltdDevApiJson_(qltdBudgetSubmitPlan_(payload));
+  }
+
+  if (action === 'budget_submitactual') {
+    return qltdDevApiJson_(qltdBudgetSubmitActual_(payload));
+  }
+
+  return qltdDevApiJson_(qltdBudgetWriteError_('UNKNOWN_POST_ACTION', 'UNKNOWN_POST_ACTION', 'Post action khong hop le.', {
+    action: payload.action || ''
+  }));
+}
+
 function qltdDevApiIsActionRequest(e) {
   return !!(e && e.parameter && e.parameter.action);
 }
