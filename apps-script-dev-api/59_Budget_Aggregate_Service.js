@@ -29,7 +29,8 @@ function qltdBudgetRebuildAggregates_(payload) {
       rawParsed.rows,
       rawParsed.headerMap,
       itemsResult.items || [],
-      deptsResult.departments || []
+      deptsResult.departments || [],
+      sheets.raw.getParent().getSpreadsheetTimeZone()
     );
     aggregate.warnings = sourceWarnings.concat(aggregate.warnings || []);
 
@@ -105,11 +106,11 @@ function qltdBudgetRequireAggregateHeaders_(actual, expected, sheetName) {
   }
 }
 
-function qltdBudgetBuildAggregateData_(rawRows, headerMap, items, departments) {
+function qltdBudgetBuildAggregateData_(rawRows, headerMap, items, departments, timeZone) {
   const warnings = [];
   const valid = [];
   (rawRows || []).forEach(function(item) {
-    const parsed = qltdBudgetParseAggregateRawRow_(item, headerMap);
+    const parsed = qltdBudgetParseAggregateRawRow_(item, headerMap, timeZone);
     if (parsed.error) {
       warnings.push(qltdBudgetWarning_(parsed.error.code, parsed.error.message, { rowNumber: item.rowNumber }));
       return;
@@ -163,16 +164,19 @@ function qltdBudgetBuildAggregateData_(rawRows, headerMap, items, departments) {
   };
 }
 
-function qltdBudgetParseAggregateRawRow_(item, headerMap) {
+function qltdBudgetParseAggregateRawRow_(item, headerMap, timeZone) {
   const row = item.raw;
+  const periodType = String(qltdBudgetGetCell_(row, headerMap, 'Loai ky', '') || '').trim();
+  const periodCodeRaw = qltdBudgetGetCell_(row, headerMap, 'Ma ky', '');
+  const requiresMasterRaw = qltdBudgetGetCell_(row, headerMap, 'Yeu cau ma cong viec Master', '');
   const value = {
     firstRowNumber: item.rowNumber,
     reportId: String(qltdBudgetGetCell_(row, headerMap, 'Report ID', '') || '').trim(),
     projectCode: qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, headerMap, 'Ma du an', '')),
     projectName: String(qltdBudgetGetCell_(row, headerMap, 'Ten du an', '') || '').trim(),
     deptName: String(qltdBudgetGetCell_(row, headerMap, 'Phong/Ban', '') || '').trim(),
-    periodType: String(qltdBudgetGetCell_(row, headerMap, 'Loai ky', '') || '').trim(),
-    periodCode: String(qltdBudgetGetCell_(row, headerMap, 'Ma ky', '') || '').trim(),
+    periodType: periodType,
+    periodCode: qltdBudgetNormalizeAggregatePeriodCode_(periodType, periodCodeRaw, timeZone),
     masterTaskCode: String(qltdBudgetGetCell_(row, headerMap, 'Ma cong viec Master', '') || '').trim(),
     wbs: String(qltdBudgetGetCell_(row, headerMap, 'WBS/STT', '') || '').trim(),
     taskName: String(qltdBudgetGetCell_(row, headerMap, 'Noi dung cong viec', '') || '').trim(),
@@ -185,7 +189,7 @@ function qltdBudgetParseAggregateRawRow_(item, headerMap) {
     budgetType: String(qltdBudgetGetCell_(row, headerMap, 'Loai ngan sach', '') || '').trim().toUpperCase(),
     budgetGroup: String(qltdBudgetGetCell_(row, headerMap, 'Nhom ngan sach', '') || '').trim(),
     budgetStage: String(qltdBudgetGetCell_(row, headerMap, 'Giai doan ngan sach', '') || '').trim(),
-    requiresMaster: String(qltdBudgetGetCell_(row, headerMap, 'Yeu cau ma cong viec Master', '') || '').trim().toUpperCase()
+    requiresMaster: qltdBudgetNormalizeAggregateBoolean_(requiresMasterRaw)
   };
   const dates = [qltdBudgetGetCell_(row, headerMap, 'Thoi diem gui', ''), qltdBudgetGetCell_(row, headerMap, 'Sync at', '')]
     .map(qltdBudgetAggregateDateMs_).filter(function(ms) { return ms !== null; });
@@ -211,6 +215,59 @@ function qltdBudgetParseAggregateRawRow_(item, headerMap) {
   return { value: value, error: null };
 }
 
+function qltdBudgetNormalizeAggregatePeriodCode_(periodType, value, timeZone) {
+  if (
+    Object.prototype.toString.call(value) === '[object Date]' &&
+    !isNaN(value.getTime())
+  ) {
+    const periodKey = qltdBudgetNormalizeKey_(periodType);
+    const targetTimeZone = String(timeZone || 'Asia/Ho_Chi_Minh');
+
+    if (periodKey === 'thang') {
+      return Utilities.formatDate(value, targetTimeZone, 'yyyy-MM');
+    }
+
+    if (periodKey === 'tuan') {
+      return qltdBudgetAggregateIsoWeekCode_(value, targetTimeZone);
+    }
+  }
+
+  return String(
+    value === null || value === undefined ? '' : value
+  ).trim();
+}
+
+function qltdBudgetAggregateIsoWeekCode_(value, timeZone) {
+  const dateText = Utilities.formatDate(value, timeZone, 'yyyy-MM-dd');
+  const parts = dateText.split('-');
+
+  const utcDate = new Date(Date.UTC(
+    Number(parts[0]),
+    Number(parts[1]) - 1,
+    Number(parts[2])
+  ));
+
+  const dayNumber = utcDate.getUTCDay() || 7;
+  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - dayNumber);
+
+  const isoYear = utcDate.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+
+  const isoWeek = Math.ceil(
+    (((utcDate - yearStart) / 86400000) + 1) / 7
+  );
+
+  return isoYear + '-W' + String(isoWeek).padStart(2, '0');
+}
+
+function qltdBudgetNormalizeAggregateBoolean_(value) {
+  if (value === true) return 'TRUE';
+  if (value === false) return 'FALSE';
+
+  return String(
+    value === null || value === undefined ? '' : value
+  ).trim().toUpperCase();
+}
 function qltdBudgetInvalidAggregateRow_(code, message) {
   return { value: null, error: { code: code, message: message } };
 }
