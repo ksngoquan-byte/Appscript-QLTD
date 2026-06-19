@@ -33,6 +33,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdBudgetGetDashboard_(params));
   }
 
+  if (action === 'budget_getsummary') {
+    return qltdDevApiJson_(qltdBudgetGetSummary_(params));
+  }
+
   if (action === 'budget_getbudgetitems') {
     return qltdDevApiJson_(qltdBudgetGetBudgetItems_(params));
   }
