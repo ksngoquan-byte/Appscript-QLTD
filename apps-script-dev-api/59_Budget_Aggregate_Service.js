@@ -7,9 +7,11 @@ function qltdBudgetRebuildAggregates_(payload) {
 
   const lock = LockService.getScriptLock();
   let locked = false;
+  let processingStarted = false;
   try {
     locked = lock.tryLock(QLTD_BUDGET_WRITE_LOCK_TIMEOUT_MS);
     if (!locked) return qltdBudgetRebuildError_(action, 'REBUILD_LOCK_TIMEOUT', 'Khong lay duoc lock rebuild ngan sach.', meta);
+    processingStarted = true;
 
     const sheets = qltdBudgetGetAggregateSheets_();
     const rawParsed = qltdBudgetReadSheetAsObjects_(sheets.raw, 4);
@@ -38,9 +40,8 @@ function qltdBudgetRebuildAggregates_(payload) {
     const dashboardRows = aggregate.dashboard.map(qltdBudgetDashboardToRow_);
     qltdBudgetReplaceAggregateSheets_(sheets.summary, summaryRows, QLTD_BUDGET_CENTRAL_SUMMARY_HEADERS.length, sheets.dashboard, dashboardRows, QLTD_BUDGET_CENTRAL_DASHBOARD_HEADERS.length);
 
-    aggregate.warnings.push(qltdBudgetWarning_('SYNC_LOG_NOT_WRITTEN', 'SYS_Sync_Log chua co helper/schema log rebuild duoc xac nhan; khong ghi log sheet.'));
     const rebuiltAt = qltdBudgetNowIso_();
-    return qltdBudgetRebuildResponse_(true, 'OK', action, {
+    const data = {
       rawRowsRead: rawParsed.rows.length,
       validRows: aggregate.validRows,
       skippedRows: rawParsed.rows.length - aggregate.validRows,
@@ -49,13 +50,41 @@ function qltdBudgetRebuildAggregates_(payload) {
       summarySheet: QLTD_BUDGET_SHEET.CENTRAL_SUMMARY,
       dashboardSheet: QLTD_BUDGET_SHEET.CENTRAL_DASHBOARD,
       rebuiltAt: rebuiltAt
-    }, aggregate.warnings, [], meta);
+    };
+    const logResult = qltdBudgetTryWriteRebuildSyncLog_({
+      status: 'SUCCESS',
+      email: email,
+      completedAt: rebuiltAt,
+      rawRowsRead: data.rawRowsRead,
+      validRows: data.validRows,
+      skippedRows: data.skippedRows,
+      summaryRowsWritten: data.summaryRowsWritten,
+      dashboardRowsWritten: data.dashboardRowsWritten,
+      warningCount: (aggregate.warnings || []).length,
+      sourceSpreadsheetId: sheets.raw.getParent().getId()
+    });
+    if (logResult.warning) aggregate.warnings.push(logResult.warning);
+    return qltdBudgetRebuildResponse_(true, 'OK', action, data, aggregate.warnings, [], meta);
   } catch (error) {
-    return qltdBudgetRebuildResponse_(false, 'ERROR', action, null, [], [{
+    const errors = [{
       code: error && error.code || 'AGGREGATE_REBUILD_FAILED',
       message: qltdBudgetSafeErrorMessage_(error),
       details: error && error.details || undefined
-    }], meta);
+    }];
+    const warnings = [];
+    if (processingStarted) {
+      const failedAt = qltdBudgetNowIso_();
+      const logResult = qltdBudgetTryWriteRebuildSyncLog_({
+        status: 'FAILED',
+        email: email,
+        completedAt: failedAt,
+        rawRowsRead: 0,
+        errorCode: errors[0].code,
+        errorMessage: errors[0].message
+      });
+      if (logResult.warning) warnings.push(logResult.warning);
+    }
+    return qltdBudgetRebuildResponse_(false, 'ERROR', action, null, warnings, errors, meta);
   } finally {
     if (locked) lock.releaseLock();
   }
@@ -589,6 +618,95 @@ function qltdBudgetRestoreDataRegion_(sheet, snapshot, width) {
 function qltdBudgetEnsureAggregateRows_(sheet, requiredRows) {
   const missing = requiredRows - sheet.getMaxRows();
   if (missing > 0) sheet.insertRowsAfter(sheet.getMaxRows(), missing);
+}
+
+function qltdBudgetTryWriteRebuildSyncLog_(entry) {
+  try {
+    qltdBudgetWriteRebuildSyncLog_(entry || {});
+    return { warning: null };
+  } catch (error) {
+    return {
+      warning: qltdBudgetWarning_('SYNC_LOG_WRITE_FAILED', 'Khong ghi duoc SYS_Sync_Log cho rebuild ngan sach.', {
+        logError: qltdBudgetSafeErrorMessage_(error)
+      })
+    };
+  }
+}
+
+function qltdBudgetWriteRebuildSyncLog_(entry) {
+  const sheet = qltdBudgetGetReadonlySheet_(QLTD_BUDGET_SHEET.SYS_SYNC_LOG);
+  if (!sheet) {
+    const error = new Error('Khong tim thay SYS_Sync_Log.');
+    error.code = 'SYNC_LOG_SHEET_NOT_FOUND';
+    throw error;
+  }
+
+  const expectedHeaders = qltdBudgetSyncLogHeaders_();
+  const headers = sheet.getRange(4, 1, 1, expectedHeaders.length).getValues()[0];
+  qltdBudgetRequireSyncLogHeaders_(headers, expectedHeaders);
+
+  const status = String(entry.status || '').trim().toUpperCase();
+  const row = [
+    entry.completedAt || qltdBudgetNowIso_(),
+    entry.email || 'SYSTEM',
+    'BUDGET_REBUILD_AGGREGATES',
+    'ALL',
+    entry.sourceSpreadsheetId || sheet.getParent().getId(),
+    QLTD_BUDGET_SHEET.CENTRAL_RAW,
+    Number(entry.rawRowsRead || 0),
+    status,
+    qltdBudgetBuildRebuildSyncLogNote_(entry)
+  ];
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, expectedHeaders.length).setValues([row]);
+}
+
+function qltdBudgetSyncLogHeaders_() {
+  return [
+    'Thoi diem',
+    'Nguoi/He thong',
+    'Hanh dong',
+    'Ma du an',
+    'File nguon',
+    'Sheet nguon',
+    'So dong xu ly',
+    'Ket qua',
+    'Loi/Ghi chu'
+  ];
+}
+
+function qltdBudgetRequireSyncLogHeaders_(actual, expected) {
+  const mismatch = [];
+  for (let index = 0; index < expected.length; index += 1) {
+    if (qltdBudgetNormalizeKey_(actual[index]) !== qltdBudgetNormalizeKey_(expected[index])) {
+      mismatch.push({ columnNumber: index + 1, expected: expected[index], actual: actual[index] || '' });
+    }
+  }
+  if (mismatch.length) {
+    const error = new Error('Header SYS_Sync_Log khong dung schema hien hanh.');
+    error.code = 'SYNC_LOG_HEADER_MISMATCH';
+    error.details = { sheetName: QLTD_BUDGET_SHEET.SYS_SYNC_LOG, mismatch: mismatch };
+    throw error;
+  }
+}
+
+function qltdBudgetBuildRebuildSyncLogNote_(entry) {
+  const status = String(entry.status || '').trim().toUpperCase();
+  let note = '';
+  if (status === 'SUCCESS') {
+    note = [
+      'validRows=' + Number(entry.validRows || 0),
+      'skippedRows=' + Number(entry.skippedRows || 0),
+      'summaryRowsWritten=' + Number(entry.summaryRowsWritten || 0),
+      'dashboardRowsWritten=' + Number(entry.dashboardRowsWritten || 0),
+      'warnings=' + Number(entry.warningCount || 0)
+    ].join('; ');
+  } else {
+    note = [
+      'errorCode=' + String(entry.errorCode || 'AGGREGATE_REBUILD_FAILED'),
+      'message=' + String(entry.errorMessage || 'Rebuild failed.')
+    ].join('; ');
+  }
+  return note.slice(0, 300);
 }
 
 function qltdBudgetRebuildError_(action, code, message, meta) {
