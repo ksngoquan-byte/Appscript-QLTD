@@ -1,9 +1,11 @@
 const QLTD_BUDGET_SOURCE = 'budget_readonly_v1';
+const QLTD_BUDGET_DRY_RUN_SOURCE = 'budget_dryrun_v1';
 
 const QLTD_BUDGET_SHEET = {
   PROJECTS: 'Projects',
   PROJECT_DEPTS: 'Project_Depts',
   USERS: 'Users',
+  CENTRAL_RAW: 'CENTRAL_NS_Raw',
   CENTRAL_DASHBOARD: 'CENTRAL_NS_Dashboard',
   CENTRAL_SUMMARY: 'CENTRAL_NS_Tong_hop'
 };
@@ -38,6 +40,29 @@ const QLTD_BUDGET_DEPT_TASK_REQUIRED_HEADERS = [
   'Ghi chu cap nhat',
   'Ma cong viec Master',
   'Loai dong'
+];
+
+const QLTD_BUDGET_CENTRAL_RAW_HEADERS = [
+  'Report ID',
+  'Ma du an',
+  'Ten du an',
+  'Phong/Ban',
+  'Loai ky',
+  'Ma ky',
+  'Ma cong viec Master',
+  'WBS/STT',
+  'Noi dung cong viec',
+  'Ke hoach ngan sach ky',
+  'Gia tri thuc hien ky nay',
+  'Trang thai xac nhan',
+  'Can cu',
+  'Vuong mac/Ghi chu',
+  'Nguoi gui',
+  'Thoi diem gui',
+  'Nguon file PB',
+  'Sync status',
+  'Sync at',
+  'Sync error'
 ];
 
 function qltdBudgetResponse_(success, action, data, warnings, errors, meta) {

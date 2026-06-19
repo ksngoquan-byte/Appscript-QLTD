@@ -33,6 +33,14 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdBudgetGetDashboard_(params));
   }
 
+  if (action === 'budget_submitplandryrun') {
+    return qltdDevApiJson_(qltdBudgetSubmitPlanDryRun_(params));
+  }
+
+  if (action === 'budget_submitactualdryrun') {
+    return qltdDevApiJson_(qltdBudgetSubmitActualDryRun_(params));
+  }
+
   if (action === 'listprojects') {
     return qltdDevApiListProjects_(params.email);
   }

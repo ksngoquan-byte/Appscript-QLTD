@@ -56,3 +56,67 @@ function qltdBudgetFindProjectDept_(departments, deptCode) {
   }
   return null;
 }
+
+function qltdBudgetNormalizeAmount_(value) {
+  const raw = String(value === undefined || value === null ? '' : value).trim();
+  if (!raw) {
+    return {
+      value: null,
+      error: {
+        code: 'AMOUNT_INVALID',
+        message: 'So tien khong hop le.'
+      }
+    };
+  }
+
+  let normalized = raw.replace(/\s/g, '');
+  if (/^\d{1,3}([,.]\d{3})+$/.test(normalized)) {
+    normalized = normalized.replace(/[,.]/g, '');
+  } else if (/^\d{1,3}(\.\d{3})+,\d+$/.test(normalized)) {
+    normalized = normalized.replace(/\./g, '').replace(',', '.');
+  } else {
+    normalized = normalized.replace(/,/g, '');
+  }
+  const number = Number(normalized);
+  if (isNaN(number) || number < 0) {
+    return {
+      value: null,
+      error: {
+        code: 'AMOUNT_INVALID',
+        message: 'So tien khong hop le.'
+      }
+    };
+  }
+
+  return {
+    value: number,
+    error: null
+  };
+}
+
+function qltdBudgetNormalizePeriodType_(value) {
+  const normalized = qltdBudgetNormalizeKey_(value);
+  const map = {
+    week: 'WEEK',
+    tuan: 'WEEK',
+    month: 'MONTH',
+    thang: 'MONTH',
+    quarter: 'QUARTER',
+    quy: 'QUARTER'
+  };
+
+  if (!normalized || !map[normalized]) {
+    return {
+      value: '',
+      error: {
+        code: 'PERIOD_TYPE_INVALID',
+        message: 'Loai ky khong hop le.'
+      }
+    };
+  }
+
+  return {
+    value: map[normalized],
+    error: null
+  };
+}
