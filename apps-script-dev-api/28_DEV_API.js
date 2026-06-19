@@ -33,6 +33,18 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdBudgetGetDashboard_(params));
   }
 
+  if (action === 'budget_getbudgetitems') {
+    return qltdDevApiJson_(qltdBudgetGetBudgetItems_(params));
+  }
+
+  if (action === 'budget_checktwolayerschema') {
+    return qltdDevApiJson_(qltdBudgetCheckTwoLayerSchema_(params));
+  }
+
+  if (action === 'budget_setuptwolayerschemadryrun') {
+    return qltdDevApiJson_(qltdBudgetSetupTwoLayerSchemaDryRun_(params));
+  }
+
   if (action === 'budget_submitplandryrun') {
     return qltdDevApiJson_(qltdBudgetSubmitPlanDryRun_(params));
   }

@@ -120,3 +120,30 @@ function qltdBudgetNormalizePeriodType_(value) {
     error: null
   };
 }
+
+function qltdBudgetNormalizeBudgetType_(value) {
+  const normalized = qltdBudgetNormalizeKey_(value || QLTD_BUDGET_TYPE.TASK_LINKED);
+  const map = {
+    tasklinked: QLTD_BUDGET_TYPE.TASK_LINKED,
+    gantiendo: QLTD_BUDGET_TYPE.TASK_LINKED,
+    linked: QLTD_BUDGET_TYPE.TASK_LINKED,
+    deptstandalone: QLTD_BUDGET_TYPE.DEPT_STANDALONE,
+    doclapphongban: QLTD_BUDGET_TYPE.DEPT_STANDALONE,
+    standalone: QLTD_BUDGET_TYPE.DEPT_STANDALONE
+  };
+
+  if (!normalized || !map[normalized]) {
+    return {
+      value: '',
+      error: {
+        code: 'BUDGET_TYPE_INVALID',
+        message: 'Loai ngan sach khong hop le.'
+      }
+    };
+  }
+
+  return {
+    value: map[normalized],
+    error: null
+  };
+}

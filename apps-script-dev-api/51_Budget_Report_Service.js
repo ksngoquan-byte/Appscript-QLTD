@@ -15,6 +15,8 @@ function qltdBudgetBuildDryRunPreview_(params, operation, action) {
     action: action,
     projectCode: payload.projectCode,
     deptCode: payload.deptCode,
+    budgetType: payload.budgetType,
+    budgetItemCode: payload.budgetItemCode,
     masterTaskCode: payload.masterTaskCode,
     email: payload.email
   };
@@ -28,7 +30,7 @@ function qltdBudgetBuildDryRunPreview_(params, operation, action) {
   if (!project || project.status !== 'ACTIVE') {
     return qltdBudgetDryRunValidationError_(action, 'PROJECT_NOT_FOUND', 'Khong tim thay du an hoac du an khong active.', meta, warnings);
   }
-  if (!project.deptSpreadsheetId) {
+  if (payload.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED && !project.deptSpreadsheetId) {
     return qltdBudgetDryRunValidationError_(action, 'DEPT_SPREADSHEET_ID_MISSING', 'Du an chua co DeptSpreadsheetId.', meta, warnings);
   }
 
@@ -44,35 +46,60 @@ function qltdBudgetBuildDryRunPreview_(params, operation, action) {
     return qltdBudgetDryRunValidationError_(action, 'DEPT_NOT_FOUND', 'Khong tim thay phong/ban active cua du an.', meta, warnings);
   }
 
-  let spreadsheet;
-  try {
-    spreadsheet = SpreadsheetApp.openById(project.deptSpreadsheetId);
-  } catch (error) {
-    return qltdBudgetDryRunValidationError_(action, 'DEPT_SPREADSHEET_OPEN_FAILED', error.message || String(error), meta, warnings);
+  if (payload.budgetItemCode) {
+    const itemsResult = qltdBudgetReadBudgetItems_();
+    warnings = warnings.concat(itemsResult.warnings);
+    const item = qltdBudgetFindBudgetItem_(itemsResult.items, payload.projectCode, payload.deptCode, payload.budgetItemCode);
+    if (item && item.status !== 'ACTIVE') {
+      return qltdBudgetDryRunValidationError_(action, 'BUDGET_ITEM_INACTIVE', 'Khoan ngan sach khong active.', meta, warnings);
+    }
+    if (item) {
+      payload.budgetItemName = payload.budgetItemName || item.budgetItemName;
+      payload.budgetGroup = payload.budgetGroup || item.budgetGroup;
+      payload.budgetStage = payload.budgetStage || item.budgetStage;
+    }
   }
 
-  const sheetResult = qltdBudgetFindDeptSheet_(spreadsheet, dept, payload.deptCode);
-  warnings = warnings.concat(sheetResult.warnings);
-  if (!sheetResult.sheet) {
-    return qltdBudgetDryRunValidationError_(action, 'DEPT_SHEET_NOT_FOUND', 'Khong tim thay sheet phong/ban.', meta, warnings);
+  if (payload.budgetType === QLTD_BUDGET_TYPE.DEPT_STANDALONE && !payload.budgetItemName) {
+    return qltdBudgetDryRunValidationError_(action, 'BUDGET_ITEM_NOT_FOUND', 'Khong tim thay khoan ngan sach va thieu budgetItemName.', meta, warnings);
   }
 
-  const parsed = qltdBudgetReadSheetAsObjects_(sheetResult.sheet, 4);
-  const missingHeaders = qltdBudgetFindMissingHeaders_(parsed.headerMap, QLTD_BUDGET_DEPT_TASK_REQUIRED_HEADERS);
-  if (missingHeaders.length) {
-    return qltdBudgetDryRunValidationError_(action, 'REQUIRED_HEADER_MISSING', 'Sheet phong/ban thieu header bat buoc.', Object.assign({
-      missingHeaders: missingHeaders
-    }, meta), warnings);
-  }
+  let sheetResult = null;
+  let parsed = null;
+  let task = null;
+  if (payload.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED) {
+    let spreadsheet;
+    try {
+      spreadsheet = SpreadsheetApp.openById(project.deptSpreadsheetId);
+    } catch (error) {
+      return qltdBudgetDryRunValidationError_(action, 'DEPT_SPREADSHEET_OPEN_FAILED', error.message || String(error), meta, warnings);
+    }
 
-  const taskResult = qltdBudgetFindDeptTaskRow_(parsed, payload.masterTaskCode);
-  if (taskResult.error) {
-    return qltdBudgetDryRunValidationError_(action, taskResult.error.code, taskResult.error.message, meta, warnings);
+    sheetResult = qltdBudgetFindDeptSheet_(spreadsheet, dept, payload.deptCode);
+    warnings = warnings.concat(sheetResult.warnings);
+    if (!sheetResult.sheet) {
+      return qltdBudgetDryRunValidationError_(action, 'DEPT_SHEET_NOT_FOUND', 'Khong tim thay sheet phong/ban.', meta, warnings);
+    }
+
+    parsed = qltdBudgetReadSheetAsObjects_(sheetResult.sheet, 4);
+    const missingHeaders = qltdBudgetFindMissingHeaders_(parsed.headerMap, QLTD_BUDGET_DEPT_TASK_REQUIRED_HEADERS);
+    if (missingHeaders.length) {
+      return qltdBudgetDryRunValidationError_(action, 'REQUIRED_HEADER_MISSING', 'Sheet phong/ban thieu header bat buoc.', Object.assign({
+        missingHeaders: missingHeaders
+      }, meta), warnings);
+    }
+
+    const taskResult = qltdBudgetFindDeptTaskRow_(parsed, payload.masterTaskCode);
+    if (taskResult.error) {
+      return qltdBudgetDryRunValidationError_(action, taskResult.error.code, taskResult.error.message, meta, warnings);
+    }
+    task = taskResult.task;
   }
 
   const nowIso = qltdBudgetNowIso_();
-  const task = taskResult.task;
-  const pbPreview = qltdBudgetBuildPbPreview_(operation, sheetResult.sheet, parsed.headerMap, task, payload);
+  const pbPreview = payload.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED
+    ? qltdBudgetBuildPbPreview_(operation, sheetResult.sheet, parsed.headerMap, task, payload)
+    : qltdBudgetBuildStandalonePbPreview_(payload);
   const centralRawPreview = qltdBudgetBuildCentralRawPreview_({
     operation: operation,
     project: project,
@@ -87,6 +114,8 @@ function qltdBudgetBuildDryRunPreview_(params, operation, action) {
     operation: operation,
     projectCode: payload.projectCode,
     deptCode: payload.deptCode,
+    budgetType: payload.budgetType,
+    budgetItemCode: payload.budgetItemCode,
     masterTaskCode: payload.masterTaskCode,
     pbPreview: pbPreview,
     centralRawPreview: centralRawPreview
@@ -94,7 +123,7 @@ function qltdBudgetBuildDryRunPreview_(params, operation, action) {
 }
 
 function qltdBudgetValidateSubmitPayload_(params, action) {
-  const requiredFields = ['projectCode', 'deptCode', 'masterTaskCode', 'periodType', 'periodCode', 'amount', 'email'];
+  const requiredFields = ['projectCode', 'deptCode', 'periodType', 'periodCode', 'amount', 'email'];
   for (let index = 0; index < requiredFields.length; index += 1) {
     const field = requiredFields[index];
     if (params[field] === undefined || params[field] === null || String(params[field]).trim() === '') {
@@ -123,6 +152,28 @@ function qltdBudgetValidateSubmitPayload_(params, action) {
     };
   }
 
+  const budgetType = qltdBudgetNormalizeBudgetType_(params.budgetType);
+  if (budgetType.error) {
+    return {
+      value: null,
+      error: qltdBudgetDryRunValidationError_(action, budgetType.error.code, budgetType.error.message)
+    };
+  }
+
+  if (budgetType.value === QLTD_BUDGET_TYPE.TASK_LINKED && String(params.masterTaskCode || '').trim() === '') {
+    return {
+      value: null,
+      error: qltdBudgetDryRunValidationError_(action, 'TASK_CODE_REQUIRED', 'Thieu masterTaskCode cho ngan sach gan tien do.')
+    };
+  }
+
+  if (budgetType.value === QLTD_BUDGET_TYPE.DEPT_STANDALONE && String(params.budgetItemCode || '').trim() === '') {
+    return {
+      value: null,
+      error: qltdBudgetDryRunValidationError_(action, 'BUDGET_ITEM_CODE_REQUIRED', 'Thieu budgetItemCode cho ngan sach doc lap phong/ban.')
+    };
+  }
+
   const projectValidation = qltdBudgetValidateProjectCode_(action, params.projectCode);
   if (projectValidation.error) {
     return {
@@ -145,6 +196,11 @@ function qltdBudgetValidateSubmitPayload_(params, action) {
     value: {
       projectCode: projectValidation.value,
       deptCode: deptValidation.value,
+      budgetType: budgetType.value,
+      budgetItemCode: String(params.budgetItemCode || '').trim(),
+      budgetItemName: String(params.budgetItemName || '').trim(),
+      budgetGroup: String(params.budgetGroup || '').trim(),
+      budgetStage: String(params.budgetStage || '').trim(),
       masterTaskCode: String(params.masterTaskCode || '').trim(),
       periodType: periodType.value,
       periodCode: String(params.periodCode || '').trim(),
@@ -225,8 +281,23 @@ function qltdBudgetBuildPbPreview_(operation, sheet, headerMap, task, payload) {
   return preview;
 }
 
+function qltdBudgetBuildStandalonePbPreview_(payload) {
+  return {
+    target: 'CENTRAL_ONLY',
+    writeMode: 'DRY_RUN_ONLY',
+    skipTaskUpdate: true,
+    reason: 'DEPT_STANDALONE_NO_TASK_UPDATE',
+    targetSpreadsheetId: '',
+    targetSheet: '',
+    targetRowNumber: '',
+    targetColumnName: '',
+    targetColumnLetter: '',
+    newValue: payload.amount
+  };
+}
+
 function qltdBudgetBuildCentralRawPreview_(context) {
-  const row = context.task.raw;
+  const row = context.task ? context.task.raw : [];
   const payload = context.payload;
   const reportPrefix = context.operation === 'PLAN' ? 'DRYRUN_PLAN_' : 'DRYRUN_ACTUAL_';
   const preview = {};
@@ -238,8 +309,8 @@ function qltdBudgetBuildCentralRawPreview_(context) {
   preview['Loai ky'] = payload.periodType;
   preview['Ma ky'] = payload.periodCode;
   preview['Ma cong viec Master'] = payload.masterTaskCode;
-  preview['WBS/STT'] = String(qltdBudgetGetCell_(row, context.task.headerMap, 'STT', '') || '').trim();
-  preview['Noi dung cong viec'] = String(qltdBudgetGetCell_(row, context.task.headerMap, 'Noi dung cong viec', '') || '').trim();
+  preview['WBS/STT'] = context.task ? String(qltdBudgetGetCell_(row, context.task.headerMap, 'STT', '') || '').trim() : '';
+  preview['Noi dung cong viec'] = context.task ? String(qltdBudgetGetCell_(row, context.task.headerMap, 'Noi dung cong viec', '') || '').trim() : payload.budgetItemName;
   preview['Ke hoach ngan sach ky'] = context.operation === 'PLAN' ? payload.amount : '';
   preview['Gia tri thuc hien ky nay'] = context.operation === 'ACTUAL' ? payload.amount : '';
   preview['Trang thai xac nhan'] = 'DRY_RUN';
@@ -251,6 +322,12 @@ function qltdBudgetBuildCentralRawPreview_(context) {
   preview['Sync status'] = 'DRY_RUN';
   preview['Sync at'] = '';
   preview['Sync error'] = '';
+  preview['Ma khoan ngan sach'] = payload.budgetItemCode;
+  preview['Ten khoan ngan sach'] = payload.budgetItemName;
+  preview['Loai ngan sach'] = payload.budgetType;
+  preview['Nhom ngan sach'] = payload.budgetGroup;
+  preview['Giai doan ngan sach'] = payload.budgetStage;
+  preview['Yeu cau ma cong viec Master'] = payload.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED ? 'TRUE' : 'FALSE';
 
   return qltdBudgetOrderCentralRawPreview_(preview);
 }

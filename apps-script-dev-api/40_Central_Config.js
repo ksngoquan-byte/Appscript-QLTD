@@ -1,11 +1,19 @@
 const QLTD_BUDGET_SOURCE = 'budget_readonly_v1';
 const QLTD_BUDGET_DRY_RUN_SOURCE = 'budget_dryrun_v1';
+const QLTD_BUDGET_ITEMS_SOURCE = 'budget_items_v1';
+const QLTD_BUDGET_SCHEMA_SOURCE = 'budget_schema_v1';
+
+const QLTD_BUDGET_TYPE = {
+  TASK_LINKED: 'TASK_LINKED',
+  DEPT_STANDALONE: 'DEPT_STANDALONE'
+};
 
 const QLTD_BUDGET_SHEET = {
   PROJECTS: 'Projects',
   PROJECT_DEPTS: 'Project_Depts',
   USERS: 'Users',
   CENTRAL_RAW: 'CENTRAL_NS_Raw',
+  CENTRAL_ITEMS: 'CENTRAL_NS_Items',
   CENTRAL_DASHBOARD: 'CENTRAL_NS_Dashboard',
   CENTRAL_SUMMARY: 'CENTRAL_NS_Tong_hop'
 };
@@ -62,7 +70,38 @@ const QLTD_BUDGET_CENTRAL_RAW_HEADERS = [
   'Nguon file PB',
   'Sync status',
   'Sync at',
-  'Sync error'
+  'Sync error',
+  'Ma khoan ngan sach',
+  'Ten khoan ngan sach',
+  'Loai ngan sach',
+  'Nhom ngan sach',
+  'Giai doan ngan sach',
+  'Yeu cau ma cong viec Master'
+];
+
+const QLTD_BUDGET_CENTRAL_RAW_TWO_LAYER_HEADERS = [
+  'Ma khoan ngan sach',
+  'Ten khoan ngan sach',
+  'Loai ngan sach',
+  'Nhom ngan sach',
+  'Giai doan ngan sach',
+  'Yeu cau ma cong viec Master'
+];
+
+const QLTD_BUDGET_ITEMS_HEADERS = [
+  'Ma khoan ngan sach',
+  'Ma du an',
+  'Ten du an',
+  'Ma phong/ban',
+  'Ten phong/ban',
+  'Ten khoan ngan sach',
+  'Loai ngan sach',
+  'Ma cong viec Master',
+  'Nhom ngan sach',
+  'Giai doan ngan sach',
+  'Ngan sach duoc duyet',
+  'Trang thai',
+  'Ghi chu'
 ];
 
 function qltdBudgetResponse_(success, action, data, warnings, errors, meta) {
