@@ -135,8 +135,9 @@ function qltdWorkCanWriteTask_(user, deptCode) {
   return qltdWorkCanManageDept_(user, deptCode);
 }
 
-function qltdWorkCanReviewWeekly_(user) {
-  return qltdWorkIsAdminScope_(user);
+function qltdWorkCanReviewWeekly_(user, deptCode) {
+  if (qltdWorkIsAdminScope_(user)) return true;
+  return qltdWorkIsEditorScope_(user) && qltdWorkSameDept_(user, deptCode);
 }
 
 function qltdWorkResolveProjectDept_(action, params, source, options) {
@@ -376,6 +377,23 @@ function qltdWorkAssigneeResolutionError_(source, action, fieldName, resolution,
   return qltdWorkError_(source, action, 'ASSIGNEE_UNRESOLVED', 'Cannot resolve assignee.', meta, warnings || [], {
     field: fieldName,
     unresolved: resolution && resolution.unresolved || [],
+    raw: resolution && resolution.raw || ''
+  });
+}
+
+function qltdWorkFindAssigneeDeptMismatches_(resolution, deptCode) {
+  const normalizedDeptCode = qltdWorkNormalizeCode_(deptCode);
+  return (resolution && resolution.users || []).filter(function(user) {
+    return qltdWorkNormalizeCode_(user.deptCode) !== normalizedDeptCode;
+  });
+}
+
+function qltdWorkAssigneeDeptMismatchError_(source, action, fieldName, resolution, deptCode, meta, warnings) {
+  const mismatches = qltdWorkFindAssigneeDeptMismatches_(resolution, deptCode);
+  return qltdWorkError_(source, action, 'ASSIGNEE_DEPT_MISMATCH', 'Assignee DeptCode does not match task DeptCode.', meta, warnings || [], {
+    field: fieldName,
+    deptCode: qltdWorkNormalizeCode_(deptCode),
+    assignees: mismatches.map(qltdWorkUserSummary_),
     raw: resolution && resolution.raw || ''
   });
 }

@@ -47,13 +47,6 @@ function qltdWeeklyReview_(payload) {
   const auth = qltdWorkAuthUser_(payload && payload.email, action, QLTD_WEEKLY_REPORT_SOURCE);
   if (auth.error) return auth.error;
 
-  if (!qltdWorkCanReviewWeekly_(auth.user)) {
-    return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'Only ADMIN/PMO can review weekly reports.', {
-      email: auth.email,
-      role: auth.user.role
-    });
-  }
-
   const projectCode = qltdWorkNormalizeCode_(payload && payload.projectCode);
   const deptCode = qltdWorkNormalizeCode_(payload && payload.deptCode);
   const userEmail = qltdWorkNormalizeEmail_(payload && payload.userEmail);
@@ -74,6 +67,20 @@ function qltdWeeklyReview_(payload) {
     return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'REVIEW_STATUS_INVALID', 'Review status must be APPROVED or RETURNED.', meta);
   }
 
+  const contextResult = qltdWorkResolveProjectDept_(action, payload || {}, QLTD_WEEKLY_REPORT_SOURCE, {
+    requireDeptSpreadsheet: false,
+    meta: meta
+  });
+  if (contextResult.error) return contextResult.error;
+
+  const resolvedDeptCode = contextResult.deptCode;
+  meta.deptCode = resolvedDeptCode;
+  if (!qltdWorkCanReviewWeekly_(auth.user, resolvedDeptCode)) {
+    return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'User cannot review weekly reports for this department.', Object.assign({
+      role: auth.user.role
+    }, meta), contextResult.warnings || []);
+  }
+
   const lock = LockService.getScriptLock();
   let locked = false;
   try {
@@ -83,14 +90,14 @@ function qltdWeeklyReview_(payload) {
     }
 
     const readResult = qltdWeeklyReadReports_();
-    const existing = qltdWeeklyFindReportByKey_(readResult.reports, projectCode, deptCode, userEmail, weekCode);
+    const existing = qltdWeeklyFindReportByKey_(readResult.reports, projectCode, resolvedDeptCode, userEmail, weekCode);
     if (!existing) {
-      return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'REPORT_NOT_FOUND', 'Weekly report not found.', meta, readResult.warnings);
+      return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'REPORT_NOT_FOUND', 'Weekly report not found.', meta, readResult.warnings.concat(contextResult.warnings || []));
     }
     if (existing.status !== 'SUBMITTED') {
       return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'INVALID_STATUS_TRANSITION', 'Only SUBMITTED reports can be reviewed.', Object.assign({
         currentStatus: existing.status
-      }, meta), readResult.warnings);
+      }, meta), readResult.warnings.concat(contextResult.warnings || []));
     }
 
     const now = qltdWorkNowIso_();
@@ -106,7 +113,7 @@ function qltdWeeklyReview_(payload) {
     return qltdWorkOk_(QLTD_WEEKLY_REPORT_SOURCE, action, {
       report: qltdWeeklyNormalizeReportObject_(rowObject),
       duplicatePrevented: true
-    }, readResult.warnings, meta);
+    }, readResult.warnings.concat(contextResult.warnings || []), meta);
   } catch (error) {
     return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'WRITE_ERROR', qltdBudgetSafeErrorMessage_(error), meta);
   } finally {

@@ -216,8 +216,14 @@ function qltdWorkAssignTask_(payload) {
   if (ownerResolution && !ownerResolution.ok) {
     return qltdWorkAssigneeResolutionError_(QLTD_WORK_TASK_SOURCE, action, 'owner', ownerResolution, meta, context.warnings);
   }
-  if (ownerResolution && ownerResolution.users.length > 1) {
-    return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, 'OWNER_MULTIPLE_NOT_ALLOWED', 'Owner must resolve to exactly one active user.', meta, context.warnings);
+  if (ownerResolution && ownerResolution.users.length !== 1) {
+    return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, 'ASSIGNEE_UNRESOLVED', 'Owner must resolve to exactly one active user.', meta, context.warnings, {
+      field: 'owner',
+      raw: ownerResolution.raw || ''
+    });
+  }
+  if (ownerResolution && qltdWorkFindAssigneeDeptMismatches_(ownerResolution, context.deptCode).length) {
+    return qltdWorkAssigneeDeptMismatchError_(QLTD_WORK_TASK_SOURCE, action, 'owner', ownerResolution, context.deptCode, meta, context.warnings);
   }
   if (coordinatorResolution && !coordinatorResolution.ok) {
     return qltdWorkAssigneeResolutionError_(QLTD_WORK_TASK_SOURCE, action, 'coordinator', coordinatorResolution, meta, context.warnings);
