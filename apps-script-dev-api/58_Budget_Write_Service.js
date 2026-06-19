@@ -49,16 +49,7 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
 
     const duplicate = qltdBudgetFindCentralRawByReportId_(reportId);
     if (duplicate.found) {
-      return qltdBudgetWriteResponse_(true, 'ALREADY_PROCESSED', action, {
-        operation: operation,
-        budgetType: resolved.budgetType,
-        requestId: requestId,
-        reportId: reportId,
-        centralRawRowNumber: duplicate.rowNumber,
-        pbUpdated: false,
-        syncStatus: qltdBudgetGetCell_(duplicate.row, duplicate.headerMap, 'Sync status', ''),
-        duplicate: true
-      }, resolveResult.warnings || [], [], meta);
+      return qltdBudgetBuildDuplicateResponse_(duplicate, operation, resolved.budgetType, requestId, reportId, action, resolveResult.warnings || [], meta);
     }
 
     centralWrite = qltdBudgetAppendCentralRawPending_(reportId, operation, resolved);
@@ -101,7 +92,8 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
         message = message + '; status update failed: ' + qltdBudgetSafeErrorMessage_(statusError);
       }
     }
-    return qltdBudgetWriteResponse_(false, 'WRITE_ERROR', action, centralWrite ? {
+    const errorDetails = error && error.details || {};
+    const errorData = centralWrite ? {
       operation: operation,
       budgetType: resolved.budgetType,
       requestId: requestId,
@@ -110,10 +102,18 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
       pbUpdated: false,
       syncStatus: 'ERROR',
       duplicate: false
-    } : null, [], [{
-      code: 'WRITE_ERROR',
+    } : (errorDetails.centralRawRowNumber ? Object.assign({
+      operation: operation,
+      budgetType: resolved.budgetType,
+      requestId: requestId,
+      reportId: reportId,
+      pbUpdated: false,
+      duplicate: false
+    }, errorDetails) : null);
+    return qltdBudgetWriteResponse_(false, qltdBudgetWriteApiStatusForError_(error), action, errorData, [], [Object.assign({
+      code: error && error.code || 'WRITE_ERROR',
       message: message
-    }], meta);
+    }, errorDetails)], meta);
   } finally {
     if (locked) lock.releaseLock();
   }
@@ -292,7 +292,8 @@ function qltdBudgetAppendCentralRawPending_(reportId, operation, resolved) {
 
   const rowObject = Object.assign({}, resolved.centralRawPreview || {});
   rowObject['Report ID'] = reportId;
-  rowObject['Trang thai xac nhan'] = 'SUBMITTED';
+  rowObject['Loai ky'] = qltdBudgetGetPeriodSheetLabel_(resolved.periodType);
+  rowObject['Trang thai xac nhan'] = qltdBudgetGetConfirmStatusSheetLabel_('SUBMITTED');
   rowObject['Sync status'] = 'PENDING';
   rowObject['Sync at'] = '';
   rowObject['Sync error'] = '';
@@ -302,7 +303,27 @@ function qltdBudgetAppendCentralRawPending_(reportId, operation, resolved) {
 
   const rowValues = qltdBudgetMapObjectToHeaderRow_(rowObject, parsed.headers);
   const rowNumber = Math.max(sheet.getLastRow() + 1, schema.headerRow + 1);
-  sheet.getRange(rowNumber, 1, 1, rowValues.length).setValues([rowValues]);
+  const targetRange = sheet.getRange(rowNumber, 1, 1, rowValues.length);
+  qltdBudgetValidateRowAgainstDataValidation_(targetRange, rowValues, parsed.headers);
+  try {
+    targetRange.setValues([rowValues]);
+  } catch (error) {
+    let partialRowCleaned = false;
+    let cleanupErrorMessage = '';
+    try {
+      targetRange.clearContent();
+      partialRowCleaned = true;
+    } catch (cleanupError) {
+      cleanupErrorMessage = qltdBudgetSafeErrorMessage_(cleanupError);
+    }
+    error.code = cleanupErrorMessage ? 'PARTIAL_ROW_CLEANUP_FAILED' : (error.code || 'CENTRAL_RAW_WRITE_FAILED');
+    error.details = Object.assign({}, error.details || {}, {
+      partialRowCleaned: partialRowCleaned,
+      centralRawRowNumber: rowNumber,
+      cleanupError: cleanupErrorMessage
+    });
+    throw error;
+  }
 
   return {
     sheet: sheet,
@@ -310,6 +331,94 @@ function qltdBudgetAppendCentralRawPending_(reportId, operation, resolved) {
     headers: parsed.headers,
     headerMap: parsed.headerMap
   };
+}
+
+function qltdBudgetValidateRowAgainstDataValidation_(range, rowValues, headers) {
+  const validations = range.getDataValidations()[0] || [];
+  for (let index = 0; index < rowValues.length; index += 1) {
+    const value = rowValues[index];
+    const rule = validations[index];
+    if (!rule || value === '' || value === null || value === undefined) continue;
+
+    const criteria = rule.getCriteriaType();
+    const criteriaName = String(criteria || '');
+    const criteriaValues = rule.getCriteriaValues() || [];
+    let allowedValues = null;
+    if (criteriaName === 'VALUE_IN_LIST' || criteriaName === 'ONE_OF_LIST') {
+      allowedValues = criteriaValues[0] || [];
+    } else if (criteriaName === 'VALUE_IN_RANGE' || criteriaName === 'ONE_OF_RANGE') {
+      const allowedRange = criteriaValues[0];
+      allowedValues = allowedRange ? allowedRange.getDisplayValues().reduce(function(all, row) {
+        return all.concat(row);
+      }, []).filter(function(item) {
+        return item !== '';
+      }) : [];
+    }
+    if (!allowedValues) continue;
+
+    const attempted = String(value);
+    const normalizedAllowed = allowedValues.map(function(item) { return String(item); });
+    if (normalizedAllowed.indexOf(attempted) !== -1) continue;
+
+    const error = new Error('Giá trị không phù hợp data validation của Google Sheet.');
+    error.code = 'SHEET_DATA_VALIDATION_REJECTED';
+    error.details = {
+      sheetName: range.getSheet().getName(),
+      cellA1: range.getCell(1, index + 1).getA1Notation(),
+      rowNumber: range.getRow(),
+      columnNumber: range.getColumn() + index,
+      header: headers[index] || '',
+      attemptedValue: value,
+      allowedValues: normalizedAllowed
+    };
+    throw error;
+  }
+}
+
+function qltdBudgetBuildDuplicateResponse_(duplicate, operation, budgetType, requestId, reportId, action, warnings, meta) {
+  const syncStatus = String(qltdBudgetGetCell_(duplicate.row, duplicate.headerMap, 'Sync status', '') || '').trim().toUpperCase();
+  const data = {
+    operation: operation,
+    budgetType: budgetType,
+    requestId: requestId,
+    reportId: reportId,
+    centralRawRowNumber: duplicate.rowNumber,
+    pbUpdated: false,
+    syncStatus: syncStatus,
+    duplicate: true
+  };
+  if (syncStatus === 'SYNCED') {
+    return qltdBudgetWriteResponse_(true, 'ALREADY_PROCESSED', action, data, warnings, [], meta);
+  }
+
+  const duplicateStatus = syncStatus === 'PENDING' ? {
+    apiStatus: 'REQUEST_IN_PROGRESS',
+    code: 'DUPLICATE_REQUEST_PENDING',
+    message: 'Request đang được xử lý.'
+  } : syncStatus === 'ERROR' ? {
+    apiStatus: 'RETRY_BLOCKED',
+    code: 'DUPLICATE_REQUEST_ERROR',
+    message: 'Request trước đã lỗi; không tự retry cùng requestId.'
+  } : {
+    apiStatus: 'INCOMPLETE_RECORD',
+    code: 'DUPLICATE_REQUEST_INCOMPLETE',
+    message: 'Bản ghi trùng thiếu Sync status hợp lệ.'
+  };
+  if (syncStatus === 'ERROR') {
+    data.syncError = qltdBudgetGetCell_(duplicate.row, duplicate.headerMap, 'Sync error', '');
+  }
+  return qltdBudgetWriteResponse_(false, duplicateStatus.apiStatus, action, data, warnings, [{
+    code: duplicateStatus.code,
+    message: duplicateStatus.message
+  }], meta);
+}
+
+function qltdBudgetWriteApiStatusForError_(error) {
+  const code = String(error && error.code || '');
+  if (code === 'PERIOD_TYPE_SHEET_VALUE_UNSUPPORTED' || code === 'CONFIRM_STATUS_SHEET_VALUE_UNSUPPORTED' || code === 'SHEET_DATA_VALIDATION_REJECTED') {
+    return 'VALIDATION_ERROR';
+  }
+  return 'WRITE_ERROR';
 }
 
 function qltdBudgetApplyPbUpdate_(operation, pbPreview) {

@@ -15,6 +15,54 @@ const QLTD_BUDGET_TYPE = {
   DEPT_STANDALONE: 'DEPT_STANDALONE'
 };
 
+const QLTD_BUDGET_PERIOD_SHEET_LABEL = {
+  MONTH: 'Tháng',
+  WEEK: 'Tuần'
+};
+
+const QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL = {
+  DRAFT: 'Nháp',
+  SUBMITTED: 'Đã gửi',
+  CONFIRMED: 'Đã xác nhận',
+  CANCELLED: 'Hủy'
+};
+
+function qltdBudgetGetPeriodSheetLabel_(periodType) {
+  const normalized = String(periodType || '').trim().toUpperCase();
+  if (Object.prototype.hasOwnProperty.call(QLTD_BUDGET_PERIOD_SHEET_LABEL, normalized)) {
+    return QLTD_BUDGET_PERIOD_SHEET_LABEL[normalized];
+  }
+  const error = new Error('Loại kỳ chưa được hỗ trợ bởi CENTRAL_NS_Raw.');
+  error.code = 'PERIOD_TYPE_SHEET_VALUE_UNSUPPORTED';
+  error.details = {
+    periodType: normalized,
+    attemptedSheetValue: normalized,
+    allowedValues: Object.keys(QLTD_BUDGET_PERIOD_SHEET_LABEL).map(function(key) {
+      return QLTD_BUDGET_PERIOD_SHEET_LABEL[key];
+    }),
+    targetHeader: 'Loại kỳ'
+  };
+  throw error;
+}
+
+function qltdBudgetGetConfirmStatusSheetLabel_(status) {
+  const normalized = String(status || '').trim().toUpperCase();
+  if (Object.prototype.hasOwnProperty.call(QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL, normalized)) {
+    return QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL[normalized];
+  }
+  const error = new Error('Trạng thái xác nhận chưa được hỗ trợ bởi CENTRAL_NS_Raw.');
+  error.code = 'CONFIRM_STATUS_SHEET_VALUE_UNSUPPORTED';
+  error.details = {
+    status: normalized,
+    attemptedSheetValue: normalized,
+    allowedValues: Object.keys(QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL).map(function(key) {
+      return QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL[key];
+    }),
+    targetHeader: 'Trạng thái xác nhận'
+  };
+  throw error;
+}
+
 const QLTD_BUDGET_SHEET = {
   PROJECTS: 'Projects',
   PROJECT_DEPTS: 'Project_Depts',

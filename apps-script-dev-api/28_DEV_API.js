@@ -106,7 +106,23 @@ function qltdDevApiHandleGet(e) {
 }
 
 function doPost(e) {
-  return qltdDevApiHandlePost_(e);
+  try {
+    return qltdDevApiHandlePost_(e);
+  } catch (error) {
+    let action = '';
+    try {
+      const raw = e && e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {};
+      action = String(raw.action || '').trim();
+    } catch (parseError) {
+      action = 'POST_PARSE';
+    }
+    return qltdDevApiJson_(qltdBudgetWriteResponse_(false, 'WRITE_ERROR', action, null, [], [{
+      code: 'UNEXPECTED_POST_ERROR',
+      message: qltdBudgetSafeErrorMessage_(error)
+    }], {
+      action: action
+    }));
+  }
 }
 
 function qltdDevApiHandlePost_(e) {
