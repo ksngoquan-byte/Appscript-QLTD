@@ -414,6 +414,8 @@ function qltdPbDetailBuildMasterDto_(row, columns) {
     rowNumber: row.rowNumber,
     wbs: String(row.values[columns.stt] || '').trim(),
     taskName: String(row.values[columns.taskName] || '').trim(),
+    planStart: qltdBudgetFormatDate_(row.values[columns.planStart]),
+    planFinish: qltdBudgetFormatDate_(row.values[columns.planFinish]),
     masterTaskCode: row.masterTaskCode,
     rowType: row.rowType
   };

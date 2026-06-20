@@ -26,6 +26,7 @@ import {
   toggleMainMilestoneTaskKey
 } from './main-milestone-logic.js';
 import { buildDepartmentDashboardModel } from './department-dashboard.js';
+import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2D_WEEKLY_FULLSCREEN';
 
 window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
 
@@ -303,7 +304,6 @@ function renderProjectOptions(projects = []) {
   const hasStoredProject = projects.some((project) => project.projectCode === storedProjectCode);
   selector.value = hasStoredProject ? storedProjectCode : projects[0].projectCode;
   setStoredProjectCode(selector.value);
-  loadDeptPlansForSelectedProject(selector.value);
   loadGanttDataForSelectedProject(selector.value);
 
   if (status) {
@@ -314,7 +314,7 @@ function renderProjectOptions(projects = []) {
   selector.disabled = false;
   selector.onchange = () => {
     setStoredProjectCode(selector.value);
-    loadDeptPlansForSelectedProject(selector.value);
+    if (qltdActiveView === 'report') loadDeptPlansForSelectedProject(selector.value);
     loadGanttDataForSelectedProject(selector.value);
   };
 }
@@ -344,6 +344,13 @@ async function loadProjectsForSelector() {
 // WEB-04B.2 compact UI overrides
 let qltdDeptPlanPayload = null;
 let qltdSelectedDeptCode = '';
+let qltdDeptPlanRequestSeq = 0;
+const qltdDeptPlanCache = new Map();
+const QLTD_DEPT_PLAN_CACHE_MS = 120000;
+
+function qltdDevPerfEnabled() {
+  return ['localhost', '127.0.0.1'].includes(window.location.hostname) || new URLSearchParams(window.location.search).has('debugPerf');
+}
 
 function findPrimaryNavContainer() {
   const labels = ['Dashboard', 'Gantt', 'Tra c\u1ee9u', 'B\u00e1o c\u1eadp nh\u1eadt', 'Admin'];
@@ -801,6 +808,7 @@ function showWeb07View(viewName) {
   if (viewName === 'report') ensureDeptPlanPanel();
   document.body.classList.toggle('qltd-dashboard-mode', viewName === 'dashboard');
   document.body.classList.toggle('qltd-gantt-mode', viewName === 'gantt');
+  document.body.classList.toggle('qltd-report-mode', viewName === 'report');
 
   const dashboard = document.getElementById('web07DashboardPanel');
   const ganttPanel = document.getElementById('web07GanttPanel');
@@ -832,6 +840,8 @@ function showWeb07View(viewName) {
   }
 
   if (viewName === 'report') {
+    const projectCode = document.getElementById('projectSelector')?.value || '';
+    if (projectCode) loadDeptPlansForSelectedProject(projectCode);
     window.scrollTo({ top: 0, behavior: 'auto' });
   }
 }
@@ -871,79 +881,14 @@ function getDefaultMonthCode(date = new Date()) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
 }
 
-function parseMonthCode(monthCode) {
-  const match = String(monthCode || '').match(/^(\d{4})-(\d{2})$/);
-  if (!match) return null;
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-
-  if (!year || month < 1 || month > 12) return null;
-
-  return {
-    year,
-    month,
-    monthIndex: month - 1
-  };
-}
-
 function toIsoDateLocal(date) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-function formatDateViShort(date) {
-  return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}`;
 }
 
 function addDays(date, days) {
   const next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   next.setDate(next.getDate() + days);
   return next;
-}
-
-function getMondayOfWeek(date) {
-  const current = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = current.getDay(); // 0 = Sunday, 1 = Monday
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  current.setDate(current.getDate() + diffToMonday);
-  return current;
-}
-
-function getMonthWeekPeriods(monthCode) {
-  const parsed = parseMonthCode(monthCode) || parseMonthCode(getDefaultMonthCode());
-  if (!parsed) return [];
-
-  const monthStart = new Date(parsed.year, parsed.monthIndex, 1);
-  const monthEnd = new Date(parsed.year, parsed.monthIndex + 1, 0);
-
-  let cursor = getMondayOfWeek(monthStart);
-  const periods = [];
-  let weekNo = 1;
-
-  while (cursor <= monthEnd) {
-    const weekStartDate = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
-    const weekEndDate = addDays(weekStartDate, 6);
-
-    const periodStartDate = weekStartDate < monthStart ? monthStart : weekStartDate;
-    const periodEndDate = weekEndDate > monthEnd ? monthEnd : weekEndDate;
-    const coverageDays = Math.round((periodEndDate - periodStartDate) / 86400000) + 1;
-
-    periods.push({
-      weekNoInMonth: weekNo,
-      weekId: `WEEK-${toIsoDateLocal(weekStartDate)}`,
-      weekStart: toIsoDateLocal(weekStartDate),
-      weekEnd: toIsoDateLocal(weekEndDate),
-      periodStart: toIsoDateLocal(periodStartDate),
-      periodEnd: toIsoDateLocal(periodEndDate),
-      coverageDays,
-      label: `Tuần ${weekNo}: ${formatDateViShort(periodStartDate)}–${formatDateViShort(periodEndDate)}`
-    });
-
-    cursor = addDays(cursor, 7);
-    weekNo += 1;
-  }
-
-  return periods;
 }
 
 function ensureDeptPlanInlineStyles() {
@@ -959,9 +904,10 @@ function ensureDeptPlanInlineStyles() {
       flex-wrap: wrap;
       margin: 12px 0 14px;
       padding: 10px 12px;
-      border: 1px solid #e5edf5;
+      border: 1px solid #bfdbfe;
+      border-left: 4px solid var(--qltd-period-accent);
       border-radius: 14px;
-      background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+      background: #f8fbff;
     }
 
     .dept-plan-period-toolbar input[type="month"] {
@@ -978,9 +924,10 @@ function ensureDeptPlanInlineStyles() {
     .week-period-section {
       margin: 8px 0 18px;
       padding: 14px;
-      border: 1px solid #e2e8f0;
+      border: 1px solid #bfdbfe;
+      border-left: 4px solid var(--qltd-period-accent);
       border-radius: 16px;
-      background: #f8fafc;
+      background: #f8fbff;
     }
 
     .week-period-section-header {
@@ -1045,9 +992,9 @@ function ensureDeptPlanInlineStyles() {
       box-shadow: 0 6px 16px rgba(15, 23, 42, .05);
     }
 
-    .week-period-card.is-partial {
-      border-color: #fdba74;
-      background: linear-gradient(180deg, #fff7ed 0%, #ffffff 72%);
+    .week-period-card.is-selected {
+      border-color: var(--qltd-period-accent);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, .12);
     }
 
     .week-period-card-top {
@@ -1100,12 +1047,15 @@ function ensureDeptPlanInlineStyles() {
       text-align: right;
     }
 
+    .week-cross-month { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: #92400e; font-size: 11px; }
+
     .weekly-update-panel {
       margin: 14px 0 18px;
       padding: 14px;
-      border: 1px solid #dbeafe;
+      border: 1px solid #fde68a;
+      border-left: 4px solid var(--qltd-weekly-accent);
       border-radius: 16px;
-      background: linear-gradient(180deg, #eff6ff 0%, #ffffff 78%);
+      background: #fffbeb;
     }
 
     .weekly-update-header {
@@ -1115,6 +1065,10 @@ function ensureDeptPlanInlineStyles() {
       gap: 12px;
       margin-bottom: 12px;
     }
+
+    .weekly-period-control { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    .weekly-period-control label { color: #78350f; font-size: 12px; font-weight: 900; }
+    .weekly-period-control select { min-width: 230px; min-height: 36px; border: 1px solid #fbbf24; border-radius: 10px; background: #fff; padding: 0 10px; font: inherit; font-weight: 700; }
 
     .weekly-update-title {
       font-size: 16px;
@@ -1193,20 +1147,30 @@ function ensureDeptPlanInlineStyles() {
 
     .weekly-target-toolbar {
       display: grid;
-      grid-template-columns: minmax(240px, 1.2fr) minmax(180px, .8fr);
+      grid-template-columns: minmax(300px, 2fr) minmax(220px, 1fr);
       gap: 10px;
       margin: 0 0 12px;
       padding: 12px;
-      border: 1px solid #e2e8f0;
+      border: 1px solid #ddd6fe;
+      border-left: 4px solid var(--qltd-master-accent);
       border-radius: 16px;
-      background: #ffffff;
+      background: #faf8ff;
     }
+
+    .master-plan-period { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 8px 12px; border-radius: 12px; background: #fff; border: 1px solid #ede9fe; }
+    .master-plan-period span { color: #6d28d9; font-size: 12px; font-weight: 800; }
+    .master-plan-period strong { color: #312e81; font-size: 14px; }
+    .report-summary-section { margin: 14px 0 0; border: 1px solid #cbd5e1; border-left: 4px solid var(--qltd-summary-accent); border-radius: 14px; overflow: hidden; background: #fff; }
+    .report-section-heading { padding: 11px 14px; background: #f8fafc; color: #334155; font-size: 14px; font-weight: 900; border-bottom: 1px solid #e2e8f0; }
 
     @media (max-width: 760px) {
       .weekly-update-grid,
       .weekly-target-toolbar {
         grid-template-columns: 1fr;
       }
+      .weekly-update-header { flex-direction: column; }
+      .weekly-period-control { width: 100%; justify-content: flex-start; }
+      .weekly-period-control select { width: 100%; }
     }
 
     .week-period-id {
@@ -1239,8 +1203,7 @@ function renderWeekPeriodsHtml(periods) {
     return '<p class="empty-state">Không sinh được kỳ tuần cho tháng đang chọn.</p>';
   }
 
-  const fullWeekCount = periods.filter((period) => Number(period.coverageDays) === 7).length;
-  const partialWeekCount = periods.length - fullWeekCount;
+  const crossMonthCount = periods.filter((period) => period.isCrossMonth).length;
 
   return `
     <section class="week-period-section">
@@ -1250,33 +1213,30 @@ function renderWeekPeriodsHtml(periods) {
           <div class="week-period-title-main">${periods.length} kỳ tuần trong tháng đang xem</div>
         </div>
         <div class="week-period-legend">
-          <span class="week-period-chip">${fullWeekCount} tuần đủ 7 ngày</span>
-          ${partialWeekCount ? `<span class="week-period-chip partial">${partialWeekCount} tuần giao tháng</span>` : ''}
+          <span class="week-period-chip">${periods.length} tuần đủ 7 ngày</span>
+          ${crossMonthCount ? `<span class="week-period-chip partial">${crossMonthCount} tuần giao tháng</span>` : ''}
         </div>
       </div>
 
       <div class="week-period-grid">
         ${periods.map((period) => {
-          const isPartial = Number(period.coverageDays) < 7;
+          const isCrossMonth = !!period.isCrossMonth;
           return `
-            <article class="week-period-card ${isPartial ? 'is-partial' : ''}">
+            <article class="week-period-card ${period.weekId === qltdSelectedWeekId ? 'is-selected' : ''}" data-week-id="${escapeHtml(period.weekId)}">
               <div class="week-period-card-top">
                 <span class="week-period-badge">Tuần ${escapeHtml(period.weekNoInMonth)}</span>
-                <span class="week-period-days">${escapeHtml(period.coverageDays)} / 7 ngày</span>
+                <span class="week-period-days">7 / 7 ngày</span>
               </div>
 
               <div class="week-period-range">
-                ${escapeHtml(formatIsoDateVi(period.periodStart))} – ${escapeHtml(formatIsoDateVi(period.periodEnd))}
+                ${escapeHtml(formatIsoDateVi(period.weekStart))} – ${escapeHtml(formatIsoDateVi(period.weekEnd))}
               </div>
 
+              ${isCrossMonth ? `<div class="week-cross-month"><span class="week-period-chip partial">Tuần giao tháng</span><span>${escapeHtml(period.crossMonthDescription)}</span></div>` : ''}
+
               <div class="week-period-row">
-                <span>Tuần chuẩn</span>
+                <span>Thứ Hai → Chủ nhật</span>
                 <strong>${escapeHtml(formatIsoDateVi(period.weekStart))} → ${escapeHtml(formatIsoDateVi(period.weekEnd))}</strong>
-              </div>
-
-              <div class="week-period-row">
-                <span>Phần trong tháng</span>
-                <strong>${escapeHtml(formatIsoDateVi(period.periodStart))} → ${escapeHtml(formatIsoDateVi(period.periodEnd))}</strong>
               </div>
 
               <div class="week-period-id mono">
@@ -1341,8 +1301,17 @@ function renderDeptPlans(payload) {
   renderSelectedDeptPlan();
 }
 
+function renderMasterPlanPeriod(master) {
+  const start = formatIsoDateVi(master?.planStart || '');
+  const finish = formatIsoDateVi(master?.planFinish || '');
+  if (start && finish) return `${escapeHtml(start)} → ${escapeHtml(finish)}`;
+  if (start) return `Bắt đầu: ${escapeHtml(start)}`;
+  if (finish) return `Kết thúc: ${escapeHtml(finish)}`;
+  return 'Chưa xác định';
+}
+
 function getDeptPlanMasterWbs(master) {
-  return String(master?.stt || master?.masterCode || '').trim();
+  return String(master?.stt || '').trim();
 }
 
 function dispatchDeptPlanRendered(payload, dept, master) {
@@ -1408,25 +1377,18 @@ function renderSelectedDeptPlan() {
   const weeklyTargetToolbarHtml = masters.length && weekPeriods.length ? `
     <div class="weekly-target-toolbar">
       <div class="weekly-update-field">
-        <label for="weeklyMasterSelector">Mục tiêu/công việc gốc</label>
+        <label for="weeklyMasterSelector">Mục tiêu/Công việc gốc</label>
         <select id="weeklyMasterSelector">
           ${masters.map((master) => `
             <option value="${escapeHtml(master.masterCode || '')}" ${master.masterCode === qltdSelectedMasterCode ? 'selected' : ''}>
-              ${escapeHtml(getDeptPlanMasterWbs(master))} · ${escapeHtml(master.taskName || '')}
+              ${getDeptPlanMasterWbs(master) ? `${escapeHtml(getDeptPlanMasterWbs(master))} · ` : ''}${escapeHtml(master.taskName || '')}
             </option>
           `).join('')}
         </select>
       </div>
-
-      <div class="weekly-update-field">
-        <label for="weeklyPeriodSelector">Kỳ tuần</label>
-        <select id="weeklyPeriodSelector">
-          ${weekPeriods.map((period) => `
-            <option value="${escapeHtml(period.weekId)}" ${period.weekId === qltdSelectedWeekId ? 'selected' : ''}>
-              Tuần ${escapeHtml(period.weekNoInMonth)} · ${escapeHtml(formatIsoDateVi(period.periodStart))}–${escapeHtml(formatIsoDateVi(period.periodEnd))}
-            </option>
-          `).join('')}
-        </select>
+      <div class="master-plan-period">
+        <span>Thời gian kế hoạch</span>
+        <strong>${renderMasterPlanPeriod(selectedMaster)}</strong>
       </div>
     </div>
   ` : '';
@@ -1445,9 +1407,11 @@ function renderSelectedDeptPlan() {
     ${periodToolbarHtml}
     ${weeklyTargetToolbarHtml}
     <div id="pbDetailMount" class="pb-detail-mount" aria-live="polite"></div>
-    ${renderWeeklyUpdatePanel(payload, dept, selectedMaster, selectedWeek)}
+    <div id="weeklyUpdateMount">${renderWeeklyUpdatePanel(payload, dept, selectedMaster, selectedWeek, weekPeriods)}</div>
 
-    <div class="dept-plan-table-wrap">
+    <section class="report-summary-section">
+      <div class="report-section-heading">Tổng hợp mục tiêu phòng/ban</div>
+      <div class="dept-plan-table-wrap">
       <table class="dept-plan-table">
         <thead>
           <tr>
@@ -1476,7 +1440,8 @@ function renderSelectedDeptPlan() {
           }).join('')}
         </tbody>
       </table>
-    </div>
+      </div>
+    </section>
   `;
 
   bindDeptPlanInteractiveControls();
@@ -1487,7 +1452,7 @@ function getWeeklyDraftKey(projectCode, deptCode, masterCode, weekId) {
   return [projectCode || '', deptCode || '', masterCode || '', weekId || ''].join('::');
 }
 
-function renderWeeklyUpdatePanel(payload, dept, master, week) {
+function renderWeeklyUpdatePanel(payload, dept, master, week, weekPeriods = []) {
   if (!master || !week) {
     return '<p class="empty-state">Chưa đủ dữ liệu để mở khung cập nhật tuần.</p>';
   }
@@ -1502,10 +1467,20 @@ function renderWeeklyUpdatePanel(payload, dept, master, week) {
         <div>
           <div class="weekly-update-title">Cập nhật kết quả tuần</div>
           <div class="weekly-update-meta">
-            ${escapeHtml(deptCode)} · ${escapeHtml(getDeptPlanMasterWbs(master))} · ${escapeHtml(master.taskName || '')} · ${escapeHtml(formatIsoDateVi(week.periodStart))}–${escapeHtml(formatIsoDateVi(week.periodEnd))}
+            ${escapeHtml(deptCode)} · ${getDeptPlanMasterWbs(master) ? `${escapeHtml(getDeptPlanMasterWbs(master))} · ` : ''}${escapeHtml(master.taskName || '')}
           </div>
         </div>
-        <span class="week-period-chip partial">Mock frontend · chưa ghi Sheet</span>
+        <div class="weekly-period-control">
+          <label for="weeklyPeriodSelector">Kỳ tuần</label>
+          <select id="weeklyPeriodSelector">
+            ${weekPeriods.map((period) => `
+              <option value="${escapeHtml(period.weekId)}" ${period.weekId === qltdSelectedWeekId ? 'selected' : ''}>
+                Tuần ${escapeHtml(period.weekNoInMonth)} · ${escapeHtml(formatIsoDateVi(period.weekStart))}–${escapeHtml(formatIsoDateVi(period.weekEnd))}
+              </option>
+            `).join('')}
+          </select>
+          <span class="week-period-chip partial">Mock frontend · chưa ghi Sheet</span>
+        </div>
       </div>
 
       <div class="weekly-update-grid">
@@ -1538,10 +1513,41 @@ function renderWeeklyUpdatePanel(payload, dept, master, week) {
   `;
 }
 
+function captureWeeklyDraft() {
+  if (!qltdSelectedMasterCode || !qltdSelectedWeekId) return;
+  const payload = qltdDeptPlanPayload || {};
+  const departments = payload.departments || [];
+  const dept = departments.find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || departments[0] || {};
+  const deptCode = dept.deptCode || dept.sheetName || '';
+  const hasFields = document.getElementById('weeklyResultInput');
+  if (!hasFields) return;
+  qltdWeeklyDrafts[getWeeklyDraftKey(payload.projectCode, deptCode, qltdSelectedMasterCode, qltdSelectedWeekId)] = {
+    result: document.getElementById('weeklyResultInput')?.value || '',
+    percent: document.getElementById('weeklyPercentInput')?.value || '',
+    issue: document.getElementById('weeklyIssueInput')?.value || '',
+    nextPlan: document.getElementById('weeklyNextPlanInput')?.value || ''
+  };
+}
+
+function renderWeeklyUpdateRegion() {
+  const mount = document.getElementById('weeklyUpdateMount');
+  const payload = qltdDeptPlanPayload;
+  if (!mount || !payload?.success) return;
+  const departments = payload.departments || [];
+  const dept = departments.find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || departments[0];
+  const masters = dept?.masters || [];
+  const master = masters.find((item) => item.masterCode === qltdSelectedMasterCode) || masters[0] || null;
+  const periods = getMonthWeekPeriods(qltdSelectedMonthCode || getDefaultMonthCode());
+  const week = periods.find((item) => item.weekId === qltdSelectedWeekId) || periods[0] || null;
+  mount.innerHTML = renderWeeklyUpdatePanel(payload, dept || {}, master, week, periods);
+  bindWeeklyUpdateControls();
+}
+
 function bindDeptPlanInteractiveControls() {
   const monthSelector = document.getElementById('reportMonthSelector');
   if (monthSelector) {
     monthSelector.onchange = () => {
+      captureWeeklyDraft();
       qltdSelectedMonthCode = monthSelector.value || getDefaultMonthCode();
       qltdSelectedWeekId = '';
       renderSelectedDeptPlan();
@@ -1551,16 +1557,25 @@ function bindDeptPlanInteractiveControls() {
   const masterSelector = document.getElementById('weeklyMasterSelector');
   if (masterSelector) {
     masterSelector.onchange = () => {
+      captureWeeklyDraft();
       qltdSelectedMasterCode = masterSelector.value || '';
       renderSelectedDeptPlan();
     };
   }
 
+  bindWeeklyUpdateControls();
+}
+
+function bindWeeklyUpdateControls() {
   const weekSelector = document.getElementById('weeklyPeriodSelector');
   if (weekSelector) {
     weekSelector.onchange = () => {
+      captureWeeklyDraft();
       qltdSelectedWeekId = weekSelector.value || '';
-      renderSelectedDeptPlan();
+      document.querySelectorAll('.week-period-card[data-week-id]').forEach((card) => {
+        card.classList.toggle('is-selected', card.getAttribute('data-week-id') === qltdSelectedWeekId);
+      });
+      renderWeeklyUpdateRegion();
     };
   }
 
@@ -4263,6 +4278,13 @@ function formatDateObjectViShort(date) {
 
 async function loadDeptPlansForSelectedProject(projectCode) {
   if (!projectCode) return;
+  const requestSeq = ++qltdDeptPlanRequestSeq;
+
+  const cached = qltdDeptPlanCache.get(projectCode);
+  if (cached && Date.now() - cached.cachedAt < QLTD_DEPT_PLAN_CACHE_MS) {
+    renderDeptPlans(cached.payload);
+    return;
+  }
 
   ensureDeptSelector();
   ensureDeptPlanPanel();
@@ -4277,13 +4299,17 @@ async function loadDeptPlansForSelectedProject(projectCode) {
 
   try {
     const payload = await fetchBackendJson('listDeptPlans', { projectCode });
+    if (requestSeq !== qltdDeptPlanRequestSeq) return;
+    qltdDeptPlanCache.set(projectCode, { payload, cachedAt: Date.now() });
     renderDeptPlans(payload);
   } catch (error) {
+    if (requestSeq !== qltdDeptPlanRequestSeq) return;
     console.error('Cannot load department plan', error);
     renderDeptPlans({ success: false });
   }
 }
 async function fetchBackendJson(action, params = {}) {
+  const startedAt = performance.now();
   const url = new URL(APPS_SCRIPT_DEV_URL);
   url.searchParams.set('action', action);
 
@@ -4293,16 +4319,15 @@ async function fetchBackendJson(action, params = {}) {
     }
   });
 
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    cache: 'no-store'
-  });
+  const response = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
 
   if (!response.ok) {
     throw new Error(`Apps Script API ${action} failed: ${response.status}`);
   }
 
-  return response.json();
+  const payload = await response.json();
+  if (qltdDevPerfEnabled()) console.info(`[QLTD PERF] ${action}: ${Math.round(performance.now() - startedAt)}ms`);
+  return payload;
 }
 
 async function fetchBackendProfile(email) {

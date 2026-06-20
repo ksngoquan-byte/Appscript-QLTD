@@ -135,9 +135,14 @@ function qltdHrAssigneeReadRows_() {
   });
 
   if (lastRow < 2) return [];
+  const columnKeys = Object.keys(indexes);
+  const ranges = sheet.getRangeList(columnKeys.map(function(key) {
+    const column = qltdHrAssigneeColumnLetter_(indexes[key] + 1);
+    return column + '2:' + column + lastRow;
+  })).getRanges();
   const columns = {};
-  Object.keys(indexes).forEach(function(key) {
-    columns[key] = sheet.getRange(2, indexes[key] + 1, lastRow - 1, 1).getDisplayValues();
+  columnKeys.forEach(function(key, index) {
+    columns[key] = ranges[index].getDisplayValues();
   });
   const rows = Array.from({ length: lastRow - 1 }, function(unused, index) {
     const departmentName = String(columns.department[index][0] || '').trim();
@@ -155,6 +160,17 @@ function qltdHrAssigneeReadRows_() {
   });
   cache.put('hr_assignee_rows_v2', JSON.stringify(rows), QLTD_HR_ASSIGNEE_CACHE_SECONDS);
   return rows;
+}
+
+function qltdHrAssigneeColumnLetter_(columnNumber) {
+  let value = Number(columnNumber) || 0;
+  let result = '';
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
 }
 
 function qltdHrAssigneeBuildDirectory_(rows, project, deptCode) {

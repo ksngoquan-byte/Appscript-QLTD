@@ -1,4 +1,4 @@
-const QLTD_PB_DETAIL_UI_VERSION = 'STEP_3B2C_HR_ASSIGNEE_V2';
+const QLTD_PB_DETAIL_UI_VERSION = 'STEP_3B2D_WEEKLY_FULLSCREEN';
 const QLTD_PB_DETAIL_API_URL = 'https://script.google.com/macros/s/AKfycbx6iHCEf6Ba05h6u6DiBcqv3kxV79T6RvktzoFsdBJXeQjBaCNMyGQL5akptlX8jGtxpg/exec';
 
 const qltdPbDetailState = {
@@ -20,6 +20,13 @@ const qltdPbDetailState = {
   message: '',
   messageType: 'info'
 };
+
+const qltdPbDetailAssigneeCache = new Map();
+
+function qltdPbDetailDevPerf(label, startedAt) {
+  if (!['localhost', '127.0.0.1'].includes(window.location.hostname) && !new URLSearchParams(window.location.search).has('debugPerf')) return;
+  console.info(`[QLTD PERF] ${label}: ${Math.round(performance.now() - startedAt)}ms`);
+}
 
 function qltdPbDetailEscapeHtml(value) {
   return String(value ?? '')
@@ -56,7 +63,7 @@ function qltdPbDetailGetContext() {
     projectCode,
     deptCode,
     masterTaskCode,
-    masterWbs: meta.masterWbs || masterTaskCode,
+    masterWbs: meta.masterWbs || '',
     masterTaskName: meta.masterTaskName || '',
     email,
     role,
@@ -469,7 +476,7 @@ function qltdPbDetailRenderForm(context) {
       </div>
 
       <p class="pb-detail-parent">
-        <strong>Mục tiêu gốc:</strong> ${qltdPbDetailEscapeHtml(context.masterWbs)} · ${qltdPbDetailEscapeHtml(context.masterTaskName || qltdPbDetailState.masterTask?.taskName || '')}<br>
+        <strong>Mục tiêu gốc:</strong> ${qltdPbDetailEscapeHtml(context.masterWbs || 'Chưa có WBS')} · ${qltdPbDetailEscapeHtml(context.masterTaskName || qltdPbDetailState.masterTask?.taskName || '')}<br>
         <strong>Phòng/ban:</strong> ${qltdPbDetailEscapeHtml(context.deptCode)}
       </p>
 
@@ -564,9 +571,16 @@ async function qltdPbDetailFetchAssignees(context) {
 }
 
 async function qltdPbDetailLoadAssignees(context, force = false) {
-  const key = [context.projectCode, context.deptCode, context.email].join('::');
+  const key = [context.projectCode, context.deptCode].join('::');
   if (!context.projectCode || !context.deptCode || !context.email) return;
-  if (!force && qltdPbDetailState.assigneeKey === key) return;
+  if (!force && qltdPbDetailAssigneeCache.has(key)) {
+    qltdPbDetailState.assigneeKey = key;
+    qltdPbDetailState.assignees = qltdPbDetailAssigneeCache.get(key);
+    qltdPbDetailState.assigneeError = '';
+    qltdPbDetailRender();
+    return;
+  }
+  if (!force && qltdPbDetailState.assigneeKey === key && qltdPbDetailState.assigneeLoading) return;
   qltdPbDetailCaptureFormDraft();
   qltdPbDetailState.assigneeKey = key;
   qltdPbDetailState.assigneeLoading = true;
@@ -574,11 +588,13 @@ async function qltdPbDetailLoadAssignees(context, force = false) {
   qltdPbDetailState.assignees = [];
   qltdPbDetailRender();
   const requestSeq = ++qltdPbDetailState.assigneeRequestSeq;
+  const startedAt = performance.now();
   try {
     const payload = await qltdPbDetailFetchAssignees(context);
     if (requestSeq !== qltdPbDetailState.assigneeRequestSeq) return;
     if (!payload?.success) throw new Error(qltdPbDetailExtractError(payload));
     qltdPbDetailState.assignees = Array.isArray(payload.data?.assignees) ? payload.data.assignees : [];
+    qltdPbDetailAssigneeCache.set(key, qltdPbDetailState.assignees);
     const mappingWarning = (payload.warnings || []).find((item) => item.code === 'HR_DEPT_MAPPING_MISSING');
     if (mappingWarning) qltdPbDetailState.assigneeError = mappingWarning.message;
   } catch (error) {
@@ -587,6 +603,7 @@ async function qltdPbDetailLoadAssignees(context, force = false) {
   } finally {
     if (requestSeq === qltdPbDetailState.assigneeRequestSeq) {
       qltdPbDetailState.assigneeLoading = false;
+      qltdPbDetailDevPerf('HR assignee', startedAt);
       qltdPbDetailRender();
     }
   }
@@ -658,6 +675,7 @@ async function qltdPbDetailLoad(force = false, providedContext = null) {
   qltdPbDetailRender();
 
   const requestSeq = ++qltdPbDetailState.requestSeq;
+  const startedAt = performance.now();
 
   try {
     const payload = await qltdPbDetailFetchGet(context);
@@ -674,6 +692,7 @@ async function qltdPbDetailLoad(force = false, providedContext = null) {
   } finally {
     if (requestSeq === qltdPbDetailState.requestSeq) {
       qltdPbDetailState.loading = false;
+      qltdPbDetailDevPerf('PB_DETAIL', startedAt);
       qltdPbDetailRender();
     }
   }
@@ -789,7 +808,7 @@ function qltdPbDetailHandleClick(event) {
   const action = button.dataset.pbDetailAction;
   if (action === 'reload') {
     qltdPbDetailLoad(true);
-    qltdPbDetailLoadAssignees(qltdPbDetailGetContext(), true);
+    if (qltdPbDetailState.formMode) qltdPbDetailLoadAssignees(qltdPbDetailGetContext(), true);
     return;
   }
 
@@ -876,7 +895,6 @@ function qltdPbDetailHandleDeptPlanRendered(event) {
 
   if (qltdPbDetailState.contextKey === context.key) {
     qltdPbDetailRender();
-    qltdPbDetailLoadAssignees(context);
     return;
   }
 
@@ -887,7 +905,6 @@ function qltdPbDetailHandleDeptPlanRendered(event) {
   qltdPbDetailState.masterTask = null;
   qltdPbDetailState.detailTasks = [];
   qltdPbDetailLoad(false, context);
-  qltdPbDetailLoadAssignees(context);
 }
 
 function qltdPbDetailBoot() {

@@ -13,6 +13,13 @@
   --warning: #a15c07;
   --danger: #b42318;
   --shadow: 0 18px 50px rgba(24, 33, 43, 0.12);
+  --qltd-report-bg: #f4f7f8;
+  --qltd-project-accent: #0f766e;
+  --qltd-period-accent: #2563eb;
+  --qltd-master-accent: #7c3aed;
+  --qltd-detail-accent: #059669;
+  --qltd-weekly-accent: #d97706;
+  --qltd-summary-accent: #475569;
 }
 
 * {
@@ -22,6 +29,7 @@
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: hidden;
 }
 
 .page {
@@ -400,6 +408,17 @@ body {
   margin: 18px auto 40px;
 }
 
+body.qltd-report-mode .dept-plan-panel.compact {
+  width: calc(100vw - 32px);
+  max-width: none;
+  margin: 12px auto 32px;
+}
+
+body.qltd-report-mode .dept-plan-card { background: var(--qltd-report-bg); padding: 16px; }
+body.qltd-report-mode .dept-plan-header,
+body.qltd-report-mode .dept-plan-filter { border-left: 4px solid var(--qltd-project-accent); background: #f0fdfa; }
+body.qltd-report-mode .dept-plan-header { padding: 14px; border-radius: 12px; }
+
 .dept-plan-card {
   background: #ffffff;
   border: 1px solid #d7e0ea;
@@ -474,6 +493,8 @@ body {
   min-height: 72px;
 }
 
+body.qltd-report-mode .pb-detail-panel { border-left: 4px solid var(--qltd-detail-accent); }
+
 .dept-plan-table-wrap {
   overflow-x: auto;
 }
@@ -547,4 +568,9 @@ body {
   .dept-plan-filter select {
     width: 100%;
   }
+}
+
+@media (max-width: 1100px) {
+  body.qltd-report-mode .dept-plan-panel.compact { width: calc(100vw - 24px); }
+  body.qltd-report-mode .dept-plan-card { padding: 12px; }
 }
