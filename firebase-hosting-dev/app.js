@@ -383,27 +383,8 @@ function ensureProjectSelector() {
 }
 
 function ensureDeptSelector() {
-  let wrapper = document.getElementById('deptSelectorPanel');
-  if (wrapper) return wrapper;
-
-  wrapper = document.createElement('div');
-  wrapper.id = 'deptSelectorPanel';
-  wrapper.className = 'nav-control nav-dept-control hidden';
-  wrapper.hidden = true;
-  wrapper.setAttribute('aria-hidden', 'true');
-  wrapper.innerHTML = `
-    <label class="nav-control-label" for="deptSelector">Ph\u00f2ng/ban</label>
-    <select id="deptSelector" class="nav-control-select" disabled>
-      <option value="">Ch\u01b0a c\u00f3 d\u1eef li\u1ec7u</option>
-    </select>
-  `;
-
-  const nav = findPrimaryNavContainer();
-  if (nav) {
-    nav.appendChild(wrapper);
-  }
-
-  return wrapper;
+  ensureDeptPlanPanel();
+  return document.getElementById('deptSelectorPanel');
 }
 
 function ensureDeptPlanPanel() {
@@ -424,17 +405,17 @@ function ensureDeptPlanPanel() {
         </div>
         <span id="deptPlanStatus" class="dept-plan-status">Ch\u01b0a t\u1ea3i d\u1eef li\u1ec7u</span>
       </div>
+      <div id="deptSelectorPanel" class="dept-plan-filter">
+        <label for="deptSelector">Ph\u00f2ng/ban</label>
+        <select id="deptSelector" disabled>
+          <option value="">Ch\u01b0a c\u00f3 d\u1eef li\u1ec7u</option>
+        </select>
+      </div>
       <div id="deptPlanContent" class="dept-plan-content"></div>
     </div>
   `;
 
-  const container = document.querySelector('.app-main') ||
-    document.querySelector('main') ||
-    els.appShell;
-
-  if (container) {
-    container.appendChild(panel);
-  }
+  els.appShell.appendChild(panel);
 
   return panel;
 }
@@ -817,6 +798,7 @@ function ensureWeb07Panels() {
 function showWeb07View(viewName) {
   qltdActiveView = viewName;
   ensureWeb07Panels();
+  if (viewName === 'report') ensureDeptPlanPanel();
   document.body.classList.toggle('qltd-dashboard-mode', viewName === 'dashboard');
   document.body.classList.toggle('qltd-gantt-mode', viewName === 'gantt');
 
@@ -847,6 +829,10 @@ function showWeb07View(viewName) {
       if (gantt && gantt.setSizes) gantt.setSizes();
       if (qltdGanttPayload) renderGanttPanel(qltdGanttPayload);
     }, 80);
+  }
+
+  if (viewName === 'report') {
+    window.scrollTo({ top: 0, behavior: 'auto' });
   }
 }
 
@@ -1336,8 +1322,10 @@ function renderDeptPlans(payload) {
 
   departments.forEach((dept) => {
     const option = document.createElement('option');
-    option.value = dept.deptCode || dept.sheetName || '';
-    option.textContent = dept.deptCode || dept.sheetName || 'Ph\u00f2ng/ban';
+    const deptCode = dept.deptCode || dept.sheetName || '';
+    const deptName = dept.deptName || '';
+    option.value = deptCode;
+    option.textContent = deptName && deptName !== deptCode ? `${deptName} (${deptCode})` : deptCode || 'Ph\u00f2ng/ban';
     deptSelector.appendChild(option);
   });
 
@@ -1351,6 +1339,22 @@ function renderDeptPlans(payload) {
   };
 
   renderSelectedDeptPlan();
+}
+
+function getDeptPlanMasterWbs(master) {
+  return String(master?.stt || master?.masterCode || '').trim();
+}
+
+function dispatchDeptPlanRendered(payload, dept, master) {
+  document.dispatchEvent(new CustomEvent('qltd:dept-plan-rendered', {
+    detail: {
+      projectCode: payload?.projectCode || '',
+      deptCode: dept?.deptCode || dept?.sheetName || '',
+      masterTaskCode: master?.masterCode || '',
+      masterWbs: getDeptPlanMasterWbs(master),
+      masterTaskName: master?.taskName || ''
+    }
+  }));
 }
 
 function renderSelectedDeptPlan() {
@@ -1408,7 +1412,7 @@ function renderSelectedDeptPlan() {
         <select id="weeklyMasterSelector">
           ${masters.map((master) => `
             <option value="${escapeHtml(master.masterCode || '')}" ${master.masterCode === qltdSelectedMasterCode ? 'selected' : ''}>
-              ${escapeHtml(master.masterCode || '')} · ${escapeHtml(master.taskName || '')}
+              ${escapeHtml(getDeptPlanMasterWbs(master))} · ${escapeHtml(master.taskName || '')}
             </option>
           `).join('')}
         </select>
@@ -1433,19 +1437,21 @@ function renderSelectedDeptPlan() {
       <p class="empty-state">Phòng/ban này chưa có mục tiêu/công việc gốc.</p>
     `;
     bindDeptPlanInteractiveControls();
+    dispatchDeptPlanRendered(payload, dept, null);
     return;
   }
 
   content.innerHTML = `
     ${periodToolbarHtml}
     ${weeklyTargetToolbarHtml}
+    <div id="pbDetailMount" class="pb-detail-mount" aria-live="polite"></div>
     ${renderWeeklyUpdatePanel(payload, dept, selectedMaster, selectedWeek)}
 
     <div class="dept-plan-table-wrap">
       <table class="dept-plan-table">
         <thead>
           <tr>
-            <th>Mã</th>
+            <th>WBS</th>
             <th>Mục tiêu/công việc gốc</th>
             <th>Hạn hoàn thành</th>
             <th>Slot chi tiết</th>
@@ -1457,7 +1463,7 @@ function renderSelectedDeptPlan() {
             const slots = master.detailSlots || [];
             return `
               <tr>
-                <td class="mono">${escapeHtml(master.masterCode || '')}</td>
+                <td class="mono" title="Mã kỹ thuật: ${escapeHtml(master.masterCode || '')}">${escapeHtml(getDeptPlanMasterWbs(master))}</td>
                 <td>
                   <div class="task-title">${escapeHtml(master.taskName || '')}</div>
                   ${master.contextName ? `<div class="task-context">${escapeHtml(master.contextName)}</div>` : ''}
@@ -1474,6 +1480,7 @@ function renderSelectedDeptPlan() {
   `;
 
   bindDeptPlanInteractiveControls();
+  dispatchDeptPlanRendered(payload, dept, selectedMaster);
 }
 
 function getWeeklyDraftKey(projectCode, deptCode, masterCode, weekId) {
@@ -1495,7 +1502,7 @@ function renderWeeklyUpdatePanel(payload, dept, master, week) {
         <div>
           <div class="weekly-update-title">Cập nhật kết quả tuần</div>
           <div class="weekly-update-meta">
-            ${escapeHtml(deptCode)} · ${escapeHtml(master.masterCode || '')} · ${escapeHtml(formatIsoDateVi(week.periodStart))}–${escapeHtml(formatIsoDateVi(week.periodEnd))}
+            ${escapeHtml(deptCode)} · ${escapeHtml(getDeptPlanMasterWbs(master))} · ${escapeHtml(master.taskName || '')} · ${escapeHtml(formatIsoDateVi(week.periodStart))}–${escapeHtml(formatIsoDateVi(week.periodEnd))}
           </div>
         </div>
         <span class="week-period-chip partial">Mock frontend · chưa ghi Sheet</span>

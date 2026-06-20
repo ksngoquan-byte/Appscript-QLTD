@@ -440,6 +440,40 @@ body {
   white-space: nowrap;
 }
 
+.dept-plan-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid #d7e0ea;
+  border-radius: 10px;
+  background: #f8fbfd;
+}
+
+.dept-plan-filter label {
+  color: #334155;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.dept-plan-filter select {
+  width: min(420px, 100%);
+  min-height: 38px;
+  border: 1px solid #cbd6e2;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+  color: #102033;
+  font: inherit;
+  font-weight: 600;
+}
+
+.pb-detail-mount {
+  min-height: 72px;
+}
+
 .dept-plan-table-wrap {
   overflow-x: auto;
 }
@@ -503,5 +537,14 @@ body {
 
   .dept-plan-header {
     flex-direction: column;
+  }
+
+  .dept-plan-filter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dept-plan-filter select {
+    width: 100%;
   }
 }

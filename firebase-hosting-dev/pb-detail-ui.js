@@ -1,12 +1,5 @@
-const QLTD_PB_DETAIL_UI_VERSION = 'STEP_3B2B_V1_1';
+const QLTD_PB_DETAIL_UI_VERSION = 'STEP_3B2B_REPORT_V2';
 const QLTD_PB_DETAIL_API_URL = 'https://script.google.com/macros/s/AKfycbx6iHCEf6Ba05h6u6DiBcqv3kxV79T6RvktzoFsdBJXeQjBaCNMyGQL5akptlX8jGtxpg/exec';
-
-const QLTD_PB_DETAIL_STATUS_OPTIONS = [
-  'Chưa bắt đầu',
-  'Đang làm',
-  'Tạm dừng',
-  'Hoàn thành'
-];
 
 const qltdPbDetailState = {
   contextKey: '',
@@ -17,6 +10,7 @@ const qltdPbDetailState = {
   editingId: '',
   loading: false,
   requestSeq: 0,
+  contextMeta: {},
   message: '',
   messageType: 'info'
 };
@@ -45,9 +39,10 @@ function qltdPbDetailCanWrite(roleText) {
 }
 
 function qltdPbDetailGetContext() {
-  const projectCode = document.getElementById('projectSelector')?.value || '';
-  const deptCode = document.getElementById('deptSelector')?.value || '';
-  const masterTaskCode = document.getElementById('weeklyMasterSelector')?.value || '';
+  const meta = qltdPbDetailState.contextMeta || {};
+  const projectCode = meta.projectCode || document.getElementById('projectSelector')?.value || '';
+  const deptCode = meta.deptCode || document.getElementById('deptSelector')?.value || '';
+  const masterTaskCode = meta.masterTaskCode || document.getElementById('weeklyMasterSelector')?.value || '';
   const email = document.getElementById('userEmail')?.textContent?.trim() || '';
   const role = document.getElementById('userRole')?.textContent?.trim() || '';
 
@@ -55,6 +50,8 @@ function qltdPbDetailGetContext() {
     projectCode,
     deptCode,
     masterTaskCode,
+    masterWbs: meta.masterWbs || masterTaskCode,
+    masterTaskName: meta.masterTaskName || '',
     email,
     role,
     canWrite: qltdPbDetailCanWrite(role),
@@ -211,6 +208,16 @@ function qltdPbDetailEnsureStyles() {
 
     .pb-detail-form-header h4 { margin: 0; color: #0f172a; }
 
+    .pb-detail-parent {
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #ecfdf5;
+      color: #065f46;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
     .pb-detail-form-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(150px, 1fr));
@@ -248,6 +255,19 @@ function qltdPbDetailEnsureStyles() {
 
     .pb-detail-field textarea { min-height: 68px; resize: vertical; }
 
+    .pb-detail-budget-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .pb-detail-field .pb-detail-budget-toggle input { width: auto; }
+    .pb-detail-field.hidden { display: none; }
+
     .pb-detail-form-actions {
       display: flex;
       justify-content: flex-end;
@@ -280,9 +300,8 @@ function qltdPbDetailEnsureStyles() {
 }
 
 function qltdPbDetailEnsurePanel() {
-  const host = document.getElementById('deptPlanContent');
-  const masterSelector = document.getElementById('weeklyMasterSelector');
-  if (!host || !masterSelector) return null;
+  const host = document.getElementById('pbDetailMount');
+  if (!host) return null;
 
   let panel = document.getElementById('pbDetailPanel');
   if (panel && panel.parentElement === host) {
@@ -295,11 +314,10 @@ function qltdPbDetailEnsurePanel() {
   panel.className = 'pb-detail-panel';
   panel.dataset.version = QLTD_PB_DETAIL_UI_VERSION;
 
-  const anchor = host.querySelector('.weekly-update-panel') || host.querySelector('.dept-plan-table-wrap');
-  if (anchor) host.insertBefore(panel, anchor);
-  else host.appendChild(panel);
+  host.appendChild(panel);
 
   panel.addEventListener('click', qltdPbDetailHandleClick);
+  panel.addEventListener('change', qltdPbDetailHandleChange);
   qltdPbDetailState.panel = panel;
   return panel;
 }
@@ -351,8 +369,8 @@ function qltdPbDetailRender() {
       <div>
         <h3>Việc chi tiết phòng/ban</h3>
         <p class="pb-detail-subtitle">
-          ${qltdPbDetailEscapeHtml(context.deptCode)} · ${qltdPbDetailEscapeHtml(context.masterTaskCode)}
-          ${master?.taskName ? ` · ${qltdPbDetailEscapeHtml(master.taskName)}` : ''}
+          ${qltdPbDetailEscapeHtml(context.deptCode)} · ${qltdPbDetailEscapeHtml(context.masterWbs)}
+          ${context.masterTaskName || master?.taskName ? ` · ${qltdPbDetailEscapeHtml(context.masterTaskName || master?.taskName)}` : ''}
           · ${details.length} việc chi tiết
         </p>
       </div>
@@ -397,11 +415,8 @@ function qltdPbDetailRenderForm(context) {
   const isEdit = qltdPbDetailState.formMode === 'edit';
   const task = isEdit
     ? qltdPbDetailState.detailTasks.find((item) => item.detailTaskId === qltdPbDetailState.editingId) || {}
-    : { status: 'Chưa bắt đầu', progress: 0 };
-
-  const statusOptions = QLTD_PB_DETAIL_STATUS_OPTIONS.map((status) => `
-    <option value="${qltdPbDetailEscapeHtml(status)}" ${status === (task.status || 'Chưa bắt đầu') ? 'selected' : ''}>${qltdPbDetailEscapeHtml(status)}</option>
-  `).join('');
+    : {};
+  const hasBudgetPlan = task.budgetPlan !== '' && task.budgetPlan !== null && task.budgetPlan !== undefined;
 
   return `
     <form id="pbDetailForm" class="pb-detail-form" novalidate>
@@ -410,40 +425,25 @@ function qltdPbDetailRenderForm(context) {
         <span class="pb-detail-subtitle">${isEdit ? qltdPbDetailEscapeHtml(task.detailTaskId || '') : 'DetailTaskId và WBS sẽ được backend tự sinh'}</span>
       </div>
 
+      <p class="pb-detail-parent">
+        <strong>Mục tiêu gốc:</strong> ${qltdPbDetailEscapeHtml(context.masterWbs)} · ${qltdPbDetailEscapeHtml(context.masterTaskName || qltdPbDetailState.masterTask?.taskName || '')}<br>
+        <strong>Phòng/ban:</strong> ${qltdPbDetailEscapeHtml(context.deptCode)}
+      </p>
+
       <div class="pb-detail-form-grid">
-        <div class="pb-detail-field span-2">
-          <label for="pbDetailTaskName">Nội dung công việc *</label>
+        <div class="pb-detail-field span-4">
+          <label for="pbDetailTaskName">Nội dung việc chi tiết *</label>
           <input id="pbDetailTaskName" name="taskName" type="text" maxlength="500" required value="${qltdPbDetailEscapeHtml(task.taskName || '')}">
         </div>
 
-        <div class="pb-detail-field">
-          <label for="pbDetailStatus">Trạng thái</label>
-          <select id="pbDetailStatus" name="status">${statusOptions}</select>
+        <div class="pb-detail-field span-2">
+          <label for="pbDetailPlanStart">Bắt đầu kế hoạch${isEdit ? '' : ' *'}</label>
+          <input id="pbDetailPlanStart" name="planStart" type="date" ${isEdit ? '' : 'required'} value="${qltdPbDetailEscapeHtml(task.planStart || '')}">
         </div>
 
-        <div class="pb-detail-field">
-          <label for="pbDetailProgress">% hoàn thành</label>
-          <input id="pbDetailProgress" name="progress" type="number" min="0" max="100" step="1" value="${qltdPbDetailEscapeHtml(task.progress ?? 0)}">
-        </div>
-
-        <div class="pb-detail-field">
-          <label for="pbDetailPlanStart">Bắt đầu kế hoạch</label>
-          <input id="pbDetailPlanStart" name="planStart" type="date" value="${qltdPbDetailEscapeHtml(task.planStart || '')}">
-        </div>
-
-        <div class="pb-detail-field">
-          <label for="pbDetailPlanFinish">Kết thúc kế hoạch</label>
-          <input id="pbDetailPlanFinish" name="planFinish" type="date" value="${qltdPbDetailEscapeHtml(task.planFinish || '')}">
-        </div>
-
-        <div class="pb-detail-field">
-          <label for="pbDetailActualStart">Bắt đầu thực tế</label>
-          <input id="pbDetailActualStart" name="actualStart" type="date" value="${qltdPbDetailEscapeHtml(task.actualStart || '')}">
-        </div>
-
-        <div class="pb-detail-field">
-          <label for="pbDetailActualFinish">Hoàn thành thực tế</label>
-          <input id="pbDetailActualFinish" name="actualFinish" type="date" value="${qltdPbDetailEscapeHtml(task.actualFinish || '')}">
+        <div class="pb-detail-field span-2">
+          <label for="pbDetailPlanFinish">Kết thúc kế hoạch${isEdit ? '' : ' *'}</label>
+          <input id="pbDetailPlanFinish" name="planFinish" type="date" ${isEdit ? '' : 'required'} value="${qltdPbDetailEscapeHtml(task.planFinish || '')}">
         </div>
 
         <div class="pb-detail-field span-2">
@@ -456,29 +456,26 @@ function qltdPbDetailRenderForm(context) {
           <input id="pbDetailCoordinator" name="coordinator" type="text" value="${qltdPbDetailEscapeHtml(task.coordinator || '')}">
         </div>
 
-        <div class="pb-detail-field">
-          <label for="pbDetailBudgetPlan">Ngân sách kế hoạch</label>
-          <input id="pbDetailBudgetPlan" name="budgetPlan" type="number" min="0" step="1" value="${qltdPbDetailEscapeHtml(task.budgetPlan || '')}">
-        </div>
-
-        <div class="pb-detail-field">
-          <label for="pbDetailBudgetActual">Ngân sách thực tế</label>
-          <input id="pbDetailBudgetActual" name="budgetActual" type="number" min="0" step="1" value="${qltdPbDetailEscapeHtml(task.budgetActual || '')}">
-        </div>
-
-        <div class="pb-detail-field">
-          <label for="pbDetailWeight">Trọng số (%)</label>
-          <input id="pbDetailWeight" name="weight" type="number" min="0" max="100" step="1" value="${qltdPbDetailEscapeHtml(task.weight || '')}">
-        </div>
-
         <div class="pb-detail-field span-2">
-          <label for="pbDetailCondition">Điều kiện đầu vào</label>
+          <label for="pbDetailCondition">Điều kiện đầu vào/phụ thuộc</label>
           <textarea id="pbDetailCondition" name="condition">${qltdPbDetailEscapeHtml(task.condition || '')}</textarea>
         </div>
 
-        <div class="pb-detail-field span-4">
-          <label for="pbDetailNote">Ghi chú cập nhật</label>
+        <div class="pb-detail-field span-2">
+          <label for="pbDetailNote">Ghi chú kế hoạch</label>
           <textarea id="pbDetailNote" name="note">${qltdPbDetailEscapeHtml(task.note || '')}</textarea>
+        </div>
+
+        <div class="pb-detail-field span-4">
+          <label class="pb-detail-budget-toggle" for="pbDetailHasBudgetPlan">
+            <input id="pbDetailHasBudgetPlan" name="hasBudgetPlan" type="checkbox" ${hasBudgetPlan ? 'checked' : ''}>
+            Có ngân sách kế hoạch
+          </label>
+        </div>
+
+        <div id="pbDetailBudgetPlanField" class="pb-detail-field span-2 ${hasBudgetPlan ? '' : 'hidden'}">
+          <label for="pbDetailBudgetPlan">Ngân sách kế hoạch (VNĐ)</label>
+          <input id="pbDetailBudgetPlan" name="budgetPlan" type="number" min="0" step="1" value="${qltdPbDetailEscapeHtml(task.budgetPlan || '')}">
         </div>
       </div>
 
@@ -531,17 +528,15 @@ function qltdPbDetailExtractError(payload) {
   return payload?.message || payload?.error || 'API không trả success=true';
 }
 
-async function qltdPbDetailLoad(force = false) {
+async function qltdPbDetailLoad(force = false, providedContext = null) {
   const panel = qltdPbDetailEnsurePanel();
-  const context = qltdPbDetailGetContext();
+  const context = providedContext || qltdPbDetailGetContext();
   if (!panel || !context.projectCode || !context.deptCode || !context.masterTaskCode || !context.email) return;
 
   if (!force && qltdPbDetailState.contextKey === context.key) {
     if (qltdPbDetailState.loading) return;
-    if (qltdPbDetailState.masterTask) {
-      qltdPbDetailRender();
-      return;
-    }
+    qltdPbDetailRender();
+    return;
   }
 
   qltdPbDetailState.contextKey = context.key;
@@ -575,7 +570,7 @@ async function qltdPbDetailLoad(force = false) {
   }
 }
 
-function qltdPbDetailReadFormPayload(context) {
+function qltdPbDetailReadFormPayload(context, isEdit) {
   const form = document.getElementById('pbDetailForm');
   if (!form) throw new Error('Không tìm thấy biểu mẫu việc chi tiết.');
 
@@ -585,51 +580,41 @@ function qltdPbDetailReadFormPayload(context) {
     projectCode: context.projectCode,
     deptCode: context.deptCode,
     taskName: String(data.get('taskName') || '').trim(),
-    status: String(data.get('status') || '').trim(),
-    progress: String(data.get('progress') || '').trim(),
     planStart: String(data.get('planStart') || '').trim(),
     planFinish: String(data.get('planFinish') || '').trim(),
-    actualStart: String(data.get('actualStart') || '').trim(),
-    actualFinish: String(data.get('actualFinish') || '').trim(),
     owner: String(data.get('owner') || '').trim(),
     coordinator: String(data.get('coordinator') || '').trim(),
-    budgetPlan: String(data.get('budgetPlan') || '').trim(),
-    budgetActual: String(data.get('budgetActual') || '').trim(),
-    weight: String(data.get('weight') || '').trim(),
+    budgetPlan: data.get('hasBudgetPlan') === 'on' ? String(data.get('budgetPlan') || '').trim() : '',
     condition: String(data.get('condition') || '').trim(),
     note: String(data.get('note') || '').trim()
   };
 
-  if (!payload.taskName) throw new Error('Nội dung công việc là bắt buộc.');
-
-  const progress = payload.progress === '' ? 0 : Number(payload.progress);
-  if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
-    throw new Error('% hoàn thành phải từ 0 đến 100.');
-  }
-  payload.progress = progress;
-
-  if (payload.weight !== '') {
-    const weight = Number(payload.weight);
-    if (!Number.isFinite(weight) || weight < 0 || weight > 100) {
-      throw new Error('Trọng số phải từ 0 đến 100.');
-    }
-    payload.weight = weight;
+  if (!payload.taskName) throw new Error('Nội dung việc chi tiết là bắt buộc.');
+  if (!isEdit && (!payload.planStart || !payload.planFinish)) {
+    throw new Error('Bắt đầu và kết thúc kế hoạch là bắt buộc.');
   }
 
-  ['budgetPlan', 'budgetActual'].forEach((field) => {
-    if (payload[field] === '') return;
-    const number = Number(payload[field]);
+  if (payload.budgetPlan !== '') {
+    const number = Number(payload.budgetPlan);
     if (!Number.isFinite(number) || number < 0) {
-      throw new Error(`${field === 'budgetPlan' ? 'Ngân sách kế hoạch' : 'Ngân sách thực tế'} phải là số không âm.`);
+      throw new Error('Ngân sách kế hoạch phải là số không âm.');
     }
-    payload[field] = number;
-  });
+    payload.budgetPlan = number;
+  }
 
   if (payload.planStart && payload.planFinish && payload.planFinish < payload.planStart) {
     throw new Error('Ngày kết thúc kế hoạch không được trước ngày bắt đầu kế hoạch.');
   }
-  if (payload.actualStart && payload.actualFinish && payload.actualFinish < payload.actualStart) {
-    throw new Error('Ngày hoàn thành thực tế không được trước ngày bắt đầu thực tế.');
+
+  if (!isEdit) {
+    Object.assign(payload, {
+      status: 'Chưa bắt đầu',
+      progress: 0,
+      actualStart: '',
+      actualFinish: '',
+      budgetActual: '',
+      weight: ''
+    });
   }
 
   return payload;
@@ -639,9 +624,10 @@ async function qltdPbDetailSave() {
   const context = qltdPbDetailGetContext();
   if (!context.canWrite) return;
 
+  const isEdit = qltdPbDetailState.formMode === 'edit';
   let payload;
   try {
-    payload = qltdPbDetailReadFormPayload(context);
+    payload = qltdPbDetailReadFormPayload(context, isEdit);
   } catch (error) {
     qltdPbDetailState.message = error.message || String(error);
     qltdPbDetailState.messageType = 'error';
@@ -649,7 +635,6 @@ async function qltdPbDetailSave() {
     return;
   }
 
-  const isEdit = qltdPbDetailState.formMode === 'edit';
   if (isEdit) {
     payload.action = 'work_updatedetailtask';
     payload.detailTaskId = qltdPbDetailState.editingId;
@@ -727,46 +712,53 @@ function qltdPbDetailHandleClick(event) {
   }
 }
 
-let qltdPbDetailMountTimer = null;
+function qltdPbDetailHandleChange(event) {
+  if (event.target?.id !== 'pbDetailHasBudgetPlan') return;
+  const budgetField = document.getElementById('pbDetailBudgetPlanField');
+  if (budgetField) budgetField.classList.toggle('hidden', !event.target.checked);
+}
 
-function qltdPbDetailScheduleMount(delay = 80) {
-  window.clearTimeout(qltdPbDetailMountTimer);
-  qltdPbDetailMountTimer = window.setTimeout(() => {
-    const panel = qltdPbDetailEnsurePanel();
-    if (!panel) return;
+function qltdPbDetailHandleDeptPlanRendered(event) {
+  const detail = event.detail || {};
+  qltdPbDetailState.contextMeta = {
+    projectCode: detail.projectCode || '',
+    deptCode: detail.deptCode || '',
+    masterTaskCode: detail.masterTaskCode || '',
+    masterWbs: detail.masterWbs || detail.masterTaskCode || '',
+    masterTaskName: detail.masterTaskName || ''
+  };
 
-    const context = qltdPbDetailGetContext();
-    if (!context.projectCode || !context.deptCode || !context.masterTaskCode || !context.email) return;
+  const context = qltdPbDetailGetContext();
+  if (!context.projectCode || !context.deptCode || !context.masterTaskCode || !context.email) {
+    qltdPbDetailState.requestSeq += 1;
+    qltdPbDetailState.contextKey = '';
+    qltdPbDetailState.formMode = '';
+    qltdPbDetailState.editingId = '';
+    qltdPbDetailState.masterTask = null;
+    qltdPbDetailState.detailTasks = [];
+    qltdPbDetailState.loading = false;
+    return;
+  }
 
-    if (qltdPbDetailState.contextKey !== context.key) {
-      qltdPbDetailLoad(false);
-    } else if (!qltdPbDetailState.loading) {
-      qltdPbDetailRender();
-    }
-  }, delay);
+  const panel = qltdPbDetailEnsurePanel();
+  if (!panel) return;
+
+  if (qltdPbDetailState.contextKey === context.key) {
+    qltdPbDetailRender();
+    return;
+  }
+
+  qltdPbDetailState.requestSeq += 1;
+  qltdPbDetailState.formMode = '';
+  qltdPbDetailState.editingId = '';
+  qltdPbDetailState.masterTask = null;
+  qltdPbDetailState.detailTasks = [];
+  qltdPbDetailLoad(false, context);
 }
 
 function qltdPbDetailBoot() {
   qltdPbDetailEnsureStyles();
-
-  const observer = new MutationObserver(() => qltdPbDetailScheduleMount());
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-
-  document.addEventListener('change', (event) => {
-    const id = event.target?.id || '';
-    if (['projectSelector', 'deptSelector', 'weeklyMasterSelector'].includes(id)) {
-      qltdPbDetailState.requestSeq += 1;
-      qltdPbDetailState.contextKey = '';
-      qltdPbDetailState.masterTask = null;
-      qltdPbDetailState.detailTasks = [];
-      qltdPbDetailScheduleMount(180);
-    }
-  }, true);
-
-  qltdPbDetailScheduleMount(120);
+  document.addEventListener('qltd:dept-plan-rendered', qltdPbDetailHandleDeptPlanRendered);
   console.info(`[QLTD] PB_DETAIL UI loaded: ${QLTD_PB_DETAIL_UI_VERSION}`);
 }
 
