@@ -32,6 +32,235 @@ body {
   overflow-x: hidden;
 }
 
+.admin-approval-card,
+.weekly-inline-form {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-approval-heading,
+.weekly-update-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.admin-approval-heading span,
+.weekly-form-section-title span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.admin-approval-heading h2 {
+  margin: 4px 0 6px;
+  color: #0f172a;
+}
+
+.admin-approval-heading p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.admin-approval-table-wrap,
+.weekly-standalone-budget-grid,
+.weekly-budget-grid,
+.weekly-info-grid {
+  width: 100%;
+}
+
+.admin-approval-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.weekly-task-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.approval-status-badge,
+.budget-flow-badge,
+.budget-warning-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.approval-status-badge.is-pending {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.approval-status-badge.is-approved,
+.budget-flow-badge.is-thu {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.approval-status-badge.is-rejected,
+.budget-flow-badge.is-chi {
+  background: #fef2f2;
+  color: #b42318;
+}
+
+.budget-flow-badge.is-unknown {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.budget-warning-badge {
+  margin: 8px 0 0;
+  background: #fff7ed;
+  color: #a15c07;
+}
+
+.master-completion-warning {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #fbbf24;
+  border-left: 4px solid #d97706;
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.master-completion-warning.compact {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.weekly-form-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.weekly-form-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.weekly-info-grid,
+.weekly-budget-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.weekly-info-grid > div,
+.weekly-budget-grid > div {
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.weekly-info-grid span,
+.weekly-budget-grid span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.weekly-info-grid strong,
+.weekly-budget-grid strong {
+  color: #0f172a;
+}
+
+.weekly-update-field textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.weekly-budget-section {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.weekly-approval-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.weekly-standalone-budget {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: #f8fbff;
+}
+
+.weekly-standalone-budget h3 {
+  margin: 0;
+}
+
+.weekly-standalone-budget-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.weekly-standalone-budget-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.review-reason {
+  display: block;
+  margin-top: 4px;
+  color: #b42318;
+}
+
+@media (max-width: 900px) {
+  .weekly-info-grid,
+  .weekly-budget-grid,
+  .weekly-standalone-budget-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .weekly-info-grid,
+  .weekly-budget-grid,
+  .weekly-standalone-budget-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .page {
   min-height: 100vh;
   background:

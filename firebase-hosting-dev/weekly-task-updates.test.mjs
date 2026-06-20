@@ -33,6 +33,11 @@ const context = {
   qltdWorkBuildDeptContext_: () => ({}),
   qltdWorkReadTaskTarget_: () => ({ error: true }),
   qltdPbDetailBuildSheetContext_: () => ({ error: true }),
+  qltdGanttGetDataForProject_: () => ({ success: true, data: [] }),
+  qltdBudgetReadBudgetItems_: () => ({ items: [], warnings: [] }),
+  qltdWorkIsAdminScope_: () => true,
+  qltdBudgetNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
+  QLTD_BUDGET_TYPE: { TASK_LINKED: 'TASK_LINKED', DEPT_STANDALONE: 'DEPT_STANDALONE' },
   qltdWorkUpdateTask_: () => ({ success: true }),
   qltdWorkUpdateDetailTask_: () => ({ success: true }),
   QLTD_WORK_WRITE_LOCK_TIMEOUT_MS: 1000,
@@ -42,8 +47,8 @@ const context = {
   console
 };
 vm.createContext(context);
-vm.runInContext(`${source}\nthis.api = { buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_ };`, context);
-const { buildKey, buildItem, sortItems, date, inspect, save } = context.api;
+vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_ };`, context);
+const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review } = context.api;
 
 assert.equal(buildKey('p1', 'ptda', 'week-2026-06-01', 'master', 'CV-1'), 'P1|PTDA|WEEK-2026-06-01|MASTER|CV-1');
 assert.equal(date('2026-06-01'), '2026-06-01');
@@ -54,6 +59,7 @@ assert.equal(buildItem('MASTER', 'CV-1', base, '2026-06-08', '2026-06-14', '').e
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, planFinish: '2026-06-01' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'OVERDUE');
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, actualStart: '2026-05-01' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'IN_PROGRESS');
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, progress: 100, actualFinish: '2026-06-10' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'COMPLETED_THIS_WEEK');
+assert.equal(buildItem('MASTER', 'CV-1', { ...base, status: 'Hoàn thành', progress: 0, actualFinish: '' }, '2026-07-06', '2026-07-12', '').eligible, false);
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, planFinish: '' }, '2026-07-06', '2026-07-12', '').eligibleReason, 'PLANNED');
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, planFinish: '', progress: 100 }, '2026-07-06', '2026-07-12', '').eligible, false);
 assert.equal(buildItem('MASTER', 'CV-1', { wbs: '1', taskName: 'Không lịch', progress: 0 }, '2026-06-08', '2026-06-14', '').eligible, false);
@@ -67,10 +73,14 @@ const sorted = [
 ].sort(sortItems);
 assert.deepEqual(sorted.map((item) => item.eligibleReason), ['OVERDUE', 'IN_PROGRESS', 'PLANNED']);
 
-const headers = ['UpdateId', 'ProjectCode', 'DeptCode', 'WeekCode', 'ItemType', 'ItemId', 'ThisWeekResult', 'ProgressEnd', 'TaskStatus', 'ActualStart', 'ActualFinish', 'Issue', 'Recommendation', 'BudgetThisWeek', 'BudgetNote', 'UpdatedBy', 'UpdatedAt'];
 const sheet = { getRange: () => ({ getValues: () => [headers] }), getLastColumn: () => 17 };
-assert.equal(inspect(sheet).headerMatches, true);
-const badSheet = { getRange: () => ({ getValues: () => [[...headers.slice(0, 16), 'Wrong']] }), getLastColumn: () => 17 };
+assert.equal(inspect(sheet).headerMatches, false);
+assert.equal(inspect(sheet).canAppendApprovalColumns, false);
+const readySheet = { getRange: () => ({ getValues: () => [headers] }), getLastColumn: () => 21 };
+assert.equal(inspect(readySheet).headerMatches, true);
+const oldSheet = { getRange: () => ({ getValues: () => [baseHeaders] }), getLastColumn: () => 17 };
+assert.equal(inspect(oldSheet).canAppendApprovalColumns, true);
+const badSheet = { getRange: () => ({ getValues: () => [[...headers.slice(0, 20), 'Wrong']] }), getLastColumn: () => 21 };
 assert.equal(inspect(badSheet).headerMatches, false);
 
 sheetRows.push(headers.slice());
@@ -83,5 +93,13 @@ assert.equal(save({ ...saveBase, itemId: 'CV-2' }).inserted, true);
 assert.equal(sheetRows.length, 3);
 assert.equal(save({ ...saveBase, weekCode: 'WEEK-2026-06-08' }).inserted, true);
 assert.equal(sheetRows.length, 4);
+
+const pending = save({ ...saveBase, itemId: 'CV-100', progressEnd: 100, taskStatus: 'Hoàn thành' });
+assert.equal(pending.update.approvalStatus, 'PENDING');
+assert.equal(pending.taskSync.approvalRequired, true);
+assert.equal(sheetRows.length, 5);
+const reviewResult = review({ email: 'admin@example.com', updateId: pending.update.updateId, approvalStatus: 'APPROVED' });
+assert.equal(reviewResult.approval.approvalStatus, 'APPROVED');
+assert.equal(reviewResult.masterAutoUpdated, false);
 
 console.log('weekly-task-updates tests: PASS');

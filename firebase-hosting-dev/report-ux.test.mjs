@@ -30,7 +30,15 @@ const weeklyPanel = latestFunction('renderWeeklyTaskUpdatePanel', 'renderWeeklyT
 assert.match(weeklyPanel, /single-week-toolbar/);
 assert.match(weeklyPanel, /Thứ Hai – Chủ nhật/);
 assert.match(weeklyPanel, /selected \? renderWeeklySelectedForm/);
+assert.match(weeklyPanel, /renderStandaloneBudgetWeeklyBlock/);
 assert.doesNotMatch(weeklyPanel, /renderWeekPeriodsHtml|renderWeeklyNextItems/);
+
+const weeklyForm = latestFunction('renderWeeklySelectedForm', 'bindWeeklyTaskUpdateControls');
+assert.match(weeklyForm, /THÔNG TIN CÔNG VIỆC/);
+assert.match(weeklyForm, /KẾT QUẢ TUẦN/);
+assert.match(weeklyForm, /TÌNH TRẠNG CÔNG VIỆC/);
+assert.match(weeklyForm, /Mức hoàn thành đến hết tuần/);
+assert.match(weeklyForm, /Cong_viec/);
 
 const loader = latestFunction('loadWeeklyTaskData(', 'loadWeeklyTaskDataForCurrent');
 assert.equal((loader.match(/fetchBackendJson\(/g) || []).length, 2);
@@ -63,6 +71,9 @@ assert.match(styles, /\.report-subtabs/);
 assert.match(styles, /\.detail-status-overlay/);
 assert.match(styles, /\.detail-status-badge\.is-overdue/);
 assert.match(styles, /\.weekly-task-row/);
+assert.match(styles, /\.admin-approval-card/);
+assert.match(styles, /\.budget-flow-badge\.is-thu/);
+assert.match(styles, /\.master-completion-warning/);
 assert.match(styles, /body\.qltd-report-mode \.dept-plan-panel\.compact/);
 assert.match(styles, /overflow-x: hidden/);
 
