@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 13px; color: #222; padding: 16px; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 12px; background: #f8fbfd; margin-bottom: 14px; }
+    .row { display: grid; grid-template-columns: 190px 1fr; gap: 8px; margin-bottom: 6px; }
+    label { font-weight: 700; margin-top: 10px; display: block; }
+    input, textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #bbb; border-radius: 6px; font-family: Arial, sans-serif; font-size: 13px; }
+    textarea { min-height: 76px; resize: vertical; }
+    .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    button { padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; }
+    .primary { background: #1F4E78; color: white; }
+    .secondary { background: #e0e0e0; color: #222; }
+    .hint { color: #666; font-size: 12px; margin-top: 4px; }
+    .error { color: #b00020; font-weight: 700; margin-top: 10px; white-space: pre-wrap; }
+    .success { color: #0b6b28; font-weight: 700; margin-top: 10px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>Đề xuất điều chỉnh tiến độ</h2>
+  <div class="box" id="infoBox"></div>
+
+  <form id="adjustForm">
+    <label>Ngày bắt đầu đề xuất <span style="color:red">*</span></label>
+    <input name="bdDeXuat" placeholder="dd/MM/yyyy" required>
+    <div class="hint">Ví dụ: 01/06/2026</div>
+
+    <label>Ngày kết thúc đề xuất <span style="color:red">*</span></label>
+    <input name="ktDeXuat" placeholder="dd/MM/yyyy" required>
+    <div class="hint">Ví dụ: 25/06/2026</div>
+
+    <label>Nguyên nhân/lý do điều chỉnh <span style="color:red">*</span></label>
+    <textarea name="lyDo" required placeholder="Nêu rõ nguyên nhân khách quan/chủ quan dẫn đến đề xuất điều chỉnh..."></textarea>
+
+    <label>Ảnh hưởng nếu không điều chỉnh <span style="color:red">*</span></label>
+    <textarea name="anhHuong" required placeholder="Nêu ảnh hưởng đến tiến độ, chất lượng, pháp lý, phối hợp hoặc mốc mục tiêu..."></textarea>
+
+    <label>Giải pháp/kiến nghị</label>
+    <textarea name="giaiPhap" placeholder="Nêu kiến nghị xử lý, điều kiện phối hợp, thời hạn bổ sung..."></textarea>
+
+    <div class="actions">
+      <button type="button" class="secondary" onclick="google.script.host.close()">Đóng</button>
+      <button type="submit" class="primary" id="submitBtn">Gửi đề xuất</button>
+    </div>
+    <div id="message"></div>
+  </form>
+
+  <script>
+    const ctx = JSON.parse('<?= ctxJson ?>');
+    function esc(s) {
+      return String(s || '').replace(/[&<>"']/g, function(m) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m];
+      });
+    }
+    document.getElementById('infoBox').innerHTML = `
+      <div class="row"><div><b>Phòng/Ban</b></div><div>${esc(ctx.phongBan)}</div></div>
+      <div class="row"><div><b>WBS</b></div><div>${esc(ctx.wbs)}</div></div>
+      <div class="row"><div><b>Nội dung</b></div><div>${esc(ctx.noiDung)}</div></div>
+      <div class="row"><div><b>Mã Master</b></div><div>${esc(ctx.maMaster)}</div></div>
+      <div class="row"><div><b>Bắt đầu hiện tại</b></div><div>${esc(ctx.bdKeHoach)}</div></div>
+      <div class="row"><div><b>Kết thúc hiện tại</b></div><div>${esc(ctx.ktKeHoach)}</div></div>
+      <div class="row"><div><b>Trạng thái hiện tại</b></div><div>${esc(ctx.trangThai)}</div></div>`;
+
+    document.getElementById('adjustForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submitBtn');
+      const msg = document.getElementById('message');
+      btn.disabled = true;
+      btn.textContent = 'Đang gửi...';
+      msg.className = '';
+      msg.textContent = 'Đang gửi...';
+      const fd = new FormData(e.target);
+      const payload = {
+        ctxJson: JSON.stringify(ctx),
+        bdDeXuat: fd.get('bdDeXuat'),
+        ktDeXuat: fd.get('ktDeXuat'),
+        lyDo: fd.get('lyDo'),
+        anhHuong: fd.get('anhHuong'),
+        giaiPhap: fd.get('giaiPhap')
+      };
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res && res.success === true) {
+            google.script.host.close();
+            return;
+          }
+          msg.className = 'error';
+          msg.textContent = res && res.message ? res.message : 'Không gửi được đề xuất.';
+          btn.disabled = false;
+          btn.textContent = 'Gửi đề xuất';
+        })
+        .withFailureHandler(function(err) {
+          msg.className = 'error';
+          msg.textContent = err && err.message ? err.message : String(err);
+          btn.disabled = false;
+          btn.textContent = 'Gửi đề xuất';
+        })
+        .guiDeXuatDieuChinhTienDoPBV1(payload);
+    });
+  </script>
+</body>
+</html>

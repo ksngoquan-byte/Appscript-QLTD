@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 13px; color: #222; padding: 16px; }
+    h2 { margin: 0 0 12px; }
+    .warning { border: 1px solid #d93025; background: #fce8e6; color: #7a1b12; border-radius: 6px; padding: 10px; margin-bottom: 14px; font-weight: 700; }
+    .grid { display: grid; grid-template-columns: 190px 1fr; gap: 10px 12px; align-items: center; }
+    label { font-weight: 700; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #bbb; border-radius: 6px; font-family: Arial, sans-serif; font-size: 13px; }
+    input[readonly] { background: #f3f3f3; color: #555; }
+    .hint { color: #666; font-size: 12px; margin-top: 4px; }
+    .confirm { margin-top: 14px; padding-top: 12px; border-top: 1px solid #ddd; }
+    .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    button { padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; }
+    button:disabled { opacity: 0.65; cursor: not-allowed; }
+    .primary { background: #1F4E78; color: white; }
+    .secondary { background: #e0e0e0; color: #222; }
+    .error { color: #b00020; font-weight: 700; margin-top: 10px; white-space: pre-wrap; }
+    .success { color: #0b6b28; font-weight: 700; margin-top: 10px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>Khởi tạo file PB sau nhân bản</h2>
+  <div class="warning">
+    Thao tác này sẽ xóa dữ liệu đã đồng bộ và yêu cầu điều chỉnh cũ trong file PB hiện tại.
+  </div>
+
+  <form id="initForm">
+    <div class="grid">
+      <label>Mã dự án <span style="color:red">*</span></label>
+      <input name="maDuAn" required>
+
+      <label>Tên dự án <span style="color:red">*</span></label>
+      <input name="tenDuAn" required>
+
+      <label>Tên đầy đủ dự án</label>
+      <input name="tenDayDuDuAn">
+
+      <label>Tên file Master <span style="color:red">*</span></label>
+      <input name="tenFileMaster" required>
+
+      <label>ID file Master <span style="color:red">*</span></label>
+      <input name="idFileMaster" required>
+
+      <label>Email nhận đề xuất <span style="color:red">*</span></label>
+      <input name="emailNhanDeXuat" type="email" required>
+
+      <label>Tên người nhận</label>
+      <input name="tenNguoiNhan">
+
+      <label>Tên file PB</label>
+      <input name="tenFilePb" readonly>
+
+      <label>ID file PB</label>
+      <input name="idFilePb" readonly>
+    </div>
+
+    <div class="confirm">
+      <label>Nhập chính xác RESET PB để xác nhận <span style="color:red">*</span></label>
+      <input name="confirmText" required autocomplete="off">
+      <div class="hint">Chỉ khi chuỗi xác nhận đúng, hệ thống mới reset file PB hiện tại.</div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="secondary" onclick="google.script.host.close()">Đóng</button>
+      <button type="submit" class="primary" id="submitBtn">Khởi tạo file PB</button>
+    </div>
+    <div id="message"></div>
+  </form>
+
+  <script>
+    const ctx = JSON.parse('<?= ctxJson ?>');
+    const form = document.getElementById('initForm');
+    form.maDuAn.value = ctx.maDuAn || '';
+    form.tenDuAn.value = ctx.tenDuAn || '';
+    form.tenDayDuDuAn.value = ctx.tenDayDuDuAn || '';
+    form.tenFileMaster.value = ctx.tenFileMaster || '';
+    form.idFileMaster.value = ctx.idFileMaster || '';
+    form.emailNhanDeXuat.value = ctx.emailNhanDeXuat || '';
+    form.tenNguoiNhan.value = ctx.tenNguoiNhan || '';
+    form.tenFilePb.value = ctx.tenFilePb || '';
+    form.idFilePb.value = ctx.idFilePb || '';
+
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submitBtn');
+      const msg = document.getElementById('message');
+      btn.disabled = true;
+      btn.textContent = 'Đang khởi tạo...';
+      msg.className = '';
+      msg.textContent = 'Đang khởi tạo...';
+
+      const fd = new FormData(form);
+      const payload = {
+        maDuAn: fd.get('maDuAn'),
+        tenDuAn: fd.get('tenDuAn'),
+        tenDayDuDuAn: fd.get('tenDayDuDuAn'),
+        tenFileMaster: fd.get('tenFileMaster'),
+        idFileMaster: fd.get('idFileMaster'),
+        emailNhanDeXuat: fd.get('emailNhanDeXuat'),
+        tenNguoiNhan: fd.get('tenNguoiNhan'),
+        confirmText: fd.get('confirmText')
+      };
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res && res.success === true) {
+            msg.className = 'success';
+            msg.textContent = res.message || 'Đã khởi tạo file PB sau nhân bản.';
+            setTimeout(function() { google.script.host.close(); }, 1200);
+            return;
+          }
+          msg.className = 'error';
+          msg.textContent = res && res.message ? res.message : 'Không khởi tạo được file PB.';
+          btn.disabled = false;
+          btn.textContent = 'Khởi tạo file PB';
+        })
+        .withFailureHandler(function(err) {
+          msg.className = 'error';
+          msg.textContent = err && err.message ? err.message : String(err);
+          btn.disabled = false;
+          btn.textContent = 'Khởi tạo file PB';
+        })
+        .khoiTaoFilePBSauNhanBanPBV1(payload);
+    });
+  </script>
+</body>
+</html>
