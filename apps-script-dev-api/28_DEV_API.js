@@ -65,6 +65,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdWorkGetDeptTasks_(params));
   }
 
+  if (action === 'work_getdetailtasks') {
+    return qltdDevApiJson_(qltdWorkGetDetailTasks_(params));
+  }
+
   if (action === 'weekly_getmyreports') {
     return qltdDevApiJson_(qltdWeeklyGetMyReports_(params));
   }
@@ -172,6 +176,14 @@ function qltdDevApiHandlePost_(e) {
 
   if (action === 'work_updatetask') {
     return qltdDevApiJson_(qltdWorkUpdateTask_(payload));
+  }
+
+  if (action === 'work_createdetailtask') {
+    return qltdDevApiJson_(qltdWorkCreateDetailTask_(payload));
+  }
+
+  if (action === 'work_updatedetailtask') {
+    return qltdDevApiJson_(qltdWorkUpdateDetailTask_(payload));
   }
 
   if (action === 'weekly_savedraft') {

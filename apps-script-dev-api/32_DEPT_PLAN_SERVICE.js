@@ -1,6 +1,7 @@
 const QLTD_DEPT_PLAN_ROW_TYPE_CONTEXT = 'CONTEXT';
 const QLTD_DEPT_PLAN_ROW_TYPE_MASTER = 'MASTER';
 const QLTD_DEPT_PLAN_ROW_TYPE_DETAIL_SLOT = 'DETAIL_SLOT';
+const QLTD_DEPT_PLAN_ROW_TYPE_PB_DETAIL = 'PB_DETAIL';
 
 function qltdDeptPlanListForProject_(projectCode) {
   const project = qltdProjectsGetByCode_(projectCode);
@@ -197,15 +198,20 @@ function qltdDeptPlanParseSheet_(sheet, project) {
       taskName: taskName,
       planStart: columnMap.planStart >= 0 ? qltdDeptPlanFormatDate_(row[columnMap.planStart]) : '',
       planFinish: columnMap.planFinish >= 0 ? qltdDeptPlanFormatDate_(row[columnMap.planFinish]) : '',
+      budgetPlan: columnMap.budgetPlan >= 0 ? row[columnMap.budgetPlan] : '',
       status: columnMap.status >= 0 ? String(row[columnMap.status] || '').trim() : '',
       actualStart: columnMap.actualStart >= 0 ? qltdDeptPlanFormatDate_(row[columnMap.actualStart]) : '',
       actualFinish: columnMap.actualFinish >= 0 ? qltdDeptPlanFormatDate_(row[columnMap.actualFinish]) : '',
+      budgetActual: columnMap.budgetActual >= 0 ? row[columnMap.budgetActual] : '',
       owner: columnMap.owner >= 0 ? String(row[columnMap.owner] || '').trim() : '',
       coordinator: columnMap.coordinator >= 0 ? String(row[columnMap.coordinator] || '').trim() : '',
       condition: columnMap.condition >= 0 ? String(row[columnMap.condition] || '').trim() : '',
       note: columnMap.note >= 0 ? String(row[columnMap.note] || '').trim() : '',
       masterCode: masterCode,
-      rowType: rowType
+      rowType: rowType,
+      detailTaskId: columnMap.detailTaskId >= 0 ? String(row[columnMap.detailTaskId] || '').trim() : '',
+      progress: columnMap.progress >= 0 ? row[columnMap.progress] : '',
+      weight: columnMap.weight >= 0 ? row[columnMap.weight] : ''
     };
 
     if (rowType === QLTD_DEPT_PLAN_ROW_TYPE_CONTEXT) {
@@ -218,6 +224,7 @@ function qltdDeptPlanParseSheet_(sheet, project) {
     if (rowType === QLTD_DEPT_PLAN_ROW_TYPE_MASTER) {
       currentMaster = item;
       currentMaster.detailSlots = [];
+      currentMaster.details = [];
       currentMaster.contextMasterCode = currentContext ? currentContext.masterCode : '';
       currentMaster.contextName = currentContext ? currentContext.taskName : '';
       masters.push(currentMaster);
@@ -231,6 +238,11 @@ function qltdDeptPlanParseSheet_(sheet, project) {
       if (currentMaster) {
         currentMaster.detailSlots.push(item);
       }
+    }
+
+    if (rowType === QLTD_DEPT_PLAN_ROW_TYPE_PB_DETAIL && currentMaster) {
+      item.parentMasterCode = masterCode;
+      currentMaster.details.push(item);
     }
   }
 
@@ -289,12 +301,16 @@ function qltdDeptPlanBuildColumnMap_(headers) {
     status: normalizedHeaders.indexOf('TRANGTHAITHUCHIEN'),
     actualStart: normalizedHeaders.indexOf('BATDAUTHUCTE'),
     actualFinish: normalizedHeaders.indexOf('HOANTHANHTHUCTE'),
+    budgetActual: normalizedHeaders.indexOf('NGANSACHTHUCTE'),
     owner: normalizedHeaders.indexOf('NGUOICHUTRI'),
     coordinator: normalizedHeaders.indexOf('NGUOIPHOIHOP'),
     condition: normalizedHeaders.indexOf('DIEUKIENDAUVAO'),
     note: normalizedHeaders.indexOf('GHICHUCAPNHAT'),
     masterCode: normalizedHeaders.indexOf('MACONGVIECMASTER'),
-    rowType: normalizedHeaders.indexOf('LOAIDONG')
+    rowType: normalizedHeaders.indexOf('LOAIDONG'),
+    detailTaskId: normalizedHeaders.indexOf('DETAILTASKID'),
+    progress: normalizedHeaders.indexOf('HOANTHANH'),
+    weight: normalizedHeaders.indexOf('TRONGSO')
   };
 }
 
