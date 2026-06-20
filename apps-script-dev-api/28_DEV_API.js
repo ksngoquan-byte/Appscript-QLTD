@@ -69,6 +69,14 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdWorkGetDetailTasks_(params));
   }
 
+  if (action === 'work_listweeklyitems') {
+    return qltdDevApiJson_(qltdWorkListWeeklyItems_(params));
+  }
+
+  if (action === 'weekly_taskupdates_get') {
+    return qltdDevApiJson_(qltdWeeklyTaskUpdatesGet_(params));
+  }
+
   if (action === 'work_listassignees') {
     return qltdDevApiJson_(qltdWorkListAssignees_(params));
   }
@@ -188,6 +196,10 @@ function qltdDevApiHandlePost_(e) {
 
   if (action === 'work_updatedetailtask') {
     return qltdDevApiJson_(qltdWorkUpdateDetailTask_(payload));
+  }
+
+  if (action === 'weekly_taskupdates_save') {
+    return qltdDevApiJson_(qltdWeeklyTaskUpdatesSave_(payload));
   }
 
   if (action === 'weekly_savedraft') {

@@ -14,14 +14,18 @@ const QLTD_WORK_TASK_OPTIONAL_HEADERS = {
   taskName: 'Noi dung cong viec',
   rowType: 'Loai dong',
   planStart: 'Ngay bat dau ke hoach',
-  planFinish: 'Ngay ket thuc ke hoach'
+  planFinish: 'Ngay ket thuc ke hoach',
+  progress: '% Hoan thanh',
+  budgetPlan: 'Ke hoach ngan sach',
+  budgetActual: 'Ngan sach thuc te'
 };
 
 const QLTD_WORK_TASK_UPDATE_HEADERS = {
   status: 'Trang thai thuc hien',
   actualStart: 'Bat dau thuc te',
   actualFinish: 'Hoan thanh thuc te',
-  updateNote: 'Ghi chu cap nhat'
+  updateNote: 'Ghi chu cap nhat',
+  progress: '% Hoan thanh'
 };
 
 function qltdWorkGetMyTasks_(params) {
@@ -550,6 +554,9 @@ function qltdWorkParseDeptTaskSheet_(sheet) {
       actualStart: qltdBudgetFormatDate_(qltdBudgetGetCell_(row, parsed.headerMap, 'Bat dau thuc te', '')),
       actualFinish: qltdBudgetFormatDate_(qltdBudgetGetCell_(row, parsed.headerMap, 'Hoan thanh thuc te', '')),
       updateNote: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ghi chu cap nhat', '') || '').trim(),
+      progress: qltdBudgetToNumber_(qltdBudgetGetCell_(row, parsed.headerMap, QLTD_WORK_TASK_OPTIONAL_HEADERS.progress, 0)),
+      budgetPlan: qltdBudgetToNumber_(qltdBudgetGetCell_(row, parsed.headerMap, QLTD_WORK_TASK_OPTIONAL_HEADERS.budgetPlan, 0)),
+      budgetActual: qltdBudgetToNumber_(qltdBudgetGetCell_(row, parsed.headerMap, QLTD_WORK_TASK_OPTIONAL_HEADERS.budgetActual, 0)),
       ownerText: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Nguoi chu tri', '') || '').trim(),
       coordinatorText: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Nguoi phoi hop', '') || '').trim(),
       rowNumber: item.rowNumber,
@@ -618,6 +625,9 @@ function qltdWorkBuildTaskDto_(task, context, currentEmail) {
     status: task.status,
     actualStart: task.actualStart,
     actualFinish: task.actualFinish,
+    progress: task.progress,
+    budgetPlan: task.budgetPlan,
+    budgetActual: task.budgetActual,
     updateNote: task.updateNote,
     ownerText: task.ownerText,
     coordinatorText: task.coordinatorText,
@@ -684,6 +694,7 @@ function qltdWorkNormalizeTaskUpdatePayload_(payload) {
     status: 'status',
     actualStart: 'actualStart',
     actualFinish: 'actualFinish',
+    progress: 'progress',
     updateNote: 'updateNote',
     note: 'updateNote'
   };
@@ -698,6 +709,14 @@ function qltdWorkNormalizeTaskUpdatePayload_(payload) {
       return;
     }
     const field = aliases[key];
+    if (field === 'progress') {
+      const progress = Number(input[key]);
+      if (isNaN(progress) || progress < 0 || progress > 100) {
+        unknownFields.push('progress:INVALID_PERCENT');
+        return;
+      }
+      input[key] = progress;
+    }
     updates[field] = input[key];
     if (fields.indexOf(field) === -1) fields.push(field);
   });
@@ -714,8 +733,12 @@ function qltdWorkNormalizeTaskUpdatePayload_(payload) {
 function qltdWorkApplyTaskUpdates_(targetResult, normalizedUpdate, email, relationship) {
   const changes = [];
   const updates = normalizedUpdate.updates || {};
-  ['status', 'actualStart', 'actualFinish'].forEach(function(field) {
+  ['status', 'actualStart', 'actualFinish', 'progress'].forEach(function(field) {
     if (!Object.prototype.hasOwnProperty.call(updates, field)) return;
+    if (field === 'progress' && qltdBudgetFindHeaderIndex_(targetResult.parsed.headerMap, QLTD_WORK_TASK_UPDATE_HEADERS.progress) < 0) {
+      targetResult.warnings.push(qltdWorkWarning_('MASTER_PROGRESS_HEADER_MISSING', 'MASTER progress header is missing; progress was not synced.'));
+      return;
+    }
     changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS[field], updates[field]));
   });
 
