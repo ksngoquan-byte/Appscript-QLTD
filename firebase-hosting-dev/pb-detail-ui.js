@@ -1,4 +1,4 @@
-const QLTD_PB_DETAIL_UI_VERSION = 'STEP_3B2B_REPORT_V2';
+const QLTD_PB_DETAIL_UI_VERSION = 'STEP_3B2C_HR_ASSIGNEE_V2';
 const QLTD_PB_DETAIL_API_URL = 'https://script.google.com/macros/s/AKfycbx6iHCEf6Ba05h6u6DiBcqv3kxV79T6RvktzoFsdBJXeQjBaCNMyGQL5akptlX8jGtxpg/exec';
 
 const qltdPbDetailState = {
@@ -10,6 +10,12 @@ const qltdPbDetailState = {
   editingId: '',
   loading: false,
   requestSeq: 0,
+  assigneeRequestSeq: 0,
+  assigneeKey: '',
+  assigneeLoading: false,
+  assignees: [],
+  assigneeError: '',
+  formDraft: null,
   contextMeta: {},
   message: '',
   messageType: 'info'
@@ -268,6 +274,19 @@ function qltdPbDetailEnsureStyles() {
     .pb-detail-field .pb-detail-budget-toggle input { width: auto; }
     .pb-detail-field.hidden { display: none; }
 
+    .pb-detail-assignee-list {
+      max-height: 150px;
+      overflow: auto;
+      padding: 7px;
+      border: 1px solid #cbd5e1;
+      border-radius: 9px;
+      background: #fff;
+    }
+    .pb-detail-assignee-option { display: flex; gap: 7px; align-items: flex-start; padding: 5px; font-size: 12px; }
+    .pb-detail-assignee-option input { width: auto; margin-top: 2px; }
+    .pb-detail-assignee-option.is-disabled { color: #94a3b8; }
+    .pb-detail-assignee-help { margin: 0; color: #64748b; font-size: 11px; }
+
     .pb-detail-form-actions {
       display: flex;
       justify-content: flex-end;
@@ -416,7 +435,31 @@ function qltdPbDetailRenderForm(context) {
   const task = isEdit
     ? qltdPbDetailState.detailTasks.find((item) => item.detailTaskId === qltdPbDetailState.editingId) || {}
     : {};
-  const hasBudgetPlan = task.budgetPlan !== '' && task.budgetPlan !== null && task.budgetPlan !== undefined;
+  const formValue = qltdPbDetailState.formDraft || task;
+  const hasBudgetPlan = formValue.hasBudgetPlan !== undefined
+    ? !!formValue.hasBudgetPlan
+    : formValue.budgetPlan !== '' && formValue.budgetPlan !== null && formValue.budgetPlan !== undefined;
+  const ownerEmail = qltdPbDetailExtractEmails(formValue.owner || '')[0] || '';
+  const coordinatorEmails = new Set(qltdPbDetailExtractEmails(formValue.coordinator || ''));
+  const assigneeDisabled = qltdPbDetailState.assigneeLoading || !!qltdPbDetailState.assigneeError;
+  const assigneeHelp = qltdPbDetailState.assigneeLoading
+    ? 'Đang tải nhân sự từ HR...'
+    : (qltdPbDetailState.assigneeError || 'Danh sách tự tải theo phòng/ban đang hiển thị trên kế hoạch tổng thể.');
+  const ownerOptions = qltdPbDetailState.assignees.map((person) => {
+    const label = [person.displayName, person.position].filter(Boolean).join(' — ');
+    return `<option value="${qltdPbDetailEscapeHtml(person.email || '')}" ${person.email === ownerEmail ? 'selected' : ''} ${person.assignable ? '' : 'disabled'}>${qltdPbDetailEscapeHtml(label)}${person.assignable ? '' : ' — thiếu email'}</option>`;
+  }).join('');
+  const currentOwnerOption = ownerEmail && !qltdPbDetailState.assignees.some((person) => person.email === ownerEmail)
+    ? `<option value="${qltdPbDetailEscapeHtml(ownerEmail)}" selected>${qltdPbDetailEscapeHtml(ownerEmail)} — không còn trong danh sách hợp lệ</option>`
+    : '';
+  const coordinatorOptions = qltdPbDetailState.assignees.map((person) => {
+    const label = [person.displayName, person.position].filter(Boolean).join(' — ');
+    return `<label class="pb-detail-assignee-option ${person.assignable ? '' : 'is-disabled'}"><input type="checkbox" name="coordinator" value="${qltdPbDetailEscapeHtml(person.email || '')}" ${coordinatorEmails.has(person.email) ? 'checked' : ''} ${person.assignable ? '' : 'disabled'}><span>${qltdPbDetailEscapeHtml(label)}${person.assignable ? '' : ' — thiếu email'}</span></label>`;
+  }).join('');
+  const unavailableCoordinators = Array.from(coordinatorEmails)
+    .filter((email) => !qltdPbDetailState.assignees.some((person) => person.email === email))
+    .map((email) => `<label class="pb-detail-assignee-option is-disabled"><input type="checkbox" name="coordinator" value="${qltdPbDetailEscapeHtml(email)}" checked><span>${qltdPbDetailEscapeHtml(email)} — không còn trong danh sách hợp lệ</span></label>`)
+    .join('');
 
   return `
     <form id="pbDetailForm" class="pb-detail-form" novalidate>
@@ -433,37 +476,41 @@ function qltdPbDetailRenderForm(context) {
       <div class="pb-detail-form-grid">
         <div class="pb-detail-field span-4">
           <label for="pbDetailTaskName">Nội dung việc chi tiết *</label>
-          <input id="pbDetailTaskName" name="taskName" type="text" maxlength="500" required value="${qltdPbDetailEscapeHtml(task.taskName || '')}">
+          <input id="pbDetailTaskName" name="taskName" type="text" maxlength="500" required value="${qltdPbDetailEscapeHtml(formValue.taskName || '')}">
         </div>
 
         <div class="pb-detail-field span-2">
           <label for="pbDetailPlanStart">Bắt đầu kế hoạch${isEdit ? '' : ' *'}</label>
-          <input id="pbDetailPlanStart" name="planStart" type="date" ${isEdit ? '' : 'required'} value="${qltdPbDetailEscapeHtml(task.planStart || '')}">
+          <input id="pbDetailPlanStart" name="planStart" type="date" ${isEdit ? '' : 'required'} value="${qltdPbDetailEscapeHtml(formValue.planStart || '')}">
         </div>
 
         <div class="pb-detail-field span-2">
           <label for="pbDetailPlanFinish">Kết thúc kế hoạch${isEdit ? '' : ' *'}</label>
-          <input id="pbDetailPlanFinish" name="planFinish" type="date" ${isEdit ? '' : 'required'} value="${qltdPbDetailEscapeHtml(task.planFinish || '')}">
+          <input id="pbDetailPlanFinish" name="planFinish" type="date" ${isEdit ? '' : 'required'} value="${qltdPbDetailEscapeHtml(formValue.planFinish || '')}">
         </div>
 
         <div class="pb-detail-field span-2">
-          <label for="pbDetailOwner">Người chủ trì</label>
-          <input id="pbDetailOwner" name="owner" type="text" value="${qltdPbDetailEscapeHtml(task.owner || '')}" placeholder="Để trống nếu chưa phân công">
+          <label for="pbDetailOwnerSearch">Người chủ trì</label>
+          <input id="pbDetailOwnerSearch" type="search" placeholder="Tìm theo tên hoặc vị trí" ${assigneeDisabled ? 'disabled' : ''}>
+          <select id="pbDetailOwner" name="owner" ${assigneeDisabled ? 'disabled' : ''}>
+            <option value="">Chưa phân công</option>${currentOwnerOption}${ownerOptions}
+          </select>
+          <p class="pb-detail-assignee-help">${qltdPbDetailEscapeHtml(assigneeHelp)}</p>
         </div>
 
         <div class="pb-detail-field span-2">
-          <label for="pbDetailCoordinator">Người phối hợp</label>
-          <input id="pbDetailCoordinator" name="coordinator" type="text" value="${qltdPbDetailEscapeHtml(task.coordinator || '')}">
+          <label>Người phối hợp</label>
+          <div id="pbDetailCoordinator" class="pb-detail-assignee-list">${coordinatorOptions}${unavailableCoordinators}${coordinatorOptions || unavailableCoordinators ? '' : '<span class="pb-detail-assignee-help">Không có nhân sự phù hợp.</span>'}</div>
         </div>
 
         <div class="pb-detail-field span-2">
           <label for="pbDetailCondition">Điều kiện đầu vào/phụ thuộc</label>
-          <textarea id="pbDetailCondition" name="condition">${qltdPbDetailEscapeHtml(task.condition || '')}</textarea>
+          <textarea id="pbDetailCondition" name="condition">${qltdPbDetailEscapeHtml(formValue.condition || '')}</textarea>
         </div>
 
         <div class="pb-detail-field span-2">
           <label for="pbDetailNote">Ghi chú kế hoạch</label>
-          <textarea id="pbDetailNote" name="note">${qltdPbDetailEscapeHtml(task.note || '')}</textarea>
+          <textarea id="pbDetailNote" name="note">${qltdPbDetailEscapeHtml(formValue.note || '')}</textarea>
         </div>
 
         <div class="pb-detail-field span-4">
@@ -475,7 +522,7 @@ function qltdPbDetailRenderForm(context) {
 
         <div id="pbDetailBudgetPlanField" class="pb-detail-field span-2 ${hasBudgetPlan ? '' : 'hidden'}">
           <label for="pbDetailBudgetPlan">Ngân sách kế hoạch (VNĐ)</label>
-          <input id="pbDetailBudgetPlan" name="budgetPlan" type="number" min="0" step="1" value="${qltdPbDetailEscapeHtml(task.budgetPlan || '')}">
+          <input id="pbDetailBudgetPlan" name="budgetPlan" type="number" min="0" step="1" value="${qltdPbDetailEscapeHtml(formValue.budgetPlan || '')}">
         </div>
       </div>
 
@@ -503,6 +550,67 @@ async function qltdPbDetailFetchGet(context) {
 
   if (!response.ok) throw new Error(`GET PB_DETAIL thất bại: HTTP ${response.status}`);
   return response.json();
+}
+
+async function qltdPbDetailFetchAssignees(context) {
+  const url = new URL(QLTD_PB_DETAIL_API_URL);
+  url.searchParams.set('action', 'work_listassignees');
+  url.searchParams.set('email', context.email);
+  url.searchParams.set('projectCode', context.projectCode);
+  url.searchParams.set('deptCode', context.deptCode);
+  const response = await fetch(url.toString(), { method: 'GET', cache: 'no-store', redirect: 'follow' });
+  if (!response.ok) throw new Error(`GET assignee thất bại: HTTP ${response.status}`);
+  return response.json();
+}
+
+async function qltdPbDetailLoadAssignees(context, force = false) {
+  const key = [context.projectCode, context.deptCode, context.email].join('::');
+  if (!context.projectCode || !context.deptCode || !context.email) return;
+  if (!force && qltdPbDetailState.assigneeKey === key) return;
+  qltdPbDetailCaptureFormDraft();
+  qltdPbDetailState.assigneeKey = key;
+  qltdPbDetailState.assigneeLoading = true;
+  qltdPbDetailState.assigneeError = '';
+  qltdPbDetailState.assignees = [];
+  qltdPbDetailRender();
+  const requestSeq = ++qltdPbDetailState.assigneeRequestSeq;
+  try {
+    const payload = await qltdPbDetailFetchAssignees(context);
+    if (requestSeq !== qltdPbDetailState.assigneeRequestSeq) return;
+    if (!payload?.success) throw new Error(qltdPbDetailExtractError(payload));
+    qltdPbDetailState.assignees = Array.isArray(payload.data?.assignees) ? payload.data.assignees : [];
+    const mappingWarning = (payload.warnings || []).find((item) => item.code === 'HR_DEPT_MAPPING_MISSING');
+    if (mappingWarning) qltdPbDetailState.assigneeError = mappingWarning.message;
+  } catch (error) {
+    if (requestSeq !== qltdPbDetailState.assigneeRequestSeq) return;
+    qltdPbDetailState.assigneeError = error.message || String(error);
+  } finally {
+    if (requestSeq === qltdPbDetailState.assigneeRequestSeq) {
+      qltdPbDetailState.assigneeLoading = false;
+      qltdPbDetailRender();
+    }
+  }
+}
+
+function qltdPbDetailExtractEmails(value) {
+  return String(value || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig)?.map((email) => email.toLowerCase()) || [];
+}
+
+function qltdPbDetailCaptureFormDraft() {
+  const form = document.getElementById('pbDetailForm');
+  if (!form || !qltdPbDetailState.formMode) return;
+  const data = new FormData(form);
+  qltdPbDetailState.formDraft = {
+    taskName: String(data.get('taskName') || ''),
+    planStart: String(data.get('planStart') || ''),
+    planFinish: String(data.get('planFinish') || ''),
+    owner: String(data.get('owner') || ''),
+    coordinator: data.getAll('coordinator').join(';'),
+    condition: String(data.get('condition') || ''),
+    note: String(data.get('note') || ''),
+    hasBudgetPlan: data.get('hasBudgetPlan') === 'on',
+    budgetPlan: String(data.get('budgetPlan') || '')
+  };
 }
 
 async function qltdPbDetailFetchPost(payload) {
@@ -543,6 +651,7 @@ async function qltdPbDetailLoad(force = false, providedContext = null) {
   qltdPbDetailState.loading = true;
   qltdPbDetailState.formMode = '';
   qltdPbDetailState.editingId = '';
+  qltdPbDetailState.formDraft = null;
   qltdPbDetailState.message = '';
   qltdPbDetailState.masterTask = null;
   qltdPbDetailState.detailTasks = [];
@@ -583,7 +692,7 @@ function qltdPbDetailReadFormPayload(context, isEdit) {
     planStart: String(data.get('planStart') || '').trim(),
     planFinish: String(data.get('planFinish') || '').trim(),
     owner: String(data.get('owner') || '').trim(),
-    coordinator: String(data.get('coordinator') || '').trim(),
+    coordinator: data.getAll('coordinator').map((value) => String(value || '').trim()).filter(Boolean).join(';'),
     budgetPlan: data.get('hasBudgetPlan') === 'on' ? String(data.get('budgetPlan') || '').trim() : '',
     condition: String(data.get('condition') || '').trim(),
     note: String(data.get('note') || '').trim()
@@ -626,6 +735,7 @@ async function qltdPbDetailSave() {
 
   const isEdit = qltdPbDetailState.formMode === 'edit';
   let payload;
+  qltdPbDetailCaptureFormDraft();
   try {
     payload = qltdPbDetailReadFormPayload(context, isEdit);
   } catch (error) {
@@ -655,6 +765,7 @@ async function qltdPbDetailSave() {
     const detailTaskId = result.data?.detailTaskId || payload.detailTaskId || '';
     qltdPbDetailState.formMode = '';
     qltdPbDetailState.editingId = '';
+    qltdPbDetailState.formDraft = null;
     qltdPbDetailState.message = `${isEdit ? 'Đã cập nhật' : 'Đã tạo'} việc chi tiết ${detailTaskId}.`;
     qltdPbDetailState.messageType = 'success';
     qltdPbDetailState.masterTask = null;
@@ -678,6 +789,7 @@ function qltdPbDetailHandleClick(event) {
   const action = button.dataset.pbDetailAction;
   if (action === 'reload') {
     qltdPbDetailLoad(true);
+    qltdPbDetailLoadAssignees(qltdPbDetailGetContext(), true);
     return;
   }
 
@@ -685,7 +797,9 @@ function qltdPbDetailHandleClick(event) {
     qltdPbDetailState.formMode = 'create';
     qltdPbDetailState.editingId = '';
     qltdPbDetailState.message = '';
+    qltdPbDetailState.formDraft = null;
     qltdPbDetailRender();
+    qltdPbDetailLoadAssignees(qltdPbDetailGetContext());
     document.getElementById('pbDetailTaskName')?.focus();
     return;
   }
@@ -694,7 +808,9 @@ function qltdPbDetailHandleClick(event) {
     qltdPbDetailState.formMode = 'edit';
     qltdPbDetailState.editingId = button.dataset.detailTaskId || '';
     qltdPbDetailState.message = '';
+    qltdPbDetailState.formDraft = null;
     qltdPbDetailRender();
+    qltdPbDetailLoadAssignees(qltdPbDetailGetContext());
     document.getElementById('pbDetailTaskName')?.focus();
     return;
   }
@@ -703,6 +819,7 @@ function qltdPbDetailHandleClick(event) {
     qltdPbDetailState.formMode = '';
     qltdPbDetailState.editingId = '';
     qltdPbDetailState.message = '';
+    qltdPbDetailState.formDraft = null;
     qltdPbDetailRender();
     return;
   }
@@ -718,6 +835,15 @@ function qltdPbDetailHandleChange(event) {
   if (budgetField) budgetField.classList.toggle('hidden', !event.target.checked);
 }
 
+function qltdPbDetailHandleInput(event) {
+  if (event.target?.id !== 'pbDetailOwnerSearch') return;
+  const query = qltdPbDetailNormalize(event.target.value);
+  document.querySelectorAll('#pbDetailOwner option').forEach((option, index) => {
+    if (index === 0) return;
+    option.hidden = !!query && !qltdPbDetailNormalize(option.textContent).includes(query);
+  });
+}
+
 function qltdPbDetailHandleDeptPlanRendered(event) {
   const detail = event.detail || {};
   qltdPbDetailState.contextMeta = {
@@ -731,9 +857,14 @@ function qltdPbDetailHandleDeptPlanRendered(event) {
   const context = qltdPbDetailGetContext();
   if (!context.projectCode || !context.deptCode || !context.masterTaskCode || !context.email) {
     qltdPbDetailState.requestSeq += 1;
+    qltdPbDetailState.assigneeRequestSeq += 1;
     qltdPbDetailState.contextKey = '';
+    qltdPbDetailState.assigneeKey = '';
+    qltdPbDetailState.assignees = [];
+    qltdPbDetailState.assigneeError = '';
     qltdPbDetailState.formMode = '';
     qltdPbDetailState.editingId = '';
+    qltdPbDetailState.formDraft = null;
     qltdPbDetailState.masterTask = null;
     qltdPbDetailState.detailTasks = [];
     qltdPbDetailState.loading = false;
@@ -745,20 +876,24 @@ function qltdPbDetailHandleDeptPlanRendered(event) {
 
   if (qltdPbDetailState.contextKey === context.key) {
     qltdPbDetailRender();
+    qltdPbDetailLoadAssignees(context);
     return;
   }
 
   qltdPbDetailState.requestSeq += 1;
   qltdPbDetailState.formMode = '';
   qltdPbDetailState.editingId = '';
+  qltdPbDetailState.formDraft = null;
   qltdPbDetailState.masterTask = null;
   qltdPbDetailState.detailTasks = [];
   qltdPbDetailLoad(false, context);
+  qltdPbDetailLoadAssignees(context);
 }
 
 function qltdPbDetailBoot() {
   qltdPbDetailEnsureStyles();
   document.addEventListener('qltd:dept-plan-rendered', qltdPbDetailHandleDeptPlanRendered);
+  document.addEventListener('input', qltdPbDetailHandleInput);
   console.info(`[QLTD] PB_DETAIL UI loaded: ${QLTD_PB_DETAIL_UI_VERSION}`);
 }
 

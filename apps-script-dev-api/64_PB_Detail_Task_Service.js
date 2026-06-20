@@ -567,15 +567,12 @@ function qltdPbDetailResolveAssigneeField_(updates, fieldName, context, action, 
     };
   }
 
-  const resolution = qltdWorkResolveAssignees_(updates[fieldName] || '', context.deptCode);
+  const resolution = qltdHrAssigneeResolve_(updates[fieldName] || '', context);
   if (!resolution.ok) return {
-    error: qltdWorkAssigneeResolutionError_(QLTD_PB_DETAIL_TASK_SOURCE, action, fieldName, resolution, context.meta, warnings)
+    error: qltdHrAssigneeResolutionError_(action, fieldName, resolution, context, warnings)
   };
   if (singleOnly && resolution.users.length > 1) return {
-    error: qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'OWNER_MULTIPLE_NOT_ALLOWED', 'Owner must be one user only.', context.meta, warnings)
-  };
-  if (qltdWorkFindAssigneeDeptMismatches_(resolution, context.deptCode).length) return {
-    error: qltdWorkAssigneeDeptMismatchError_(QLTD_PB_DETAIL_TASK_SOURCE, action, fieldName, resolution, context.deptCode, context.meta, warnings)
+    error: qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'OWNER_MULTIPLE_NOT_ALLOWED', 'Người chủ trì chỉ được chọn tối đa một người.', context.meta, warnings)
   };
 
   updates[fieldName] = resolution.canonicalText || String(updates[fieldName] || '').trim();

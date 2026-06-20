@@ -69,6 +69,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdWorkGetDetailTasks_(params));
   }
 
+  if (action === 'work_listassignees') {
+    return qltdDevApiJson_(qltdWorkListAssignees_(params));
+  }
+
   if (action === 'weekly_getmyreports') {
     return qltdDevApiJson_(qltdWeeklyGetMyReports_(params));
   }
