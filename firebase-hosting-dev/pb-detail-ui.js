@@ -793,6 +793,14 @@ async function qltdPbDetailSave() {
     qltdPbDetailState.message = `${isEdit ? 'Đã cập nhật' : 'Đã tạo'} việc chi tiết ${detailTaskId}.`;
     qltdPbDetailState.messageType = 'success';
     qltdPbDetailRender();
+    document.dispatchEvent(new CustomEvent('qltd:pb-detail-changed', {
+      detail: {
+        projectCode: context.projectCode,
+        deptCode: context.deptCode,
+        masterTaskCode: context.masterTaskCode,
+        detailTasks: qltdPbDetailState.detailTasks.slice()
+      }
+    }));
   } catch (error) {
     qltdPbDetailState.loading = false;
     qltdPbDetailState.message = error.message || String(error);

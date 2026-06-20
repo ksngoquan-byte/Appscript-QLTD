@@ -325,7 +325,7 @@ function qltdWeeklyTaskUpdatesBuildItem_(type, id, source, weekStart, weekEnd, s
   if (progress === 100 && actualFinish && actualFinish >= weekStart && actualFinish <= weekEnd) reason = 'COMPLETED_THIS_WEEK';
   else if (progress < 100 && planFinish && planFinish < weekStart) reason = 'OVERDUE';
   else if (progress < 100 && actualStart) reason = 'IN_PROGRESS';
-  else if (planStart && planFinish && planStart <= weekEnd && planFinish >= weekStart) reason = 'PLANNED';
+  else if (progress < 100 && planStart && planStart <= weekEnd) reason = 'PLANNED';
   else if (query && text.indexOf(query) !== -1 && !planStart && !planFinish) reason = 'UNSCHEDULED';
   if (query && text.indexOf(query) === -1) reason = '';
   return {

@@ -295,8 +295,12 @@ function qltdDeptPlanBuildColumnMap_(headers) {
   return {
     stt: normalizedHeaders.indexOf('STT'),
     taskName: normalizedHeaders.indexOf('NOIDUNGCONGVIEC'),
-    planStart: normalizedHeaders.indexOf('NGAYBATDAUKEHOACH'),
-    planFinish: normalizedHeaders.indexOf('NGAYKETTHUCKEHOACH'),
+    planStart: qltdDeptPlanFindHeaderAlias_(normalizedHeaders, [
+      'NGAYBATDAUKEHOACH', 'BATDAUKEHOACH', 'NGAYBATDAUKH', 'BATDAUKH'
+    ]),
+    planFinish: qltdDeptPlanFindHeaderAlias_(normalizedHeaders, [
+      'NGAYKETTHUCKEHOACH', 'KETTHUCKEHOACH', 'NGAYKETTHUCKH', 'KETTHUCKH'
+    ]),
     budgetPlan: normalizedHeaders.indexOf('KEHOACHNGANSACH'),
     status: normalizedHeaders.indexOf('TRANGTHAITHUCHIEN'),
     actualStart: normalizedHeaders.indexOf('BATDAUTHUCTE'),
@@ -314,8 +318,18 @@ function qltdDeptPlanBuildColumnMap_(headers) {
   };
 }
 
+function qltdDeptPlanFindHeaderAlias_(normalizedHeaders, aliases) {
+  for (let index = 0; index < aliases.length; index += 1) {
+    const column = normalizedHeaders.indexOf(aliases[index]);
+    if (column >= 0) return column;
+  }
+  return -1;
+}
+
 function qltdDeptPlanNormalizeHeader_(value) {
   return String(value || '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/Ãƒâ€žÃ¢â‚¬Ëœ/g, 'd')

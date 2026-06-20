@@ -1,26 +1,73 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 
 const app = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
 const pb = fs.readFileSync(new URL('./pb-detail-ui.js', import.meta.url), 'utf8');
 const styles = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
-const weeklyBinding = app.slice(app.indexOf('function bindWeeklyUpdateControls'), app.indexOf('function getWeeklyTaskCacheKey'));
-assert.match(weeklyBinding, /renderWeeklyUpdateRegion\(\)/);
-assert.doesNotMatch(weeklyBinding, /renderSelectedDeptPlan\(\)/);
-assert.doesNotMatch(weeklyBinding, /fetchBackendJson|dispatchDeptPlanRendered/);
-const weeklyTaskBinding = app.slice(app.indexOf('function bindWeeklyTaskUpdateControls'), app.indexOf('function renderWeeklyTaskRegion'));
-assert.match(weeklyTaskBinding, /renderWeeklyTaskRegion\(\)/);
-assert.doesNotMatch(weeklyTaskBinding, /renderSelectedDeptPlan\(\)|fetchBackendJson|dispatchDeptPlanRendered/);
-assert.match(app, /id="weeklyUpdateMount"/);
-assert.match(app, /class="weekly-period-control"/);
-assert.match(app, /Thời gian kế hoạch/);
+function latestFunction(name, nextName) {
+  const start = app.lastIndexOf(`function ${name}`);
+  const end = app.indexOf(`function ${nextName}`, start + 1);
+  assert.ok(start >= 0 && end > start, `Không tìm thấy hàm ${name}`);
+  return app.slice(start, end);
+}
+
+const selectedPlan = latestFunction('renderSelectedDeptPlan()', 'renderDeptPlanTab');
+assert.match(selectedPlan, /KẾ HOẠCH PHÒNG\/BAN/);
+assert.match(selectedPlan, /CẬP NHẬT TUẦN/);
+assert.doesNotMatch(selectedPlan, /KPI|getMonthWeekPeriods|renderWeekPeriodsHtml/);
+
+const planTab = latestFunction('renderDeptPlanTab', 'renderMasterDetailCount');
+assert.match(planTab, /Bắt đầu KH/);
+assert.match(planTab, /Kết thúc KH/);
+assert.match(planTab, /Việc chi tiết/);
+assert.match(planTab, /data-detail-popup/);
+assert.match(planTab, /formatIsoDateVi\(master\.planStart/);
+assert.match(planTab, /formatIsoDateVi\(master\.planFinish/);
+
+const weeklyPanel = latestFunction('renderWeeklyTaskUpdatePanel', 'renderWeeklyTaskList');
+assert.match(weeklyPanel, /single-week-toolbar/);
+assert.match(weeklyPanel, /Thứ Hai – Chủ nhật/);
+assert.match(weeklyPanel, /selected \? renderWeeklySelectedForm/);
+assert.doesNotMatch(weeklyPanel, /renderWeekPeriodsHtml|renderWeeklyNextItems/);
+
+const loader = latestFunction('loadWeeklyTaskData(', 'loadWeeklyTaskDataForCurrent');
+assert.equal((loader.match(/fetchBackendJson\(/g) || []).length, 2);
+assert.match(loader, /itemsResult\.data \|\| itemsResult/);
+assert.match(loader, /updatesResult\.data \|\| updatesResult/);
+assert.doesNotMatch(loader, /nextResult|getNextWeeklyPeriod/);
+
+const popup = latestFunction('openDetailStatusPopup', 'renderWeeklyTaskUpdatePanel');
+assert.match(popup, /work_getdetailtasks/);
+assert.match(popup, /qltdDetailPopupCache/);
+assert.match(app, /Chi tiết công việc thuộc mục tiêu/);
+assert.match(app, /Chọn để cập nhật/);
+assert.match(app, /qltdReportSubTab = 'weekly'/);
+assert.match(app, /itemType: 'PB_DETAIL'/);
+const summarySource = app.slice(app.indexOf('function getDetailTaskVisualState'), app.indexOf('function renderDetailStatusPopup'));
+const summaryContext = {};
+vm.createContext(summaryContext);
+vm.runInContext(`${summarySource}\nthis.buildSummary = buildDetailStatusSummary;`, summaryContext);
+const summary = summaryContext.buildSummary([
+  { progress: 100, status: 'Hoàn thành', budgetPlan: 100, budgetActual: 90 },
+  { progress: 50, actualStart: '2026-06-01', budgetPlan: 200, budgetActual: 80 },
+  { progress: 0, planFinish: '2020-01-01', budgetPlan: 50 },
+  { progress: 0, status: 'Chưa bắt đầu' }
+]);
+assert.deepEqual({ total: summary.total, completed: summary.completed, inProgress: summary.inProgress, notStarted: summary.notStarted, overdue: summary.overdue, progress: summary.progress }, { total: 4, completed: 1, inProgress: 1, notStarted: 1, overdue: 1, progress: 38 });
+assert.equal(summary.budgetPlan, 350);
+assert.equal(summary.budgetActual, 170);
+
+assert.match(styles, /\.report-subtabs/);
+assert.match(styles, /\.detail-status-overlay/);
+assert.match(styles, /\.detail-status-badge\.is-overdue/);
+assert.match(styles, /\.weekly-task-row/);
 assert.match(styles, /body\.qltd-report-mode \.dept-plan-panel\.compact/);
-assert.match(styles, /width: calc\(100vw - 32px\)/);
-assert.doesNotMatch(app, /Phần trong tháng|2 \/ 7 ngày|5 \/ 7 ngày/);
+assert.match(styles, /overflow-x: hidden/);
 
 const contextHandler = pb.slice(pb.indexOf('function qltdPbDetailHandleDeptPlanRendered'), pb.indexOf('function qltdPbDetailBoot'));
 assert.doesNotMatch(contextHandler, /qltdPbDetailLoadAssignees/);
 assert.match(pb, /qltdPbDetailAssigneeCache = new Map/);
 
-console.log('Report UX/request contract: 12/12 cases passed.');
+console.log('Report UX/request contract: PASS');

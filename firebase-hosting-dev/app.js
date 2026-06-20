@@ -26,7 +26,7 @@ import {
   toggleMainMilestoneTaskKey
 } from './main-milestone-logic.js';
 import { buildDepartmentDashboardModel } from './department-dashboard.js';
-import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2D_WEEKLY_FULLSCREEN';
+import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E2_PLANSTART_WEEKLY_UX';
 
 window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
 
@@ -79,6 +79,23 @@ const qltdWeeklyTaskCache = new Map();
 let qltdWeeklyTaskRequestSeq = 0;
 let qltdWeeklyTaskView = { key: '', items: [], updates: [], nextItems: [], loading: false, error: '' };
 let qltdSelectedWeeklyItemKey = '';
+let qltdReportSubTab = 'plan';
+let qltdWeeklyForcedItem = null;
+const qltdDetailPopupCache = new Map();
+let qltdDetailPopupRequestSeq = 0;
+
+document.addEventListener('qltd:pb-detail-changed', (event) => {
+  const detail = event.detail || {};
+  const cacheKey = [detail.projectCode || '', detail.deptCode || '', detail.masterTaskCode || ''].join('::');
+  qltdDetailPopupCache.delete(cacheKey);
+  Array.from(qltdWeeklyTaskCache.keys()).forEach((key) => {
+    if (key.startsWith(`${detail.projectCode || ''}::${detail.deptCode || ''}::`)) qltdWeeklyTaskCache.delete(key);
+  });
+  const dept = (qltdDeptPlanPayload?.departments || []).find((item) => (item.deptCode || item.sheetName) === detail.deptCode);
+  const master = (dept?.masters || []).find((item) => item.masterCode === detail.masterTaskCode);
+  if (master && Array.isArray(detail.detailTasks)) master.details = detail.detailTasks;
+  if (qltdReportSubTab === 'plan' && detail.deptCode === qltdSelectedDeptCode && detail.masterTaskCode === qltdSelectedMasterCode) renderSelectedDeptPlan();
+});
 
 const els = {
   loginView: document.getElementById('loginView'),
@@ -1327,7 +1344,7 @@ function dispatchDeptPlanRendered(payload, dept, master) {
   }));
 }
 
-function renderSelectedDeptPlan() {
+function renderSelectedDeptPlanLegacy() {
   const payload = qltdDeptPlanPayload;
   const status = document.getElementById('deptPlanStatus');
   const subtitle = document.getElementById('deptPlanSubTitle');
@@ -1611,7 +1628,7 @@ function getWeeklyTaskCacheKey(projectCode, deptCode, weekCode) {
   return [projectCode || '', deptCode || '', weekCode || ''].join('::');
 }
 
-function renderWeeklyTaskUpdatePanel(payload, dept, master, week, periods = []) {
+function renderWeeklyTaskUpdatePanelLegacy(payload, dept, master, week, periods = []) {
   if (!master || !week) return '<p class="empty-state">Chưa đủ dữ liệu để mở khung cập nhật tuần.</p>';
   const deptCode = dept.deptCode || dept.sheetName || '';
   const key = getWeeklyTaskCacheKey(payload.projectCode, deptCode, week.weekId);
@@ -1647,15 +1664,15 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week, periods = []) 
 }
 
 function renderWeeklySavedUpdates(updates, items) {
-  if (!updates.length) return '<section class="weekly-saved-section"><h3>Cập nhật đã lưu</h3><p class="empty-state">Chưa có cập nhật trong tuần.</p></section>';
-  return `<section class="weekly-saved-section"><h3>Cập nhật đã lưu</h3><div class="dept-plan-table-wrap"><table class="dept-plan-table"><thead><tr><th>Loại</th><th>WBS</th><th>Công việc</th><th>Kết quả tuần</th><th>Tiến độ</th><th>Trạng thái</th><th>Ngân sách tuần</th><th>Người cập nhật</th><th>Thời điểm</th><th>Sửa</th></tr></thead><tbody>${updates.map((update) => { const item = items.find((candidate) => candidate.itemType === update.itemType && candidate.itemId === update.itemId) || {}; return `<tr><td>${escapeHtml(update.itemType)}</td><td>${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || update.itemId)}</td><td>${escapeHtml(update.thisWeekResult)}</td><td>${escapeHtml(update.progressEnd)}%</td><td>${escapeHtml(update.taskStatus)}</td><td>${formatWeeklyCurrency(update.budgetThisWeek)}</td><td>${escapeHtml(update.updatedBy)}</td><td>${escapeHtml(formatWeeklyDateTime(update.updatedAt))}</td><td><button class="weekly-edit-button" type="button" data-weekly-item="${escapeHtml(`${update.itemType}:${update.itemId}`)}">Sửa</button></td></tr>`; }).join('')}</tbody></table></div></section>`;
+  if (!updates.length) return '<section class="weekly-saved-section"><h3>Các cập nhật đã lưu trong tuần</h3><p class="empty-state">Chưa có cập nhật trong tuần.</p></section>';
+  return `<section class="weekly-saved-section"><h3>Các cập nhật đã lưu trong tuần</h3><div class="dept-plan-table-wrap"><table class="dept-plan-table"><thead><tr><th>Loại</th><th>WBS</th><th>Công việc</th><th>Kết quả tuần</th><th>Tiến độ</th><th>Trạng thái</th><th>Ngân sách tuần</th><th>Người cập nhật</th><th>Thời điểm</th><th>Sửa</th></tr></thead><tbody>${updates.map((update) => { const item = items.find((candidate) => candidate.itemType === update.itemType && candidate.itemId === update.itemId) || {}; return `<tr><td>${escapeHtml(update.itemType)}</td><td>${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || update.itemId)}</td><td>${escapeHtml(update.thisWeekResult)}</td><td>${escapeHtml(update.progressEnd)}%</td><td>${escapeHtml(update.taskStatus)}</td><td>${formatWeeklyCurrency(update.budgetThisWeek)}</td><td>${escapeHtml(update.updatedBy)}</td><td>${escapeHtml(formatWeeklyDateTime(update.updatedAt))}</td><td><button class="weekly-edit-button" type="button" data-weekly-item="${escapeHtml(`${update.itemType}:${update.itemId}`)}">Sửa</button></td></tr>`; }).join('')}</tbody></table></div></section>`;
 }
 
 function renderWeeklyNextItems(items) {
   return `<section class="weekly-next-section"><h3>Công việc dự kiến tuần tới</h3>${items.length ? `<div class="weekly-next-grid">${items.map((item) => `<article><span class="week-period-chip">${escapeHtml(item.eligibleReason === 'OVERDUE' ? 'Quá hạn' : item.eligibleReason === 'IN_PROGRESS' ? 'Tiếp tục' : 'Bắt đầu trong tuần')}</span><strong>${escapeHtml(item.wbs ? `${item.wbs} · ${item.taskName}` : item.taskName)}</strong><small>${renderMasterPlanPeriod(item)} · ${escapeHtml(item.progress)}% · ${escapeHtml(item.status || 'Chưa cập nhật')}</small><small>${escapeHtml(item.owner || '')}${item.hasBudget ? ` · ${formatWeeklyCurrency(item.plannedBudget)}` : ''}</small></article>`).join('')}</div>` : '<p class="empty-state">Không có công việc dự kiến.</p>'}</section>`;
 }
 
-function bindWeeklyTaskUpdateControls() {
+function bindWeeklyTaskUpdateControlsLegacy() {
   const weekSelector = document.getElementById('weeklyTaskPeriodSelector');
   if (weekSelector) weekSelector.onchange = () => {
     qltdSelectedWeekId = weekSelector.value;
@@ -1677,7 +1694,7 @@ function bindWeeklyTaskUpdateControls() {
   const save = document.getElementById('saveWeeklyTaskUpdateButton'); if (save) save.onclick = saveWeeklyTaskUpdate;
 }
 
-function renderWeeklyTaskRegion() {
+function renderWeeklyTaskRegionLegacy() {
   const mount = document.getElementById('weeklyUpdateMount'); const payload = qltdDeptPlanPayload; if (!mount || !payload?.success) return;
   const dept = (payload.departments || []).find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || (payload.departments || [])[0] || {};
   const master = (dept.masters || []).find((item) => item.masterCode === qltdSelectedMasterCode) || (dept.masters || [])[0] || null;
@@ -1685,7 +1702,7 @@ function renderWeeklyTaskRegion() {
   mount.innerHTML = renderWeeklyTaskUpdatePanel(payload, dept, master, week, periods); bindWeeklyTaskUpdateControls();
 }
 
-async function loadWeeklyTaskData(payload, dept, week, periods, filters = {}) {
+async function loadWeeklyTaskDataLegacy(payload, dept, week, periods, filters = {}) {
   if (!payload?.projectCode || !dept || !week) return;
   const deptCode = dept.deptCode || dept.sheetName || ''; const key = getWeeklyTaskCacheKey(payload.projectCode, deptCode, week.weekId); const cached = qltdWeeklyTaskCache.get(key);
   if (cached && !filters.force) { qltdWeeklyTaskView = cached; renderWeeklyTaskRegion(); return; }
@@ -1709,20 +1726,328 @@ async function loadWeeklyTaskData(payload, dept, week, periods, filters = {}) {
   renderWeeklyTaskRegion();
 }
 
+function qltdWeekPeriodFromId(weekId) {
+  const match = String(weekId || '').match(/^WEEK-(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const start = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+  if (isNaN(start.getTime())) return null;
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+  const iso = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+  return { weekId: `WEEK-${iso(start)}`, weekStart: iso(start), weekEnd: iso(end) };
+}
+
+function qltdCurrentWeekPeriod() {
+  const now = new Date();
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+  monday.setDate(monday.getDate() + (monday.getDay() === 0 ? -6 : 1 - monday.getDay()));
+  const iso = `${monday.getFullYear()}-${pad2(monday.getMonth() + 1)}-${pad2(monday.getDate())}`;
+  return qltdWeekPeriodFromId(`WEEK-${iso}`);
+}
+
+function qltdGetSelectedWeekPeriod() {
+  let period = qltdWeekPeriodFromId(qltdSelectedWeekId);
+  if (!period) {
+    period = qltdCurrentWeekPeriod();
+    qltdSelectedWeekId = period.weekId;
+  }
+  return period;
+}
+
+function qltdShiftSelectedWeek(days) {
+  const current = qltdGetSelectedWeekPeriod();
+  const date = new Date(`${current.weekStart}T12:00:00`); date.setDate(date.getDate() + days);
+  qltdSelectedWeekId = `WEEK-${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+  qltdSelectedWeeklyItemKey = '';
+  qltdWeeklyForcedItem = null;
+}
+
+function renderSelectedDeptPlan() {
+  const payload = qltdDeptPlanPayload;
+  const content = document.getElementById('deptPlanContent');
+  if (!payload?.success || !content) return;
+  const departments = payload.departments || [];
+  const dept = departments.find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || departments[0];
+  if (!dept) { content.innerHTML = '<p class="empty-state">Chưa chọn phòng/ban.</p>'; return; }
+  const masters = dept.masters || [];
+  if (!masters.some((master) => master.masterCode === qltdSelectedMasterCode)) qltdSelectedMasterCode = masters[0]?.masterCode || '';
+  const selectedMaster = masters.find((master) => master.masterCode === qltdSelectedMasterCode) || masters[0] || null;
+  const week = qltdGetSelectedWeekPeriod();
+  const status = document.getElementById('deptPlanStatus');
+  const subtitle = document.getElementById('deptPlanSubTitle');
+  if (status) status.textContent = `${departments.length} phòng/ban · đang xem ${dept.deptCode || dept.sheetName} · ${masters.length} mục tiêu`;
+  if (subtitle) subtitle.textContent = `${payload.projectCode || ''} - ${payload.projectName || ''}`;
+
+  content.innerHTML = `
+    <div class="report-subtabs" role="tablist" aria-label="Báo cập nhật">
+      <button type="button" role="tab" data-report-tab="plan" aria-selected="${qltdReportSubTab === 'plan'}" class="${qltdReportSubTab === 'plan' ? 'is-active' : ''}">KẾ HOẠCH PHÒNG/BAN</button>
+      <button type="button" role="tab" data-report-tab="weekly" aria-selected="${qltdReportSubTab === 'weekly'}" class="${qltdReportSubTab === 'weekly' ? 'is-active' : ''}">CẬP NHẬT TUẦN</button>
+    </div>
+    ${qltdReportSubTab === 'plan'
+      ? renderDeptPlanTab(payload, dept, masters, selectedMaster)
+      : `<div id="weeklyUpdateMount">${renderWeeklyTaskUpdatePanel(payload, dept, selectedMaster, week)}</div>`}
+  `;
+  bindReportSubTabControls(payload, dept, selectedMaster, week);
+}
+
+function renderDeptPlanTab(payload, dept, masters, selectedMaster) {
+  if (!masters.length) return '<p class="empty-state">Phòng/ban này chưa có mục tiêu/công việc gốc.</p>';
+  return `
+    <div class="weekly-target-toolbar">
+      <div class="weekly-update-field"><label for="weeklyMasterSelector">Mục tiêu/Công việc gốc</label><select id="weeklyMasterSelector">${masters.map((master) => `<option value="${escapeHtml(master.masterCode || '')}" ${master.masterCode === qltdSelectedMasterCode ? 'selected' : ''}>${escapeHtml(getDeptPlanMasterWbs(master) ? `${getDeptPlanMasterWbs(master)} · ${master.taskName || ''}` : master.taskName || '')}</option>`).join('')}</select></div>
+      <div class="master-plan-period"><span>Thời gian kế hoạch</span><strong>${renderMasterPlanPeriod(selectedMaster)}</strong></div>
+    </div>
+    <div id="pbDetailMount" class="pb-detail-mount" aria-live="polite"></div>
+    <section class="report-summary-section"><div class="report-section-heading">Tổng hợp mục tiêu phòng/ban</div><div class="dept-plan-table-wrap"><table class="dept-plan-table report-master-table"><thead><tr><th>WBS</th><th>Mục tiêu/Công việc gốc</th><th>Bắt đầu KH</th><th>Kết thúc KH</th><th>Việc chi tiết</th><th>Tiến độ</th><th>Trạng thái</th></tr></thead><tbody>
+      ${masters.map((master) => `<tr data-master-select="${escapeHtml(master.masterCode || '')}" class="report-master-row"><td class="mono">${escapeHtml(getDeptPlanMasterWbs(master))}</td><td><div class="task-title">${escapeHtml(master.taskName || '')}</div>${master.contextName ? `<div class="task-context">${escapeHtml(master.contextName)}</div>` : ''}</td><td>${escapeHtml(formatIsoDateVi(master.planStart || '') || '—')}</td><td>${escapeHtml(formatIsoDateVi(master.planFinish || '') || '—')}</td><td><button type="button" class="detail-count-button" data-detail-popup="${escapeHtml(master.masterCode || '')}">${renderMasterDetailCount(master)}</button></td><td>${escapeHtml(master.progress ?? 0)}%</td><td>${escapeHtml(master.status || 'Chưa cập nhật')}</td></tr>`).join('')}
+    </tbody></table></div></section>`;
+}
+
+function renderMasterDetailCount(master) {
+  const details = Array.isArray(master.details) ? master.details : [];
+  const total = details.length || (master.detailSlots || []).length;
+  if (!details.length) return `${total} việc`;
+  const completed = details.filter((item) => Number(item.progress || 0) >= 100).length;
+  const overdue = details.filter((item) => Number(item.progress || 0) < 100 && item.planFinish && item.planFinish < new Date().toISOString().slice(0, 10)).length;
+  return overdue ? `${completed}/${total} hoàn thành · ${overdue} quá hạn` : `${completed}/${total} hoàn thành`;
+}
+
+function bindReportSubTabControls(payload, dept, selectedMaster, week) {
+  document.querySelectorAll('[data-report-tab]').forEach((button) => {
+    button.onclick = () => { qltdReportSubTab = button.dataset.reportTab || 'plan'; renderSelectedDeptPlan(); };
+  });
+  const selector = document.getElementById('weeklyMasterSelector');
+  if (selector) selector.onchange = () => { qltdSelectedMasterCode = selector.value || ''; renderSelectedDeptPlan(); };
+  document.querySelectorAll('[data-master-select]').forEach((row) => {
+    row.onclick = (event) => { if (event.target.closest('[data-detail-popup]')) return; qltdSelectedMasterCode = row.dataset.masterSelect || ''; renderSelectedDeptPlan(); };
+  });
+  document.querySelectorAll('[data-detail-popup]').forEach((button) => {
+    button.onclick = (event) => { event.stopPropagation(); openDetailStatusPopup(payload, dept, button.dataset.detailPopup || ''); };
+  });
+  if (qltdReportSubTab === 'weekly') {
+    bindWeeklyTaskUpdateControls();
+    loadWeeklyTaskData(payload, dept, week, [week]);
+  } else {
+    dispatchDeptPlanRendered(payload, dept, selectedMaster);
+  }
+}
+
+function ensureDetailStatusPopup() {
+  let modal = document.getElementById('detailStatusPopup');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'detailStatusPopup';
+  modal.className = 'detail-status-overlay';
+  modal.hidden = true;
+  modal.innerHTML = '<div class="detail-status-dialog" role="dialog" aria-modal="true" aria-labelledby="detailStatusTitle"><div id="detailStatusContent"></div></div>';
+  modal.onclick = (event) => { if (event.target === modal) closeDetailStatusPopup(); };
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !modal.hidden) closeDetailStatusPopup(); });
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function closeDetailStatusPopup() {
+  const modal = document.getElementById('detailStatusPopup');
+  if (!modal) return;
+  modal.hidden = true;
+  document.body.classList.remove('has-detail-status-popup');
+}
+
+function getDetailTaskVisualState(task) {
+  const progress = Number(task.progress || 0);
+  const status = String(task.status || '').toLocaleLowerCase('vi-VN');
+  const today = new Date().toISOString().slice(0, 10);
+  if (progress >= 100 || status.includes('hoàn thành')) return { code: 'completed', label: 'Hoàn thành' };
+  if (task.planFinish && task.planFinish < today) return { code: 'overdue', label: 'Quá hạn' };
+  if (status.includes('tạm dừng') || status.includes('vướng') || status.includes('rủi ro')) return { code: 'paused', label: task.status || 'Có vướng mắc' };
+  if (progress > 0 || task.actualStart) return { code: 'in-progress', label: task.status || 'Đang thực hiện' };
+  return { code: 'not-started', label: task.status || 'Chưa bắt đầu' };
+}
+
+function buildDetailStatusSummary(tasks) {
+  const summary = { total: tasks.length, completed: 0, inProgress: 0, notStarted: 0, overdue: 0, progress: 0, budgetPlan: 0, budgetActual: 0 };
+  let weightedProgress = 0;
+  tasks.forEach((task) => {
+    const visual = getDetailTaskVisualState(task);
+    if (visual.code === 'completed') summary.completed += 1;
+    else if (visual.code === 'overdue') summary.overdue += 1;
+    else if (visual.code === 'not-started') summary.notStarted += 1;
+    else summary.inProgress += 1;
+    weightedProgress += Number(task.progress || 0);
+    summary.budgetPlan += Number(task.budgetPlan || 0);
+    summary.budgetActual += Number(task.budgetActual || 0);
+  });
+  summary.progress = tasks.length ? Math.round(weightedProgress / tasks.length) : 0;
+  return summary;
+}
+
+function renderDetailStatusPopup(payload, dept, masterCode, result) {
+  const modal = ensureDetailStatusPopup();
+  const content = modal.querySelector('#detailStatusContent');
+  const data = result.data || result;
+  const master = data.masterTask || (dept.masters || []).find((item) => item.masterCode === masterCode) || {};
+  const tasks = Array.isArray(data.detailTasks) ? data.detailTasks : [];
+  const summary = buildDetailStatusSummary(tasks);
+  content.innerHTML = `<div class="detail-status-header"><div><span>Chi tiết công việc thuộc mục tiêu</span><h2 id="detailStatusTitle">${escapeHtml(master.wbs ? `${master.wbs} · ${master.taskName || ''}` : master.taskName || masterCode)}</h2><small>BĐ KH: ${escapeHtml(formatIsoDateVi(master.planStart) || '—')} · KT KH: ${escapeHtml(formatIsoDateVi(master.planFinish) || '—')}</small></div><button type="button" class="detail-status-close" data-detail-close aria-label="Đóng">×</button></div>
+    <div class="detail-status-summary"><div><span>Tổng số việc</span><strong>${summary.total}</strong></div><div><span>Đã hoàn thành</span><strong>${summary.completed}</strong></div><div><span>Đang thực hiện</span><strong>${summary.inProgress}</strong></div><div><span>Chưa bắt đầu</span><strong>${summary.notStarted}</strong></div><div><span>Quá hạn</span><strong>${summary.overdue}</strong></div><div><span>Tiến độ tổng hợp</span><strong>${summary.progress}%</strong></div><div><span>Ngân sách kế hoạch</span><strong>${formatWeeklyCurrency(summary.budgetPlan)}</strong></div><div><span>Ngân sách thực hiện</span><strong>${formatWeeklyCurrency(summary.budgetActual)}</strong></div></div>
+    ${tasks.length ? `<div class="detail-status-table-wrap"><table class="detail-status-table"><thead><tr><th>WBS</th><th>Công việc chi tiết</th><th>Chủ trì</th><th>BĐ KH</th><th>KT KH</th><th>Tiến độ</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>${tasks.map((task) => { const visual = getDetailTaskVisualState(task); return `<tr><td class="mono">${escapeHtml(task.wbs || '')}</td><td>${escapeHtml(task.taskName || '')}</td><td>${escapeHtml(task.owner || '—')}</td><td>${escapeHtml(formatIsoDateVi(task.planStart) || '—')}</td><td>${escapeHtml(formatIsoDateVi(task.planFinish) || '—')}</td><td>${escapeHtml(task.progress ?? 0)}%</td><td><span class="detail-status-badge is-${escapeHtml(visual.code)}">${escapeHtml(visual.label)}</span></td><td><div class="detail-status-actions"><button type="button" data-detail-view="${escapeHtml(masterCode)}">Xem</button><button type="button" class="primary" data-detail-update="${escapeHtml(task.detailTaskId || '')}">Chọn để cập nhật</button></div></td></tr>`; }).join('')}</tbody></table></div>` : '<p class="empty-state">Mục tiêu này chưa có việc chi tiết.</p>'}`;
+  content.querySelector('[data-detail-close]').onclick = closeDetailStatusPopup;
+  content.querySelectorAll('[data-detail-view]').forEach((button) => { button.onclick = () => { qltdSelectedMasterCode = button.dataset.detailView || masterCode; qltdReportSubTab = 'plan'; closeDetailStatusPopup(); renderSelectedDeptPlan(); }; });
+  content.querySelectorAll('[data-detail-update]').forEach((button) => {
+    button.onclick = () => {
+      const task = tasks.find((item) => item.detailTaskId === button.dataset.detailUpdate);
+      if (!task) return;
+      const deptCode = dept.deptCode || dept.sheetName || '';
+      const selectedWeek = qltdGetSelectedWeekPeriod();
+      qltdWeeklyForcedItem = { projectCode: payload.projectCode, deptCode, weekCode: selectedWeek.weekId, itemType: 'PB_DETAIL', itemId: task.detailTaskId, detailTaskId: task.detailTaskId, masterTaskCode: task.masterTaskCode || masterCode, parentMasterTaskCode: task.masterTaskCode || masterCode, wbs: task.wbs || '', taskName: task.taskName || '', planStart: task.planStart || '', planFinish: task.planFinish || '', actualStart: task.actualStart || '', actualFinish: task.actualFinish || '', progress: Number(task.progress || 0), status: task.status || '', owner: task.owner || '', plannedBudget: Number(task.budgetPlan || 0), actualBudget: Number(task.budgetActual || 0), hasBudget: Number(task.budgetPlan || 0) > 0 || Number(task.budgetActual || 0) > 0, hasDetails: false, progressReadonly: false, eligibleReason: 'PLANNED', eligible: true };
+      qltdWeeklyTaskCache.delete(getWeeklyTaskCacheKey(payload.projectCode, deptCode, selectedWeek.weekId));
+      qltdSelectedWeeklyItemKey = `PB_DETAIL:${task.detailTaskId}`;
+      qltdSelectedMasterCode = task.masterTaskCode || masterCode;
+      qltdReportSubTab = 'weekly';
+      closeDetailStatusPopup();
+      renderSelectedDeptPlan();
+    };
+  });
+}
+
+async function openDetailStatusPopup(payload, dept, masterCode) {
+  if (!payload?.projectCode || !masterCode) return;
+  const deptCode = dept.deptCode || dept.sheetName || '';
+  const cacheKey = [payload.projectCode, deptCode, masterCode].join('::');
+  const modal = ensureDetailStatusPopup();
+  const content = modal.querySelector('#detailStatusContent');
+  modal.hidden = false;
+  document.body.classList.add('has-detail-status-popup');
+  if (qltdDetailPopupCache.has(cacheKey)) {
+    renderDetailStatusPopup(payload, dept, masterCode, qltdDetailPopupCache.get(cacheKey));
+    return;
+  }
+  content.innerHTML = '<div class="detail-status-loading">Đang tải việc chi tiết...</div>';
+  const seq = ++qltdDetailPopupRequestSeq;
+  try {
+    const result = await fetchBackendJson('work_getdetailtasks', { email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode, masterTaskCode: masterCode });
+    if (seq !== qltdDetailPopupRequestSeq || modal.hidden) return;
+    if (!result.success) throw new Error(result.message || result.error?.message || result.code || result.error?.code || 'Không tải được việc chi tiết.');
+    qltdDetailPopupCache.set(cacheKey, result);
+    renderDetailStatusPopup(payload, dept, masterCode, result);
+  } catch (error) {
+    if (seq !== qltdDetailPopupRequestSeq) return;
+    content.innerHTML = `<div class="detail-status-error"><p>${escapeHtml(error.message || 'Không tải được việc chi tiết.')}</p><button type="button" data-detail-close>Đóng</button></div>`;
+    content.querySelector('[data-detail-close]').onclick = closeDetailStatusPopup;
+  }
+}
+
+function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
+  const key = getWeeklyTaskCacheKey(payload.projectCode, dept.deptCode || dept.sheetName || '', week.weekId);
+  const state = qltdWeeklyTaskView.key === key ? qltdWeeklyTaskView : { items: [], updates: [], loading: true, error: '' };
+  const selected = state.items.find((item) => `${item.itemType}:${item.itemId}` === qltdSelectedWeeklyItemKey) || null;
+  const saved = selected ? state.updates.find((update) => update.itemType === selected.itemType && update.itemId === selected.itemId) : null;
+  return `<section class="weekly-update-panel">
+    <div class="single-week-toolbar"><button type="button" data-week-nav="prev" aria-label="Tuần trước">←</button><div><span>Kỳ cập nhật</span><strong>${escapeHtml(formatIsoDateVi(week.weekStart))} – ${escapeHtml(formatIsoDateVi(week.weekEnd))}</strong><small>Thứ Hai – Chủ nhật</small></div><button type="button" data-week-nav="today">Tuần hiện tại</button><button type="button" data-week-nav="next" aria-label="Tuần sau">→</button></div>
+    ${state.error ? `<p class="weekly-update-note is-error">${escapeHtml(state.error)}</p>` : ''}
+    <div class="weekly-list-toolbar"><div><h3>Công việc cần cập nhật</h3><span>${state.loading ? 'Đang tải...' : `${state.items.length} công việc`}</span></div><input id="weeklyTaskSearch" type="search" placeholder="Tìm WBS, tên hoặc mã..."><select id="weeklyTaskGroup"><option value="ALL">Tất cả</option><option value="OVERDUE">Quá hạn</option><option value="IN_PROGRESS">Đang thực hiện</option><option value="PLANNED">Đã bắt đầu theo kế hoạch</option><option value="COMPLETED_THIS_WEEK">Hoàn thành trong tuần</option></select></div>
+    ${renderWeeklyTaskList(state.items, state.updates)}
+    ${selected ? renderWeeklySelectedForm(selected, saved) : '<p class="weekly-form-placeholder">Chọn “Cập nhật” tại một công việc để mở biểu mẫu.</p>'}
+    ${renderWeeklySavedUpdates(state.updates, state.items)}
+  </section>`;
+}
+
+function renderWeeklyTaskList(items, updates) {
+  if (!items.length) return '<p class="empty-state">Không có công việc cần cập nhật trong kỳ này.</p>';
+  const groups = [
+    ['OVERDUE', 'Quá hạn chưa hoàn thành'], ['IN_PROGRESS', 'Đang thực hiện'], ['PLANNED', 'Đã bắt đầu theo kế hoạch'],
+    ['UPDATED', 'Đã cập nhật tuần này'], ['COMPLETED_THIS_WEEK', 'Hoàn thành trong tuần'], ['UNSCHEDULED', 'Chưa có lịch']
+  ];
+  const updateKeys = new Set(updates.map((update) => `${update.itemType}:${update.itemId}`));
+  return `<div class="weekly-task-groups">${groups.map(([code, label]) => {
+    const rows = items.filter((item) => {
+      const isUpdated = updateKeys.has(`${item.itemType}:${item.itemId}`);
+      if (code === 'UPDATED') return isUpdated && item.eligibleReason !== 'COMPLETED_THIS_WEEK';
+      if (code === 'COMPLETED_THIS_WEEK') return item.eligibleReason === code;
+      return !isUpdated && item.eligibleReason === code;
+    });
+    if (!rows.length) return '';
+    return `<section class="weekly-task-group"><h4>${escapeHtml(label)} <span>${rows.length}</span></h4>${rows.map((item) => renderWeeklyTaskRow(item, updateKeys.has(`${item.itemType}:${item.itemId}`))).join('')}</section>`;
+  }).join('')}</div>`;
+}
+
+function renderWeeklyTaskRow(item, updated) {
+  const overdueDays = item.eligibleReason === 'OVERDUE' && item.planFinish ? Math.max(1, Math.floor((Date.now() - new Date(`${item.planFinish}T00:00:00`).getTime()) / 86400000)) : 0;
+  const badge = updated ? 'Đã cập nhật tuần này' : overdueDays ? `Quá hạn ${overdueDays} ngày` : item.eligibleReason === 'IN_PROGRESS' ? 'Đang thực hiện' : item.eligibleReason === 'COMPLETED_THIS_WEEK' ? 'Hoàn thành trong tuần' : 'Theo kế hoạch';
+  return `<article class="weekly-task-row ${item.progressReadonly ? 'is-summary' : ''}"><div class="weekly-task-main"><span class="weekly-item-type">${escapeHtml(item.itemType)}</span><strong>${escapeHtml(item.wbs ? `${item.wbs} · ${item.taskName}` : item.taskName)}</strong><small>BĐ KH: ${escapeHtml(formatIsoDateVi(item.planStart) || '—')} · KT KH: ${escapeHtml(formatIsoDateVi(item.planFinish) || '—')} · Chủ trì: ${escapeHtml(item.owner || '—')}</small></div><div class="weekly-task-state"><span>${escapeHtml(item.progress)}%</span><small>${escapeHtml(item.status || 'Chưa cập nhật')}</small><em>${escapeHtml(badge)}</em></div><div>${item.progressReadonly ? `<button type="button" class="secondary-button" data-weekly-master-details="${escapeHtml(item.masterTaskCode)}">Xem chi tiết</button>` : `<button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(`${item.itemType}:${item.itemId}`)}">${updated ? 'Sửa cập nhật' : 'Cập nhật'}</button>`}</div></article>`;
+}
+
+function renderWeeklySelectedForm(selected, saved) {
+  return `<section class="weekly-inline-form"><div class="weekly-update-header"><div><div class="weekly-update-title">${escapeHtml(selected.wbs ? `${selected.wbs} · ${selected.taskName}` : selected.taskName)}</div><div class="weekly-update-meta">${escapeHtml(selected.itemType)} · ${renderMasterPlanPeriod(selected)}</div></div><button type="button" class="secondary-button" data-weekly-close-form>Đóng</button></div><div class="weekly-update-grid">
+    <div class="weekly-update-field"><label for="weeklyTaskResult">Kết quả thực hiện trong tuần</label><textarea id="weeklyTaskResult">${escapeHtml(saved?.thisWeekResult || '')}</textarea></div>
+    <div class="weekly-update-field"><label for="weeklyTaskProgress">Tiến độ lũy kế cuối tuần</label><input id="weeklyTaskProgress" type="number" min="0" max="100" value="${escapeHtml(saved?.progressEnd ?? selected.progress ?? '')}"></div>
+    <div class="weekly-update-field"><label for="weeklyTaskStatus">Trạng thái</label><input id="weeklyTaskStatus" value="${escapeHtml(saved?.taskStatus || selected.status || '')}"></div>
+    <div class="weekly-update-field"><label for="weeklyTaskIssue">Vướng mắc/Rủi ro</label><textarea id="weeklyTaskIssue">${escapeHtml(saved?.issue || '')}</textarea></div>
+    <div class="weekly-update-field"><label for="weeklyTaskRecommendation">Giải pháp/Đề xuất</label><textarea id="weeklyTaskRecommendation">${escapeHtml(saved?.recommendation || '')}</textarea></div>
+    <div class="weekly-update-field"><label for="weeklyTaskActualStart">Ngày bắt đầu thực tế</label><input id="weeklyTaskActualStart" type="date" value="${escapeHtml(saved?.actualStart || selected.actualStart || '')}"></div>
+    <div class="weekly-update-field"><label for="weeklyTaskActualFinish">Ngày hoàn thành thực tế</label><input id="weeklyTaskActualFinish" type="date" value="${escapeHtml(saved?.actualFinish || selected.actualFinish || '')}"></div>
+    ${selected.hasBudget ? `<div class="weekly-budget-block"><div><span>Ngân sách kế hoạch</span><strong>${formatWeeklyCurrency(selected.plannedBudget)}</strong></div><div class="weekly-update-field"><label for="weeklyTaskBudget">Ngân sách tuần</label><input id="weeklyTaskBudget" type="number" min="0" value="${escapeHtml(saved?.budgetThisWeek || '')}"></div><div class="weekly-update-field"><label for="weeklyTaskBudgetNote">Ghi chú ngân sách</label><input id="weeklyTaskBudgetNote" value="${escapeHtml(saved?.budgetNote || '')}"></div><div><span>Lũy kế thực hiện</span><strong>${formatWeeklyCurrency(saved?.budgetCumulative || 0)}</strong></div></div>` : ''}
+  </div><div class="weekly-update-actions"><button id="saveWeeklyTaskUpdateButton" type="button" class="weekly-update-button">Lưu cập nhật tuần</button><span id="weeklyTaskSaveStatus" class="weekly-update-note"></span></div></section>`;
+}
+
+function bindWeeklyTaskUpdateControls() {
+  document.querySelectorAll('[data-week-nav]').forEach((button) => {
+    button.onclick = () => { if (button.dataset.weekNav === 'today') { qltdSelectedWeekId = qltdCurrentWeekPeriod().weekId; qltdSelectedWeeklyItemKey = ''; qltdWeeklyForcedItem = null; } else qltdShiftSelectedWeek(button.dataset.weekNav === 'prev' ? -7 : 7); renderWeeklyTaskRegion(); loadWeeklyTaskDataForCurrent(); };
+  });
+  document.querySelectorAll('[data-weekly-select]').forEach((button) => { button.onclick = () => { qltdSelectedWeeklyItemKey = button.dataset.weeklySelect || ''; renderWeeklyTaskRegion(); }; });
+  document.querySelectorAll('[data-weekly-master-details]').forEach((button) => { button.onclick = () => { const payload = qltdDeptPlanPayload || {}; const dept = (payload.departments || []).find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || {}; openDetailStatusPopup(payload, dept, button.dataset.weeklyMasterDetails || ''); }; });
+  document.querySelectorAll('[data-weekly-item]').forEach((button) => { button.onclick = () => { qltdSelectedWeeklyItemKey = button.dataset.weeklyItem || ''; renderWeeklyTaskRegion(); }; });
+  const close = document.querySelector('[data-weekly-close-form]'); if (close) close.onclick = () => { qltdSelectedWeeklyItemKey = ''; renderWeeklyTaskRegion(); };
+  const search = document.getElementById('weeklyTaskSearch'); const group = document.getElementById('weeklyTaskGroup'); const filter = () => loadWeeklyTaskDataForCurrent({ search: search?.value || '', group: group?.value || 'ALL', force: true }); if (search) search.onchange = filter; if (group) group.onchange = filter;
+  const progress = document.getElementById('weeklyTaskProgress'); if (progress) progress.onchange = () => { if (Number(progress.value) === 100) { const finish = document.getElementById('weeklyTaskActualFinish'); const status = document.getElementById('weeklyTaskStatus'); if (finish && !finish.value) finish.value = new Date().toISOString().slice(0, 10); if (status) status.value = 'Hoàn thành'; } };
+  const save = document.getElementById('saveWeeklyTaskUpdateButton'); if (save) save.onclick = saveWeeklyTaskUpdate;
+}
+
+function renderWeeklyTaskRegion() {
+  const mount = document.getElementById('weeklyUpdateMount'); const payload = qltdDeptPlanPayload; if (!mount || !payload?.success) return;
+  const dept = (payload.departments || []).find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || (payload.departments || [])[0] || {};
+  const master = (dept.masters || []).find((item) => item.masterCode === qltdSelectedMasterCode) || (dept.masters || [])[0] || null;
+  mount.innerHTML = renderWeeklyTaskUpdatePanel(payload, dept, master, qltdGetSelectedWeekPeriod()); bindWeeklyTaskUpdateControls();
+}
+
+async function loadWeeklyTaskData(payload, dept, week, periods, filters = {}) {
+  if (!payload?.projectCode || !dept || !week) return;
+  const deptCode = dept.deptCode || dept.sheetName || ''; const key = getWeeklyTaskCacheKey(payload.projectCode, deptCode, week.weekId); const cached = qltdWeeklyTaskCache.get(key);
+  if (cached && !filters.force) { qltdWeeklyTaskView = cached; renderWeeklyTaskRegion(); return; }
+  const seq = ++qltdWeeklyTaskRequestSeq; qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], loading: true, error: '' }; renderWeeklyTaskRegion();
+  const common = { email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode, weekCode: week.weekId };
+  try {
+    const [itemsResult, updatesResult] = await Promise.all([
+      fetchBackendJson('work_listweeklyitems', { ...common, weekStart: week.weekStart, weekEnd: week.weekEnd, search: filters.search || '', group: filters.group || 'ALL' }),
+      fetchBackendJson('weekly_taskupdates_get', common)
+    ]);
+    if (seq !== qltdWeeklyTaskRequestSeq) return;
+    if (!itemsResult.success || !updatesResult.success) throw new Error(itemsResult.message || updatesResult.message || 'Không tải được dữ liệu Weekly.');
+    const itemData = itemsResult.data || itemsResult; const updateData = updatesResult.data || updatesResult;
+    const items = Array.isArray(itemData.items) ? itemData.items.slice() : [];
+    if (qltdWeeklyForcedItem && qltdWeeklyForcedItem.projectCode === payload.projectCode && qltdWeeklyForcedItem.deptCode === deptCode && qltdWeeklyForcedItem.weekCode === week.weekId && !items.some((item) => item.itemType === qltdWeeklyForcedItem.itemType && item.itemId === qltdWeeklyForcedItem.itemId)) items.push(qltdWeeklyForcedItem);
+    qltdWeeklyTaskView = { key, items, updates: updateData.updates || [], nextItems: [], loading: false, error: '' };
+    if (!filters.force) qltdWeeklyTaskCache.set(key, qltdWeeklyTaskView);
+  } catch (error) {
+    if (seq !== qltdWeeklyTaskRequestSeq) return;
+    qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], loading: false, error: error.message || 'Không tải được dữ liệu Weekly.' };
+  }
+  renderWeeklyTaskRegion();
+}
+
 function loadWeeklyTaskDataForCurrent(filters = {}) {
   const payload = qltdDeptPlanPayload || {}; const dept = (payload.departments || []).find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || (payload.departments || [])[0];
-  const periods = getMonthWeekPeriods(qltdSelectedMonthCode || getDefaultMonthCode()); const week = periods.find((item) => item.weekId === qltdSelectedWeekId) || periods[0];
-  return loadWeeklyTaskData(payload, dept, week, periods, filters);
+  const week = qltdGetSelectedWeekPeriod();
+  return loadWeeklyTaskData(payload, dept, week, [week], filters);
 }
 
 async function saveWeeklyTaskUpdate() {
-  const item = qltdWeeklyTaskView.items.find((candidate) => `${candidate.itemType}:${candidate.itemId}` === qltdSelectedWeeklyItemKey) || qltdWeeklyTaskView.items[0]; if (!item) return;
+  const item = qltdWeeklyTaskView.items.find((candidate) => `${candidate.itemType}:${candidate.itemId}` === qltdSelectedWeeklyItemKey); if (!item) return;
   const payload = qltdDeptPlanPayload || {}; const dept = (payload.departments || []).find((candidate) => (candidate.deptCode || candidate.sheetName) === qltdSelectedDeptCode) || {};
   const progressEnd = Number(document.getElementById('weeklyTaskProgress')?.value || 0); let confirmProgressDecrease = false;
   if (progressEnd < Number(item.progress || 0)) { confirmProgressDecrease = window.confirm(`Tiến độ mới ${progressEnd}% thấp hơn tiến độ hiện tại ${item.progress}%. Bạn có xác nhận?`); if (!confirmProgressDecrease) return; }
   const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode: dept.deptCode || dept.sheetName || '', weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: document.getElementById('weeklyTaskStatus')?.value || '', actualStart: document.getElementById('weeklyTaskActualStart')?.value || '', actualFinish: document.getElementById('weeklyTaskActualFinish')?.value || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease };
   const status = document.getElementById('weeklyTaskSaveStatus'); const button = document.getElementById('saveWeeklyTaskUpdateButton'); if (button) button.disabled = true; if (status) status.textContent = 'Đang lưu...';
-  try { const result = await postBackendJson(body); if (!result.success) throw new Error(result.message || result.code || 'Lưu thất bại.'); qltdWeeklyTaskCache.delete(qltdWeeklyTaskView.key); if (status) status.textContent = 'Đã lưu cập nhật tuần.'; await loadWeeklyTaskDataForCurrent({ force: true }); } catch (error) { if (status) status.textContent = error.message || 'Không lưu được cập nhật.'; if (button) button.disabled = false; }
+  try { const result = await postBackendJson(body); if (!result.success) throw new Error(result.message || result.error?.message || result.code || result.error?.code || 'Lưu thất bại.'); qltdWeeklyForcedItem = null; qltdWeeklyTaskCache.delete(qltdWeeklyTaskView.key); if (status) status.textContent = 'Đã lưu cập nhật tuần.'; await loadWeeklyTaskDataForCurrent({ force: true }); } catch (error) { if (status) status.textContent = error.message || 'Không lưu được cập nhật.'; if (button) button.disabled = false; }
 }
 
 async function postBackendJson(payload) {
