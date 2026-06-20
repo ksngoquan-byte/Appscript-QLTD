@@ -78,7 +78,6 @@ function qltdProjectsSeedDefaultIfMissing_() {
   ];
 
   if (existing) {
-    sheet.getRange(existing.rowIndex, 1, 1, QLTD_PROJECTS_HEADERS.length).setValues([values]);
     return false;
   }
 
