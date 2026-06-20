@@ -47,12 +47,29 @@ const context = {
   console
 };
 vm.createContext(context);
-vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_ };`, context);
-const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review } = context.api;
+vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_ };`, context);
+const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review, resolveActualDate } = context.api;
 
 assert.equal(buildKey('p1', 'ptda', 'week-2026-06-01', 'master', 'CV-1'), 'P1|PTDA|WEEK-2026-06-01|MASTER|CV-1');
 assert.equal(date('2026-06-01'), '2026-06-01');
 assert.equal(date('2026-02-30'), null);
+
+const lifecycleScope = { meta: {}, warnings: [] };
+const lifecycleValidation = { progressEnd: 60, taskStatus: 'Đang thực hiện', actualStart: '', actualFinish: '' };
+assert.equal(resolveActualDate({}, lifecycleValidation, { actualStart: '2026-06-01', actualFinish: '' }, lifecycleScope).error, null);
+assert.equal(lifecycleValidation.actualStart, '2026-06-01');
+assert.equal(lifecycleValidation.actualStartShouldWrite, false);
+const lifecycleExistingFinish = { progressEnd: 60, taskStatus: 'Đang thực hiện', actualStart: '', actualFinish: '' };
+assert.equal(resolveActualDate({}, lifecycleExistingFinish, { actualStart: '2026-06-01', actualFinish: '2026-06-20' }, lifecycleScope).error, null);
+assert.equal(lifecycleExistingFinish.actualFinish, '2026-06-20');
+assert.equal(lifecycleExistingFinish.actualFinishShouldWrite, false);
+const lifecycleMissingStart = { progressEnd: 50, taskStatus: 'Đang thực hiện', actualStart: '', actualFinish: '' };
+assert.equal(resolveActualDate({}, lifecycleMissingStart, {}, lifecycleScope).error.code, 'ACTUAL_START_REQUIRED');
+const lifecycleMissingFinish = { progressEnd: 100, taskStatus: 'Hoàn thành', actualStart: '2026-06-01', actualFinish: '' };
+assert.equal(resolveActualDate({}, lifecycleMissingFinish, {}, lifecycleScope).error.code, 'ACTUAL_FINISH_REQUIRED');
+const lifecycleFinish = { progressEnd: 100, taskStatus: 'Hoàn thành', actualStart: '2026-06-01', actualFinish: '2026-06-20' };
+assert.equal(resolveActualDate({}, lifecycleFinish, {}, lifecycleScope).error, null);
+assert.equal(lifecycleFinish.actualFinishShouldWrite, true);
 
 const base = { wbs: '1.1', taskName: 'Công việc', planStart: '2026-06-01', planFinish: '2026-06-30', progress: 20 };
 assert.equal(buildItem('MASTER', 'CV-1', base, '2026-06-08', '2026-06-14', '').eligibleReason, 'PLANNED');
@@ -84,7 +101,7 @@ const badSheet = { getRange: () => ({ getValues: () => [[...headers.slice(0, 20)
 assert.equal(inspect(badSheet).headerMatches, false);
 
 sheetRows.push(headers.slice());
-const saveBase = { email: 'user@example.com', projectCode: 'P1', deptCode: 'PTDA', weekCode: 'WEEK-2026-06-01', itemType: 'MASTER', itemId: 'CV-1', progressEnd: 30, taskStatus: 'Đang thực hiện', thisWeekResult: 'Đã làm' };
+const saveBase = { email: 'user@example.com', projectCode: 'P1', deptCode: 'PTDA', weekCode: 'WEEK-2026-06-01', itemType: 'MASTER', itemId: 'CV-1', progressEnd: 30, taskStatus: 'Đang thực hiện', actualStart: '2026-06-01', thisWeekResult: 'Đã làm' };
 assert.equal(save(saveBase).inserted, true);
 assert.equal(sheetRows.length, 2);
 assert.equal(save({ ...saveBase, progressEnd: 55 }).duplicatePrevented, true);
@@ -94,7 +111,7 @@ assert.equal(sheetRows.length, 3);
 assert.equal(save({ ...saveBase, weekCode: 'WEEK-2026-06-08' }).inserted, true);
 assert.equal(sheetRows.length, 4);
 
-const pending = save({ ...saveBase, itemId: 'CV-100', progressEnd: 100, taskStatus: 'Hoàn thành' });
+const pending = save({ ...saveBase, itemId: 'CV-100', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-20' });
 assert.equal(pending.update.approvalStatus, 'PENDING');
 assert.equal(pending.taskSync.approvalRequired, true);
 assert.equal(sheetRows.length, 5);

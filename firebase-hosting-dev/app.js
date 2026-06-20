@@ -26,7 +26,7 @@ import {
   toggleMainMilestoneTaskKey
 } from './main-milestone-logic.js';
 import { buildDepartmentDashboardModel } from './department-dashboard.js';
-import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E3_MASTER_APPROVAL_THU_CHI';
+import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E4_ACTUAL_DATE_LIFECYCLE';
 
 window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
 
@@ -2106,14 +2106,34 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
   const state = qltdWeeklyTaskView.key === key ? qltdWeeklyTaskView : { items: [], updates: [], standaloneBudgetItems: [], loading: true, error: '' };
   const selected = state.items.find((item) => `${item.itemType}:${item.itemId}` === qltdSelectedWeeklyItemKey) || null;
   const saved = selected ? state.updates.find((update) => update.itemType === selected.itemType && update.itemId === selected.itemId) : null;
-  return `<section class="weekly-update-panel">
-    <div class="single-week-toolbar"><button type="button" data-week-nav="prev" aria-label="Tuần trước">←</button><div><span>Kỳ cập nhật</span><strong>${escapeHtml(formatIsoDateVi(week.weekStart))} – ${escapeHtml(formatIsoDateVi(week.weekEnd))}</strong><small>Thứ Hai – Chủ nhật</small></div><button type="button" data-week-nav="today">Tuần hiện tại</button><button type="button" data-week-nav="next" aria-label="Tuần sau">→</button></div>
+  const deptName = dept.deptName || dept.displayName || dept.name || dept.deptCode || dept.sheetName || '';
+  const projectName = payload.projectName || payload.projectCode || '';
+  return `<section class="weekly-update-panel" aria-label="Cập nhật kết quả tuần">
+    <header class="weekly-page-header">
+      <div>
+        <p class="weekly-eyebrow">Báo cập nhật</p>
+        <h2>CẬP NHẬT KẾT QUẢ TUẦN</h2>
+        <span>${escapeHtml(projectName)}${deptName ? ` · ${escapeHtml(deptName)}` : ''}</span>
+      </div>
+      <div class="single-week-toolbar">
+        <button type="button" data-week-nav="prev" aria-label="Tuần trước">← Tuần trước</button>
+        <div><span>Tuần</span><strong>${escapeHtml(formatIsoDateVi(week.weekStart))} – ${escapeHtml(formatIsoDateVi(week.weekEnd))}</strong><small>Thứ Hai – Chủ nhật</small></div>
+        <button type="button" data-week-nav="today">Tuần hiện tại</button>
+        <button type="button" data-week-nav="next" aria-label="Tuần sau">Tuần sau →</button>
+      </div>
+    </header>
     ${state.error ? `<p class="weekly-update-note is-error">${escapeHtml(state.error)}</p>` : ''}
-    <div class="weekly-list-toolbar"><div><h3>Công việc cần cập nhật</h3><span>${state.loading ? 'Đang tải...' : `${state.items.length} công việc`}</span></div><input id="weeklyTaskSearch" type="search" placeholder="Tìm WBS, tên hoặc mã..."><select id="weeklyTaskGroup"><option value="ALL">Tất cả</option><option value="OVERDUE">Quá hạn</option><option value="IN_PROGRESS">Đang thực hiện</option><option value="PLANNED">Đã bắt đầu theo kế hoạch</option><option value="COMPLETED_THIS_WEEK">Hoàn thành trong tuần</option></select></div>
-    ${renderWeeklyTaskList(state.items, state.updates)}
-    ${selected ? renderWeeklySelectedForm(selected, saved) : '<p class="weekly-form-placeholder">Chọn “Cập nhật” tại một công việc để mở biểu mẫu.</p>'}
-    ${renderStandaloneBudgetWeeklyBlock(state.standaloneBudgetItems || [])}
-    ${renderWeeklySavedUpdates(state.updates, state.items)}
+    <div class="weekly-split-view">
+      <aside class="weekly-list-panel" aria-label="Danh sách công việc cần cập nhật">
+        <div class="weekly-list-toolbar"><div><h3>DANH SÁCH CÔNG VIỆC</h3><span>${state.loading ? 'Đang tải...' : `${state.items.length} công việc`}</span></div><input id="weeklyTaskSearch" type="search" placeholder="Tìm WBS, tên hoặc mã..."><select id="weeklyTaskGroup"><option value="ALL">Tất cả</option><option value="OVERDUE">Quá hạn</option><option value="IN_PROGRESS">Đang thực hiện</option><option value="PLANNED">Đã bắt đầu theo kế hoạch</option><option value="COMPLETED_THIS_WEEK">Hoàn thành trong tuần</option></select></div>
+        ${renderWeeklyTaskList(state.items, state.updates)}
+      </aside>
+      <main class="weekly-detail-panel" aria-label="Chi tiết công việc">
+        ${selected ? renderWeeklySelectedForm(selected, saved) : '<div class="weekly-form-placeholder"><strong>CHI TIẾT CÔNG VIỆC</strong><span>Chọn “Cập nhật” tại một công việc để mở biểu mẫu.</span></div>'}
+        ${renderStandaloneBudgetWeeklyBlock(state.standaloneBudgetItems || [])}
+        ${renderWeeklySavedUpdates(state.updates, state.items)}
+      </main>
+    </div>
   </section>`;
 }
 
@@ -2140,7 +2160,30 @@ function renderWeeklyTaskRow(item, updated) {
   const overdueDays = item.eligibleReason === 'OVERDUE' && item.planFinish ? Math.max(1, Math.floor((Date.now() - new Date(`${item.planFinish}T00:00:00`).getTime()) / 86400000)) : 0;
   const statusText = item.officialComplete ? 'Hoàn thành — 100%' : (item.status || 'Chưa cập nhật');
   const badge = updated ? 'Đã cập nhật tuần này' : overdueDays ? `Quá hạn ${overdueDays} ngày` : item.eligibleReason === 'IN_PROGRESS' ? 'Đang thực hiện' : item.eligibleReason === 'COMPLETED_THIS_WEEK' ? 'Hoàn thành trong tuần' : 'Theo kế hoạch';
-  return `<article class="weekly-task-row ${item.progressReadonly ? 'is-summary' : ''}"><div class="weekly-task-main"><span class="weekly-item-type">${escapeHtml(item.itemType)}</span>${renderBudgetFlowBadge(item)}<strong>${escapeHtml(item.wbs ? `${item.wbs} · ${item.taskName}` : item.taskName)}</strong><small>BĐ KH: ${escapeHtml(formatIsoDateVi(item.planStart) || '—')} · KT KH: ${escapeHtml(formatIsoDateVi(item.planFinish) || '—')} · Chủ trì: ${escapeHtml(item.owner || '—')}</small></div><div class="weekly-task-state"><span>${escapeHtml(item.officialComplete ? 100 : item.progress)}%</span><small>${escapeHtml(statusText)}</small><em>${escapeHtml(badge)}</em></div><div class="weekly-task-actions">${item.progressReadonly ? `<button type="button" class="secondary-button" data-weekly-master-details="${escapeHtml(item.masterTaskCode)}">Xem chi tiết</button><button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(`${item.itemType}:${item.itemId}`)}">Đề xuất HT</button>` : `<button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(`${item.itemType}:${item.itemId}`)}">${updated ? 'Sửa cập nhật' : 'Cập nhật'}</button>`}</div></article>`;
+  const key = `${item.itemType}:${item.itemId}`;
+  const ownerDisplay = getWeeklyPersonDisplay(item.owner);
+  const rowClass = [
+    'weekly-task-row',
+    item.progressReadonly ? 'is-summary' : '',
+    key === qltdSelectedWeeklyItemKey ? 'is-selected' : ''
+  ].filter(Boolean).join(' ');
+  return `<article class="${rowClass}"><div class="weekly-task-main"><div class="weekly-task-kicker"><span class="weekly-item-type">${escapeHtml(item.itemType)}</span>${renderBudgetFlowBadge(item)}</div><strong>${escapeHtml(item.wbs ? `${item.wbs} · ${item.taskName}` : item.taskName)}</strong><small>BĐ KH: ${escapeHtml(formatIsoDateVi(item.planStart) || '—')} · KT KH: ${escapeHtml(formatIsoDateVi(item.planFinish) || '—')}</small><small title="${escapeHtml(item.owner || '')}">Chủ trì: ${escapeHtml(ownerDisplay)}</small></div><div class="weekly-task-state"><span>${escapeHtml(item.officialComplete ? 100 : item.progress)}%</span><small>${escapeHtml(statusText)}</small><em class="weekly-task-badge ${escapeHtml(getWeeklyTaskBadgeClass(item, updated, overdueDays))}">${escapeHtml(badge)}</em></div><div class="weekly-task-actions">${item.progressReadonly ? `<button type="button" class="secondary-button" data-weekly-master-details="${escapeHtml(item.masterTaskCode)}">Xem chi tiết</button><button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">Đề xuất HT</button>` : `<button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">${updated ? 'Sửa cập nhật' : 'Cập nhật'}</button>`}</div></article>`;
+}
+
+function getWeeklyTaskBadgeClass(item, updated, overdueDays) {
+  if (updated) return 'is-updated';
+  if (overdueDays) return 'is-overdue';
+  if (item.eligibleReason === 'IN_PROGRESS') return 'is-in-progress';
+  if (item.eligibleReason === 'COMPLETED_THIS_WEEK') return 'is-completed';
+  return 'is-planned';
+}
+
+function getWeeklyPersonDisplay(value) {
+  const text = String(value || '').trim();
+  if (!text) return '—';
+  const withoutAngles = text.replace(/\s*<[^>]*>/g, '');
+  const withoutEmails = withoutAngles.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '');
+  return withoutEmails.replace(/\s{2,}/g, ' ').replace(/\s+[,;]\s*$/g, '').trim() || '—';
 }
 
 function getBudgetFlowType(item) {
@@ -2158,7 +2201,7 @@ function getBudgetFlowLabels(item) {
   if (flow === 'CHI') {
     return { flow, badge: 'KHOẢN CHI', plan: 'Kế hoạch chi', actual: 'Chi thực tế trong tuần', cumulative: 'Lũy kế đã chi', remaining: 'Ngân sách còn lại', note: 'Giải trình/Ghi chú khoản chi' };
   }
-  return { flow: '', badge: 'CHƯA XÁC ĐỊNH THU/CHI', plan: 'Kế hoạch ngân sách', actual: 'Thực tế tuần', cumulative: 'Lũy kế', remaining: 'Còn lại', note: 'Giải trình/Ghi chú ngân sách' };
+  return { flow: '', badge: 'CHƯA PHÂN LOẠI THU/CHI', plan: 'Kế hoạch ngân sách', actual: 'Giá trị thực tế trong tuần', cumulative: 'Lũy kế thực hiện', remaining: 'Còn lại', note: 'Giải trình/Ghi chú ngân sách' };
 }
 
 function renderBudgetFlowBadge(item) {
@@ -2174,7 +2217,7 @@ function renderWeeklyBudgetBlock(selected, saved) {
   const cumulative = Number(saved?.budgetCumulative || selected.actualBudget || 0);
   const remaining = Math.max(0, plan - cumulative);
   const delta = Number(saved?.budgetThisWeek || 0);
-  return `<section class="weekly-form-section weekly-budget-section"><div class="weekly-form-section-title"><span>NGÂN SÁCH CÔNG VIỆC</span>${renderBudgetFlowBadge(selected)}</div>${labels.flow ? '' : '<p class="weekly-update-note is-warning">Khoản ngân sách chưa có loại dòng tiền THU/CHI trong dữ liệu hiện có. Không đổi schema ngân sách ở bước này.</p>'}<div class="weekly-budget-grid"><div><span>${escapeHtml(labels.plan)}</span><strong>${formatWeeklyCurrency(plan)}</strong></div><div class="weekly-update-field"><label for="weeklyTaskBudget">${escapeHtml(labels.actual)}</label><input id="weeklyTaskBudget" type="number" min="0" value="${escapeHtml(saved?.budgetThisWeek || '')}"></div><div><span>${escapeHtml(labels.cumulative)}</span><strong>${formatWeeklyCurrency(cumulative)}</strong></div><div><span>${escapeHtml(labels.remaining)}</span><strong>${formatWeeklyCurrency(remaining)}</strong></div></div>${delta > plan && plan > 0 ? '<p class="budget-warning-badge">Cảnh báo: thực tế tuần vượt kế hoạch.</p>' : ''}<div class="weekly-update-field"><label for="weeklyTaskBudgetNote">${escapeHtml(labels.note)}</label><textarea id="weeklyTaskBudgetNote">${escapeHtml(saved?.budgetNote || '')}</textarea></div></section>`;
+  return `<section class="weekly-form-section weekly-budget-section" data-budget-plan="${escapeHtml(plan)}"><div class="weekly-form-section-title"><span>NGÂN SÁCH CÔNG VIỆC</span>${renderBudgetFlowBadge(selected)}</div>${labels.flow ? '' : '<p class="weekly-update-note is-warning">Khoản ngân sách chưa có loại dòng tiền THU/CHI trong dữ liệu hiện có. Không đổi schema ngân sách ở bước này.</p>'}<div class="weekly-budget-grid"><div><span>${escapeHtml(labels.plan)}</span><strong>${formatWeeklyCurrency(plan)}</strong></div><div class="weekly-update-field"><label for="weeklyTaskBudget">${escapeHtml(labels.actual)}</label><input id="weeklyTaskBudget" type="number" inputmode="decimal" min="0" step="1000" value="${escapeHtml(saved?.budgetThisWeek || '')}"></div><div><span>${escapeHtml(labels.cumulative)}</span><strong>${formatWeeklyCurrency(cumulative)}</strong></div><div><span>${escapeHtml(labels.remaining)}</span><strong>${formatWeeklyCurrency(remaining)}</strong></div></div>${delta > plan && plan > 0 ? '<p class="budget-warning-badge">Cảnh báo: thực tế tuần vượt kế hoạch.</p>' : ''}<p id="weeklyBudgetLiveWarning" class="weekly-update-note is-warning" hidden></p><div class="weekly-update-field"><label for="weeklyTaskBudgetNote">${escapeHtml(labels.note)}</label><textarea id="weeklyTaskBudgetNote">${escapeHtml(saved?.budgetNote || '')}</textarea></div></section>`;
 }
 
 function renderStandaloneBudgetWeeklyBlock(items) {
@@ -2182,15 +2225,74 @@ function renderStandaloneBudgetWeeklyBlock(items) {
   return `<section class="weekly-standalone-budget"><h3>Ngân sách độc lập phòng/ban trong tuần</h3><div class="weekly-standalone-budget-grid">${items.map((item) => { const labels = getBudgetFlowLabels(item); return `<article>${renderBudgetFlowBadge(item)}<strong>${escapeHtml(item.budgetItemName || item.budgetItemCode || '')}</strong><span>${escapeHtml(labels.plan)}: ${formatWeeklyCurrency(item.approvedBudget || 0)}</span><small>${escapeHtml(item.budgetGroup || item.budgetStage || '')}</small></article>`; }).join('')}</div></section>`;
 }
 
+function normalizeWeeklyStatusKey(value) {
+  return String(value || '')
+    .trim()
+    .toLocaleLowerCase('vi-VN')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function isWeeklyCompletionValue(progress, status, actualFinish = '') {
+  const key = normalizeWeeklyStatusKey(status);
+  return Number(progress || 0) >= 100 || !!actualFinish || key.includes('hoanthanh') || key.includes('complete') || key.includes('done');
+}
+
+function renderWeeklyStatusSelect(currentStatus) {
+  const options = ['Chưa bắt đầu', 'Đang thực hiện', 'Tạm dừng', 'Hoàn thành'];
+  const current = String(currentStatus || '').trim();
+  const values = current && !options.includes(current) ? options.concat([current]) : options;
+  return `<select id="weeklyTaskStatus">${values.map((status) => `<option value="${escapeHtml(status)}" ${status === current ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select>`;
+}
+
+function renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusValue) {
+  const actualStart = saved?.actualStart || selected.actualStart || '';
+  const actualFinish = saved?.actualFinish || selected.actualFinish || '';
+  const isCompleted = selected.officialComplete || isWeeklyCompletionValue(progressValue, statusValue, actualFinish);
+  return `<div id="weeklyActualDateLifecycle" class="weekly-actual-date-lifecycle" data-existing-start="${escapeHtml(actualStart)}" data-existing-finish="${escapeHtml(actualFinish)}" data-completed="${isCompleted ? '1' : '0'}">
+    <input id="weeklyTaskActualStartEdit" type="hidden" value="">
+    <input id="weeklyTaskActualFinishEdit" type="hidden" value="">
+    <div id="weeklyActualStartNotStarted" class="weekly-actual-state">
+      <div><strong>Công việc chưa bắt đầu thực tế</strong><span>Chỉ xác nhận khi công việc đã bắt đầu.</span></div>
+      <button type="button" class="secondary-button" data-actual-start-confirm>Xác nhận bắt đầu công việc</button>
+    </div>
+    <div id="weeklyActualStartReadonly" class="weekly-actual-state" hidden>
+      <div><strong>Đã bắt đầu từ ${escapeHtml(formatIsoDateVi(actualStart) || '—')}</strong><span>Tuần sau không cần nhập lại ngày bắt đầu.</span></div>
+      ${actualStart && !isCompleted ? '<button type="button" class="secondary-button" data-actual-start-edit>Sửa ngày</button>' : ''}
+    </div>
+    <div id="weeklyActualStartInputWrap" class="weekly-update-field" hidden>
+      <label for="weeklyTaskActualStart">Ngày bắt đầu thực tế *</label>
+      <input id="weeklyTaskActualStart" type="date" value="${escapeHtml(actualStart)}">
+      <small>Chỉ ghi khi chưa có ngày hoặc bạn chủ động bấm “Sửa ngày”.</small>
+    </div>
+    <div id="weeklyActualFinishHidden" class="weekly-actual-state is-muted">
+      <div><strong>Ngày hoàn thành thực tế chưa mở</strong><span>Chỉ xuất hiện khi tiến độ đạt 100% hoặc trạng thái là Hoàn thành.</span></div>
+    </div>
+    <div id="weeklyActualFinishReadonly" class="weekly-actual-state" hidden>
+      <div><strong>Đã hoàn thành từ ${escapeHtml(formatIsoDateVi(actualFinish) || '—')}</strong><span>Ngày hoàn thành đang ở chế độ chỉ đọc.</span></div>
+    </div>
+    <div id="weeklyActualFinishInputWrap" class="weekly-update-field" hidden>
+      <label for="weeklyTaskActualFinish">Ngày hoàn thành thực tế *</label>
+      <input id="weeklyTaskActualFinish" type="date" value="${escapeHtml(actualFinish)}">
+      <small>Bắt buộc khi báo hoàn thành 100%.</small>
+    </div>
+  </div>`;
+}
+
 function renderWeeklySelectedForm(selected, saved) {
   const completionHint = selected.itemType === 'MASTER' ? '<p class="weekly-approval-hint">Nếu đề xuất 100%, trạng thái Hoàn thành hoặc có ngày hoàn thành thực tế, hệ thống chỉ gửi Admin duyệt. Không tự cập nhật Cong_viec hoặc cột W.</p>' : '';
-  return `<section class="weekly-inline-form"><div class="weekly-update-header"><div><div class="weekly-update-title">${escapeHtml(selected.wbs ? `${selected.wbs} · ${selected.taskName}` : selected.taskName)}</div><div class="weekly-update-meta">${escapeHtml(selected.itemType)} · ${renderMasterPlanPeriod(selected)}</div></div></div>
-    <section class="weekly-form-section weekly-task-info"><div class="weekly-form-section-title"><span>THÔNG TIN CÔNG VIỆC</span>${renderBudgetFlowBadge(selected)}</div><div class="weekly-info-grid"><div><span>Loại</span><strong>${escapeHtml(selected.itemType)}</strong></div><div><span>Chủ trì</span><strong>${escapeHtml(selected.owner || '—')}</strong></div><div><span>BĐ KH</span><strong>${escapeHtml(formatIsoDateVi(selected.planStart) || '—')}</strong></div><div><span>KT KH</span><strong>${escapeHtml(formatIsoDateVi(selected.planFinish) || '—')}</strong></div><div><span>Trạng thái hiện tại</span><strong>${escapeHtml(selected.officialComplete ? 'Hoàn thành — 100%' : (selected.status || 'Chưa cập nhật'))}</strong></div><div><span>Ngân sách KH</span><strong>${selected.hasBudget ? formatWeeklyCurrency(selected.plannedBudget) : '—'}</strong></div></div>${completionHint}</section>
-    <section class="weekly-form-section"><div class="weekly-form-section-title"><span>KẾT QUẢ TUẦN</span></div><div class="weekly-update-field"><label for="weeklyTaskResult">Kết quả thực hiện trong tuần</label><textarea id="weeklyTaskResult">${escapeHtml(saved?.thisWeekResult || '')}</textarea></div></section>
-    <section class="weekly-form-section"><div class="weekly-form-section-title"><span>TÌNH TRẠNG CÔNG VIỆC</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskProgress">Mức hoàn thành đến hết tuần (%)</label><input id="weeklyTaskProgress" type="number" min="0" max="100" value="${escapeHtml(saved?.progressEnd ?? selected.progress ?? '')}"></div><div class="weekly-update-field"><label for="weeklyTaskStatus">Trạng thái công việc</label><input id="weeklyTaskStatus" value="${escapeHtml(saved?.taskStatus || selected.status || '')}"></div><div class="weekly-update-field"><label for="weeklyTaskActualStart">Ngày bắt đầu thực tế</label><input id="weeklyTaskActualStart" type="date" value="${escapeHtml(saved?.actualStart || selected.actualStart || '')}"></div><div class="weekly-update-field"><label for="weeklyTaskActualFinish">Ngày hoàn thành thực tế</label><input id="weeklyTaskActualFinish" type="date" value="${escapeHtml(saved?.actualFinish || selected.actualFinish || '')}"></div></div></section>
-    <section class="weekly-form-section"><div class="weekly-form-section-title"><span>VƯỚNG MẮC VÀ XỬ LÝ</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskIssue">Vướng mắc/Rủi ro</label><textarea id="weeklyTaskIssue">${escapeHtml(saved?.issue || '')}</textarea></div><div class="weekly-update-field"><label for="weeklyTaskRecommendation">Giải pháp/Đề xuất</label><textarea id="weeklyTaskRecommendation">${escapeHtml(saved?.recommendation || '')}</textarea></div></div></section>
+  const progressValue = saved?.progressEnd ?? selected.progress ?? 0;
+  const statusValue = saved?.taskStatus || selected.status || (Number(progressValue) >= 100 ? 'Hoàn thành' : 'Chưa bắt đầu');
+  const ownerDisplay = getWeeklyPersonDisplay(selected.owner);
+  return `<section class="weekly-inline-form"><div class="weekly-form-topbar"><div><div class="weekly-update-title">${escapeHtml(selected.wbs ? `${selected.wbs} · ${selected.taskName}` : selected.taskName)}</div><div class="weekly-update-meta">${escapeHtml(selected.itemType)} · ${renderMasterPlanPeriod(selected)}</div></div><button type="button" class="weekly-form-close" data-weekly-close-form aria-label="Đóng">×</button></div>
+    <section class="weekly-form-section weekly-task-info"><div class="weekly-form-section-title"><span>THÔNG TIN CÔNG VIỆC</span>${renderBudgetFlowBadge(selected)}</div><div class="weekly-info-grid"><div><span>Loại</span><strong>${escapeHtml(selected.itemType)}</strong></div><div title="${escapeHtml(selected.owner || '')}"><span>Chủ trì</span><strong>${escapeHtml(ownerDisplay)}</strong></div><div><span>Kế hoạch</span><strong>${escapeHtml(formatIsoDateVi(selected.planStart) || '—')} – ${escapeHtml(formatIsoDateVi(selected.planFinish) || '—')}</strong></div><div><span>Trạng thái hiện tại</span><strong>${escapeHtml(selected.officialComplete ? 'Hoàn thành — 100%' : (selected.status || 'Chưa cập nhật'))}</strong></div><div><span>Ngân sách kế hoạch</span><strong>${selected.hasBudget ? formatWeeklyCurrency(selected.plannedBudget) : '—'}</strong></div></div>${completionHint}</section>
+    <section class="weekly-form-section weekly-result-section"><div class="weekly-form-section-title"><span>KẾT QUẢ THỰC HIỆN TRONG TUẦN</span></div><div class="weekly-update-field"><label for="weeklyTaskResult">Kết quả thực hiện trong tuần</label><textarea id="weeklyTaskResult" placeholder="Nêu kết quả đã hoàn thành, sản phẩm đầu ra, mốc đã chốt...">${escapeHtml(saved?.thisWeekResult || '')}</textarea></div></section>
+    <section class="weekly-form-section"><div class="weekly-form-section-title"><span>TÌNH TRẠNG CÔNG VIỆC</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskProgress">Mức hoàn thành đến hết tuần (%)</label><input id="weeklyTaskProgress" type="number" min="0" max="100" step="1" value="${escapeHtml(progressValue)}"></div><div class="weekly-update-field"><label for="weeklyTaskStatus">Trạng thái công việc</label>${renderWeeklyStatusSelect(statusValue)}</div>${renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusValue)}</div></section>
+    <section class="weekly-form-section weekly-issue-section"><div class="weekly-form-section-title"><span>VƯỚNG MẮC VÀ XỬ LÝ</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskIssue">Vướng mắc/Rủi ro</label><textarea id="weeklyTaskIssue" placeholder="Nêu vướng mắc, nguyên nhân, tác động nếu có...">${escapeHtml(saved?.issue || '')}</textarea></div><div class="weekly-update-field"><label for="weeklyTaskRecommendation">Giải pháp/Đề xuất</label><textarea id="weeklyTaskRecommendation" placeholder="Nêu hướng xử lý, người/phòng cần phối hợp, đề xuất quyết định...">${escapeHtml(saved?.recommendation || '')}</textarea></div></div></section>
     ${renderWeeklyBudgetBlock(selected, saved)}
-    <div class="weekly-update-actions"><button type="button" class="secondary-button" data-weekly-close-form>Hủy</button><div><button id="saveWeeklyTaskUpdateButton" type="button" class="weekly-update-button">Lưu báo cáo tuần</button><span id="weeklyTaskSaveStatus" class="weekly-update-note"></span></div></div></section>`;
+    <div class="weekly-update-actions"><button type="button" class="secondary-button" data-weekly-close-form>Hủy thay đổi</button><div><button id="saveWeeklyTaskUpdateButton" type="button" class="weekly-update-button">Lưu báo cáo tuần</button><span id="weeklyTaskSaveStatus" class="weekly-update-note"></span></div></div></section>`;
 }
 
 function bindWeeklyTaskUpdateControls() {
@@ -2202,8 +2304,123 @@ function bindWeeklyTaskUpdateControls() {
   document.querySelectorAll('[data-weekly-item]').forEach((button) => { button.onclick = () => { qltdSelectedWeeklyItemKey = button.dataset.weeklyItem || ''; renderWeeklyTaskRegion(); }; });
   const close = document.querySelector('[data-weekly-close-form]'); if (close) close.onclick = () => { qltdSelectedWeeklyItemKey = ''; renderWeeklyTaskRegion(); };
   const search = document.getElementById('weeklyTaskSearch'); const group = document.getElementById('weeklyTaskGroup'); const filter = () => loadWeeklyTaskDataForCurrent({ search: search?.value || '', group: group?.value || 'ALL', force: true }); if (search) search.onchange = filter; if (group) group.onchange = filter;
-  const progress = document.getElementById('weeklyTaskProgress'); if (progress) progress.onchange = () => { if (Number(progress.value) === 100) { const finish = document.getElementById('weeklyTaskActualFinish'); const status = document.getElementById('weeklyTaskStatus'); const item = qltdWeeklyTaskView.items.find((candidate) => `${candidate.itemType}:${candidate.itemId}` === qltdSelectedWeeklyItemKey); if (finish && !finish.value && item?.itemType !== 'MASTER') finish.value = new Date().toISOString().slice(0, 10); if (status) status.value = 'Hoàn thành'; } };
+  const progress = document.getElementById('weeklyTaskProgress');
+  const status = document.getElementById('weeklyTaskStatus');
+  if (progress) progress.oninput = () => { if (Number(progress.value) >= 100 && status && !isWeeklyCompletionValue(progress.value, status.value)) status.value = 'Hoàn thành'; syncWeeklyActualDateLifecycle(); syncWeeklyBudgetValidation(); };
+  if (status) status.onchange = syncWeeklyActualDateLifecycle;
+  document.querySelectorAll('[data-actual-start-confirm]').forEach((button) => {
+    button.onclick = () => {
+      const edit = document.getElementById('weeklyTaskActualStartEdit');
+      const input = document.getElementById('weeklyTaskActualStart');
+      if (edit) edit.value = 'confirm';
+      if (progress && Number(progress.value || 0) <= 0) progress.value = '1';
+      if (input && !input.value) input.value = getTodayIsoLocal();
+      syncWeeklyActualDateLifecycle();
+      input?.focus();
+    };
+  });
+  document.querySelectorAll('[data-actual-start-edit]').forEach((button) => {
+    button.onclick = () => {
+      const edit = document.getElementById('weeklyTaskActualStartEdit');
+      const input = document.getElementById('weeklyTaskActualStart');
+      if (edit) edit.value = 'edit';
+      syncWeeklyActualDateLifecycle();
+      input?.focus();
+    };
+  });
+  const budget = document.getElementById('weeklyTaskBudget');
+  if (budget) budget.oninput = syncWeeklyBudgetValidation;
+  syncWeeklyActualDateLifecycle();
+  syncWeeklyBudgetValidation();
   const save = document.getElementById('saveWeeklyTaskUpdateButton'); if (save) save.onclick = saveWeeklyTaskUpdate;
+}
+
+function getTodayIsoLocal() {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+}
+
+function setElementHidden(element, hidden) {
+  if (element) element.hidden = hidden;
+}
+
+function syncWeeklyActualDateLifecycle() {
+  const root = document.getElementById('weeklyActualDateLifecycle');
+  if (!root) return;
+  const progress = Number(document.getElementById('weeklyTaskProgress')?.value || 0);
+  const status = document.getElementById('weeklyTaskStatus')?.value || '';
+  const existingStart = root.dataset.existingStart || '';
+  const existingFinish = root.dataset.existingFinish || '';
+  const startEdit = document.getElementById('weeklyTaskActualStartEdit')?.value || '';
+  const finishEdit = document.getElementById('weeklyTaskActualFinishEdit')?.value || '';
+  const complete = isWeeklyCompletionValue(progress, status, existingFinish);
+  const startInput = document.getElementById('weeklyTaskActualStart');
+  const finishInput = document.getElementById('weeklyTaskActualFinish');
+  const showStartInput = !!startEdit || (!existingStart && progress > 0);
+  const showStartReadonly = !!existingStart && !startEdit;
+  const showNotStarted = !existingStart && !showStartInput && progress <= 0;
+  const showFinishInput = complete && (!existingFinish || !!finishEdit);
+  const showFinishReadonly = complete && !!existingFinish && !finishEdit;
+  setElementHidden(document.getElementById('weeklyActualStartNotStarted'), !showNotStarted);
+  setElementHidden(document.getElementById('weeklyActualStartReadonly'), !showStartReadonly);
+  setElementHidden(document.getElementById('weeklyActualStartInputWrap'), !showStartInput);
+  setElementHidden(document.getElementById('weeklyActualFinishHidden'), complete);
+  setElementHidden(document.getElementById('weeklyActualFinishReadonly'), !showFinishReadonly);
+  setElementHidden(document.getElementById('weeklyActualFinishInputWrap'), !showFinishInput);
+  if (startInput) {
+    startInput.disabled = !showStartInput;
+    startInput.required = showStartInput && progress > 0;
+    if (showStartInput && existingStart && !startInput.value) startInput.value = existingStart;
+  }
+  if (finishInput) {
+    finishInput.disabled = !showFinishInput;
+    finishInput.required = showFinishInput;
+    if (showFinishInput && existingFinish && !finishInput.value) finishInput.value = existingFinish;
+  }
+}
+
+function getWeeklyActualDatePayload() {
+  const root = document.getElementById('weeklyActualDateLifecycle');
+  const startInput = document.getElementById('weeklyTaskActualStart');
+  const finishInput = document.getElementById('weeklyTaskActualFinish');
+  const startEdit = document.getElementById('weeklyTaskActualStartEdit')?.value || '';
+  const finishEdit = document.getElementById('weeklyTaskActualFinishEdit')?.value || '';
+  const existingStart = root?.dataset.existingStart || '';
+  const existingFinish = root?.dataset.existingFinish || '';
+  return {
+    actualStart: startInput && !startInput.disabled ? startInput.value : existingStart,
+    actualFinish: finishInput && !finishInput.disabled ? finishInput.value : existingFinish,
+    actualStartEdit: startEdit,
+    actualFinishEdit: finishEdit
+  };
+}
+
+function syncWeeklyBudgetValidation() {
+  const input = document.getElementById('weeklyTaskBudget');
+  const warning = document.getElementById('weeklyBudgetLiveWarning');
+  if (!input || !warning) return true;
+  const raw = String(input.value || '').trim();
+  const plan = Number(document.querySelector('.weekly-budget-section')?.dataset.budgetPlan || 0);
+  let message = '';
+  if (raw && isNaN(Number(raw))) message = 'Giá trị ngân sách không đúng định dạng.';
+  else if (raw && Number(raw) < 0) message = 'Giá trị ngân sách không được âm.';
+  else if (raw && plan > 0 && Number(raw) > plan) message = 'Cảnh báo: giá trị thực tế trong tuần vượt kế hoạch ngân sách.';
+  warning.textContent = message;
+  warning.hidden = !message;
+  return !message || message.startsWith('Cảnh báo');
+}
+
+function validateWeeklyTaskForm(item) {
+  const progressEnd = Number(document.getElementById('weeklyTaskProgress')?.value || 0);
+  const status = document.getElementById('weeklyTaskStatus')?.value || '';
+  const dates = getWeeklyActualDatePayload();
+  if (isNaN(progressEnd) || progressEnd < 0 || progressEnd > 100) return { error: 'Mức hoàn thành phải nằm trong khoảng 0–100%.' };
+  if (progressEnd > 0 && progressEnd < 100 && !dates.actualStart) return { error: 'Vui lòng nhập ngày bắt đầu thực tế một lần khi công việc đã bắt đầu.' };
+  if (isWeeklyCompletionValue(progressEnd, status) && !dates.actualFinish) return { error: 'Vui lòng nhập ngày hoàn thành thực tế khi báo hoàn thành.' };
+  if (!syncWeeklyBudgetValidation()) return { error: 'Vui lòng kiểm tra lại ngân sách tuần.' };
+  const budgetRaw = String(document.getElementById('weeklyTaskBudget')?.value || '').trim();
+  if (budgetRaw && (isNaN(Number(budgetRaw)) || Number(budgetRaw) < 0)) return { error: 'Ngân sách tuần phải là số không âm.' };
+  return { error: '', progressEnd, status, dates, item };
 }
 
 function renderWeeklyTaskRegion() {
@@ -2247,11 +2464,42 @@ function loadWeeklyTaskDataForCurrent(filters = {}) {
 async function saveWeeklyTaskUpdate() {
   const item = qltdWeeklyTaskView.items.find((candidate) => `${candidate.itemType}:${candidate.itemId}` === qltdSelectedWeeklyItemKey); if (!item) return;
   const payload = qltdDeptPlanPayload || {}; const dept = (payload.departments || []).find((candidate) => (candidate.deptCode || candidate.sheetName) === qltdSelectedDeptCode) || {};
-  const progressEnd = Number(document.getElementById('weeklyTaskProgress')?.value || 0); let confirmProgressDecrease = false;
+  const status = document.getElementById('weeklyTaskSaveStatus');
+  const button = document.getElementById('saveWeeklyTaskUpdateButton');
+  if (button?.dataset.saving === '1') return;
+  const validation = validateWeeklyTaskForm(item);
+  if (validation.error) { if (status) status.textContent = validation.error; return; }
+  const progressEnd = validation.progressEnd; let confirmProgressDecrease = false;
   if (progressEnd < Number(item.progress || 0)) { confirmProgressDecrease = window.confirm(`Tiến độ mới ${progressEnd}% thấp hơn tiến độ hiện tại ${item.progress}%. Bạn có xác nhận?`); if (!confirmProgressDecrease) return; }
-  const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode: dept.deptCode || dept.sheetName || '', weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: document.getElementById('weeklyTaskStatus')?.value || '', actualStart: document.getElementById('weeklyTaskActualStart')?.value || '', actualFinish: document.getElementById('weeklyTaskActualFinish')?.value || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease };
-  const status = document.getElementById('weeklyTaskSaveStatus'); const button = document.getElementById('saveWeeklyTaskUpdateButton'); if (button) button.disabled = true; if (status) status.textContent = 'Đang lưu...';
-  try { const result = await postBackendJson(body); if (!result.success) throw new Error(result.message || result.error?.message || result.code || result.error?.code || 'Lưu thất bại.'); const data = result.data || result; qltdWeeklyForcedItem = null; qltdWeeklyTaskCache.delete(qltdWeeklyTaskView.key); if (status) status.textContent = data.update?.approvalStatus === 'PENDING' ? 'Đã gửi Admin phê duyệt cập nhật hoàn thành MASTER.' : 'Đã lưu cập nhật tuần.'; await loadWeeklyTaskDataForCurrent({ force: true }); } catch (error) { if (status) status.textContent = error.message || 'Không lưu được cập nhật.'; if (button) button.disabled = false; }
+  const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode: dept.deptCode || dept.sheetName || '', weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: validation.status || '', actualStart: validation.dates.actualStart || '', actualFinish: validation.dates.actualFinish || '', actualStartEdit: validation.dates.actualStartEdit || '', actualFinishEdit: validation.dates.actualFinishEdit || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease };
+  if (button) { button.disabled = true; button.dataset.saving = '1'; button.textContent = 'Đang lưu...'; }
+  if (status) status.textContent = 'Đang lưu...';
+  try {
+    const result = await postBackendJson(body);
+    if (!result.success) throw new Error(result.message || result.error?.message || result.code || result.error?.code || 'Lưu thất bại.');
+    const data = result.data || result;
+    qltdWeeklyForcedItem = null;
+    qltdWeeklyTaskCache.delete(qltdWeeklyTaskView.key);
+    const message = data.update?.approvalStatus === 'PENDING' ? 'Đã gửi Admin phê duyệt cập nhật hoàn thành MASTER.' : 'Đã lưu cập nhật tuần.';
+    if (status) status.textContent = message;
+    showWeeklyToast(message);
+    await loadWeeklyTaskDataForCurrent({ force: true });
+  } catch (error) {
+    if (status) status.textContent = error.message || 'Không lưu được cập nhật.';
+    if (button) { button.disabled = false; button.dataset.saving = ''; button.textContent = 'Lưu báo cáo tuần'; }
+  }
+}
+
+function showWeeklyToast(message) {
+  const toast = document.createElement('div');
+  toast.className = 'weekly-toast';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  window.setTimeout(() => toast.classList.add('is-visible'), 20);
+  window.setTimeout(() => {
+    toast.classList.remove('is-visible');
+    window.setTimeout(() => toast.remove(), 220);
+  }, 2600);
 }
 
 async function postBackendJson(payload) {

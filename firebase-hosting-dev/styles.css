@@ -960,3 +960,504 @@ body.has-detail-status-popup { overflow: hidden; }
   .detail-status-dialog { width: 100%; max-height: 94vh; }
   .detail-status-summary { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
 }
+
+/* STEP 3B.2E4: scoped professional Weekly UX. Keep selectors under .weekly-update-panel to avoid leaking into Gantt/Dashboard/Plan tabs. */
+.weekly-update-panel,
+.weekly-update-panel input,
+.weekly-update-panel select,
+.weekly-update-panel textarea,
+.weekly-update-panel button {
+  font-family: Inter, Roboto, "Segoe UI", Arial, sans-serif;
+}
+
+.weekly-update-panel {
+  width: 100%;
+  overflow-x: hidden;
+  padding: 20px;
+  border: 1px solid #dbe5ef;
+  border-radius: 18px;
+  background: #f4f7f8;
+  color: #172033;
+  font-size: 14px;
+}
+
+.weekly-page-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, .7fr);
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 18px 20px;
+  border: 1px solid #d8e4ec;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .06);
+}
+
+.weekly-eyebrow {
+  margin: 0 0 6px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.weekly-page-header h2 {
+  margin: 0 0 6px;
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.weekly-page-header span {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.weekly-update-panel .single-week-toolbar {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.weekly-update-panel .single-week-toolbar > div {
+  min-width: 180px;
+  padding: 10px 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+
+.weekly-update-panel .single-week-toolbar button,
+.weekly-update-panel .secondary-button,
+.weekly-update-panel .weekly-update-button {
+  min-height: 42px;
+  border-radius: 10px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+
+.weekly-update-panel .single-week-toolbar button,
+.weekly-update-panel .secondary-button {
+  border: 1px solid #c7d6e2;
+  background: #fff;
+  color: #17365d;
+}
+
+.weekly-update-panel .weekly-update-button {
+  border: 1px solid #0f766e;
+  background: #0f766e;
+  color: #fff;
+}
+
+.weekly-update-panel button:disabled {
+  cursor: wait;
+  opacity: .64;
+}
+
+.weekly-split-view {
+  display: grid;
+  grid-template-columns: minmax(300px, 34%) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.weekly-list-panel,
+.weekly-detail-panel {
+  min-width: 0;
+  border: 1px solid #dbe5ef;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .05);
+}
+
+.weekly-list-panel {
+  padding: 16px;
+}
+
+.weekly-detail-panel {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.weekly-update-panel .weekly-list-toolbar {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: stretch;
+  margin: 0 0 14px;
+}
+
+.weekly-update-panel .weekly-list-toolbar h3 {
+  margin: 0 0 4px;
+  color: #17365d;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.weekly-update-panel .weekly-list-toolbar input,
+.weekly-update-panel .weekly-list-toolbar select,
+.weekly-update-panel .weekly-update-field input,
+.weekly-update-panel .weekly-update-field select,
+.weekly-update-panel .weekly-update-field textarea {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #c7d6e2;
+  border-radius: 10px;
+  background: #fff;
+  color: #172033;
+  font-size: 14px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.weekly-update-panel .weekly-update-field input[readonly],
+.weekly-update-panel .weekly-update-field input:disabled {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.weekly-update-panel .weekly-update-field label {
+  margin-bottom: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weekly-update-panel .weekly-update-field small {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.weekly-update-panel .weekly-task-groups {
+  max-height: calc(100vh - 330px);
+  overflow: auto;
+  gap: 12px;
+  padding-right: 2px;
+}
+
+.weekly-update-panel .weekly-task-group {
+  border-color: #e0e8ef;
+  border-radius: 14px;
+}
+
+.weekly-update-panel .weekly-task-group h4 {
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.weekly-update-panel .weekly-task-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border-top: 1px solid #edf2f7;
+}
+
+.weekly-update-panel .weekly-task-row.is-selected {
+  border-left: 4px solid #0f766e;
+  background: #ecfdf8;
+}
+
+.weekly-task-kicker {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.weekly-update-panel .weekly-item-type {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.weekly-update-panel .weekly-task-main strong {
+  color: #172033;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.weekly-update-panel .weekly-task-main small {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.weekly-update-panel .weekly-task-state {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: center;
+}
+
+.weekly-update-panel .weekly-task-state > span {
+  color: #17365d;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.weekly-task-badge {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.weekly-task-badge.is-overdue { background: #fee2e2; color: #b42318; }
+.weekly-task-badge.is-in-progress { background: #dbeafe; color: #1d4ed8; }
+.weekly-task-badge.is-completed { background: #dcfce7; color: #15803d; }
+.weekly-task-badge.is-updated { background: #e0f2fe; color: #0369a1; }
+.weekly-task-badge.is-planned { background: #f1f5f9; color: #475569; }
+
+.weekly-update-panel .weekly-task-actions {
+  justify-content: flex-start;
+}
+
+.weekly-update-panel .weekly-inline-form {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.weekly-form-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.weekly-form-close {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  border: 1px solid #dbe5ef;
+  border-radius: 50%;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.weekly-update-panel .weekly-update-title {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.weekly-update-panel .weekly-update-meta {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.weekly-update-panel .weekly-form-section {
+  gap: 14px;
+  padding: 18px;
+  border-color: #dbe5ef;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.weekly-update-panel .weekly-form-section-title span {
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.weekly-update-panel .weekly-info-grid,
+.weekly-update-panel .weekly-budget-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.weekly-update-panel .weekly-info-grid > div,
+.weekly-update-panel .weekly-budget-grid > div {
+  min-height: 78px;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+
+.weekly-update-panel .weekly-info-grid span,
+.weekly-update-panel .weekly-budget-grid span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.weekly-update-panel .weekly-info-grid strong,
+.weekly-update-panel .weekly-budget-grid strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.weekly-update-panel .weekly-update-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.weekly-update-panel .weekly-result-section textarea {
+  min-height: 118px;
+}
+
+.weekly-update-panel .weekly-issue-section textarea {
+  min-height: 96px;
+}
+
+.weekly-update-panel .weekly-budget-section textarea {
+  min-height: 84px;
+}
+
+.weekly-actual-date-lifecycle {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.weekly-actual-date-lifecycle [hidden] {
+  display: none !important;
+}
+
+.weekly-actual-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid #dbe5ef;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.weekly-actual-state.is-muted {
+  color: #64748b;
+}
+
+.weekly-actual-state strong,
+.weekly-actual-state span {
+  display: block;
+}
+
+.weekly-actual-state strong {
+  color: #17365d;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.weekly-actual-state span {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.weekly-update-panel .weekly-budget-section {
+  border-color: #dbeafe;
+  background: #fff;
+}
+
+.weekly-update-panel .weekly-form-placeholder {
+  display: grid;
+  gap: 8px;
+  min-height: 220px;
+  place-content: center;
+  margin: 0;
+  border-color: #cbd5e1;
+  background: #fff;
+  font-size: 14px;
+}
+
+.weekly-update-panel .weekly-update-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  margin-top: 4px;
+  padding: 14px 0 0;
+  border-top: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, rgba(255,255,255,.86), #fff 36%);
+}
+
+.weekly-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1600;
+  max-width: min(420px, calc(100vw - 48px));
+  padding: 13px 16px;
+  border-radius: 12px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, .28);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.weekly-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (max-width: 1180px) {
+  .weekly-page-header,
+  .weekly-split-view {
+    grid-template-columns: 1fr;
+  }
+
+  .weekly-update-panel .weekly-task-groups {
+    max-height: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .weekly-update-panel {
+    padding: 12px;
+  }
+
+  .weekly-page-header,
+  .weekly-list-panel,
+  .weekly-detail-panel {
+    padding: 14px;
+  }
+
+  .weekly-update-panel .single-week-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .weekly-update-panel .single-week-toolbar > div {
+    flex-basis: auto;
+  }
+
+  .weekly-update-panel .weekly-update-grid,
+  .weekly-update-panel .weekly-info-grid,
+  .weekly-update-panel .weekly-budget-grid,
+  .weekly-actual-date-lifecycle {
+    grid-template-columns: 1fr;
+  }
+
+  .weekly-form-topbar {
+    align-items: flex-start;
+  }
+}

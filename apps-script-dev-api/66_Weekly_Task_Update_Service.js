@@ -237,6 +237,8 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
   const validation = qltdWeeklyTaskUpdatesValidatePayload_(payload || {}, scope);
   if (validation.error) return validation.error;
   const currentItem = qltdWeeklyTaskUpdatesFindCurrentItem_(validation.itemType, validation.itemId, scope, action);
+  const lifecycle = qltdWeeklyTaskUpdatesResolveActualDateLifecycle_(payload || {}, validation, currentItem, scope);
+  if (lifecycle.error) return lifecycle.error;
   if (currentItem && validation.progressEnd < Number(currentItem.progress || 0) && !payload.confirmProgressDecrease) {
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PROGRESS_DECREASE_CONFIRM_REQUIRED', 'Progress is lower than current task progress. Confirmation is required.', scope.meta, scope.warnings, {
       currentProgress: Number(currentItem.progress || 0),
@@ -542,7 +544,6 @@ function qltdWeeklyTaskUpdatesValidatePayload_(payload, scope) {
   const budgetThisWeek = String(payload.budgetThisWeek || '').trim() === '' ? '' : Number(payload.budgetThisWeek);
   if (!itemType || !itemId) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, 'weekly_taskupdates_save', 'ITEM_REQUIRED', 'itemType and itemId are required.', scope.meta, scope.warnings) };
   if (isNaN(progressEnd) || progressEnd < 0 || progressEnd > 100) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, 'weekly_taskupdates_save', 'INVALID_PROGRESS', 'progressEnd must be between 0 and 100.', scope.meta, scope.warnings) };
-  if (progressEnd === 100 && itemType !== 'MASTER' && !actualFinish) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, 'weekly_taskupdates_save', 'ACTUAL_FINISH_REQUIRED', 'ActualFinish is required at 100%.', scope.meta, scope.warnings) };
   if (payload.actualStart && !actualStart || payload.actualFinish && !actualFinish) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, 'weekly_taskupdates_save', 'INVALID_DATE', 'Actual dates must use yyyy-MM-dd.', scope.meta, scope.warnings) };
   if (budgetThisWeek !== '' && (isNaN(budgetThisWeek) || budgetThisWeek < 0)) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, 'weekly_taskupdates_save', 'INVALID_BUDGET', 'budgetThisWeek must be non-negative.', scope.meta, scope.warnings) };
   return {
@@ -554,8 +555,56 @@ function qltdWeeklyTaskUpdatesValidatePayload_(payload, scope) {
   };
 }
 
+function qltdWeeklyTaskUpdatesResolveActualDateLifecycle_(payload, validation, currentItem, scope) {
+  const action = 'weekly_taskupdates_save';
+  const existingStart = qltdBudgetFormatDate_(currentItem && currentItem.actualStart);
+  const existingFinish = qltdBudgetFormatDate_(currentItem && currentItem.actualFinish);
+  const startEditRequested = qltdWeeklyTaskUpdatesActualDateEditRequested_(payload, 'actualStart');
+  const finishEditRequested = qltdWeeklyTaskUpdatesActualDateEditRequested_(payload, 'actualFinish');
+  const completionState = qltdWeeklyTaskUpdatesIsCompletionState_(validation);
+
+  if (!validation.actualStart && existingStart) validation.actualStart = existingStart;
+  if (!validation.actualFinish && existingFinish) validation.actualFinish = existingFinish;
+
+  if (startEditRequested && !validation.actualStart) {
+    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACTUAL_START_REQUIRED', 'ActualStart is required when user confirms or edits the actual start date.', scope.meta, scope.warnings) };
+  }
+  if (validation.progressEnd > 0 && validation.progressEnd < 100 && !validation.actualStart) {
+    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACTUAL_START_REQUIRED', 'ActualStart is required once task progress is between 1 and 99%.', scope.meta, scope.warnings) };
+  }
+  if (completionState && !validation.actualFinish) {
+    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACTUAL_FINISH_REQUIRED', 'ActualFinish is required when task reaches 100% or completed status.', scope.meta, scope.warnings) };
+  }
+  if (!completionState && !finishEditRequested && !existingFinish) {
+    validation.actualFinish = '';
+  }
+
+  validation.actualStartShouldWrite = !!validation.actualStart && (!existingStart || startEditRequested);
+  validation.actualFinishShouldWrite = !!validation.actualFinish && ((completionState && !existingFinish) || finishEditRequested);
+  validation.existingActualStart = existingStart;
+  validation.existingActualFinish = existingFinish;
+  return { error: null };
+}
+
+function qltdWeeklyTaskUpdatesActualDateEditRequested_(payload, field) {
+  const editKey = field + 'Edit';
+  const modeKey = field + 'Mode';
+  const editValue = String(payload && payload[editKey] || '').trim().toLowerCase();
+  const modeValue = String(payload && payload[modeKey] || '').trim().toLowerCase();
+  return qltdWeeklyTaskUpdatesTruthy_(payload && payload[editKey]) ||
+    editValue === 'edit' || editValue === 'confirm' || editValue === 'complete' ||
+    modeValue === 'edit' || modeValue === 'confirm' || modeValue === 'complete';
+}
+
+function qltdWeeklyTaskUpdatesTruthy_(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return value === true || value === 1 || text === '1' || text === 'true' || text === 'yes';
+}
+
 function qltdWeeklyTaskUpdatesSyncTask_(payload, validation, scope, auth) {
-  const updates = { status: validation.taskStatus, actualStart: validation.actualStart, actualFinish: validation.actualFinish };
+  const updates = { status: validation.taskStatus };
+  if (validation.actualStartShouldWrite) updates.actualStart = validation.actualStart;
+  if (validation.actualFinishShouldWrite) updates.actualFinish = validation.actualFinish;
   if (validation.itemType === 'PB_DETAIL') {
     updates.action = 'work_updatedetailtask'; updates.email = auth.email; updates.projectCode = scope.projectCode;
     updates.deptCode = scope.deptCode; updates.detailTaskId = validation.itemId; updates.progress = validation.progressEnd;
@@ -710,6 +759,10 @@ function qltdWeeklyTaskUpdatesNormalizeStatusKey_(value) {
 }
 function qltdWeeklyTaskUpdatesIsCompletionProposal_(validation) {
   if (!validation || validation.itemType !== 'MASTER') return false;
+  return qltdWeeklyTaskUpdatesIsCompletionState_(validation);
+}
+function qltdWeeklyTaskUpdatesIsCompletionState_(validation) {
+  if (!validation) return false;
   return Number(validation.progressEnd || 0) >= 100 ||
     !!validation.actualFinish ||
     qltdWeeklyTaskUpdatesNormalizeStatusKey_(validation.taskStatus).indexOf('hoanthanh') >= 0 ||
