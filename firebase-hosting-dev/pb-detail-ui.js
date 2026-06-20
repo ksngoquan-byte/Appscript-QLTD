@@ -1,4 +1,4 @@
-const QLTD_PB_DETAIL_UI_VERSION = 'STEP_3B2B_V1';
+const QLTD_PB_DETAIL_UI_VERSION = 'STEP_3B2B_V1_1';
 const QLTD_PB_DETAIL_API_URL = 'https://script.google.com/macros/s/AKfycbx6iHCEf6Ba05h6u6DiBcqv3kxV79T6RvktzoFsdBJXeQjBaCNMyGQL5akptlX8jGtxpg/exec';
 
 const QLTD_PB_DETAIL_STATUS_OPTIONS = [
@@ -536,9 +536,12 @@ async function qltdPbDetailLoad(force = false) {
   const context = qltdPbDetailGetContext();
   if (!panel || !context.projectCode || !context.deptCode || !context.masterTaskCode || !context.email) return;
 
-  if (!force && qltdPbDetailState.contextKey === context.key && qltdPbDetailState.masterTask) {
-    qltdPbDetailRender();
-    return;
+  if (!force && qltdPbDetailState.contextKey === context.key) {
+    if (qltdPbDetailState.loading) return;
+    if (qltdPbDetailState.masterTask) {
+      qltdPbDetailRender();
+      return;
+    }
   }
 
   qltdPbDetailState.contextKey = context.key;
@@ -735,9 +738,9 @@ function qltdPbDetailScheduleMount(delay = 80) {
     const context = qltdPbDetailGetContext();
     if (!context.projectCode || !context.deptCode || !context.masterTaskCode || !context.email) return;
 
-    if (qltdPbDetailState.contextKey !== context.key || !qltdPbDetailState.masterTask) {
+    if (qltdPbDetailState.contextKey !== context.key) {
       qltdPbDetailLoad(false);
-    } else {
+    } else if (!qltdPbDetailState.loading) {
       qltdPbDetailRender();
     }
   }, delay);
