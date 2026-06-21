@@ -36,6 +36,10 @@ assert.match(weeklyPanel, /DANH SÁCH CÔNG VIỆC/);
 assert.doesNotMatch(weeklyPanel, /renderWeekPeriodsHtml|renderWeeklyNextItems/);
 assert.match(weeklyPanel, /findWeeklySavedUpdate/);
 assert.match(weeklyPanel, /updateContext/);
+assert.ok(weeklyPanel.indexOf('renderWeeklySelectedForm') < weeklyPanel.indexOf('renderStandaloneBudgetWeeklyBlock'));
+assert.ok(weeklyPanel.indexOf('renderStandaloneBudgetWeeklyBlock') < weeklyPanel.indexOf('renderWeeklySaveActions'));
+assert.ok(weeklyPanel.indexOf('renderWeeklySaveActions') < weeklyPanel.indexOf('renderWeeklySavedUpdates'));
+assert.equal((weeklyPanel.match(/renderWeeklySaveActions/g) || []).length, 1);
 
 const weeklyStateSource = app.slice(app.indexOf('function normalizeWeeklyUpdateMatchValue'), app.indexOf('function renderWeeklyTaskUpdatePanel('));
 const weeklyStateContext = {};
@@ -79,6 +83,7 @@ assert.match(weeklyForm, /Mức hoàn thành đến hết tuần/);
 assert.match(weeklyForm, /renderWeeklyActualDateLifecycle/);
 assert.match(weeklyForm, /weekly-form-close/);
 assert.match(weeklyForm, /Cong_viec/);
+assert.equal((weeklyForm.match(/saveWeeklyTaskUpdateButton/g) || []).length, 1);
 
 const standaloneBudget = latestFunction('renderStandaloneBudgetWeeklyBlock', 'normalizeWeeklyBudgetAmount');
 assert.match(standaloneBudget, /data-weekly-budget-amount/);

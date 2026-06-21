@@ -2167,6 +2167,7 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
       <main class="weekly-detail-panel" aria-label="Chi tiết công việc">
         ${selected ? renderWeeklySelectedForm(selected, saved) : '<div class="weekly-form-placeholder"><strong>CHI TIẾT CÔNG VIỆC</strong><span>Chọn “Cập nhật” tại một công việc để mở biểu mẫu.</span></div>'}
         ${renderStandaloneBudgetWeeklyBlock(state.standaloneBudgetItems || [])}
+        ${selected ? renderWeeklySaveActions() : ''}
         ${renderWeeklySavedUpdates(state.updates, state.items)}
       </main>
     </div>
@@ -2387,8 +2388,11 @@ function renderWeeklySelectedForm(selected, saved) {
     <section class="weekly-form-section weekly-result-section"><div class="weekly-form-section-title"><span>KẾT QUẢ THỰC HIỆN TRONG TUẦN</span></div><div class="weekly-update-field"><label for="weeklyTaskResult">Kết quả thực hiện trong tuần</label><textarea id="weeklyTaskResult" placeholder="Nêu kết quả đã hoàn thành, sản phẩm đầu ra, mốc đã chốt...">${escapeHtml(saved?.thisWeekResult || '')}</textarea></div></section>
     <section class="weekly-form-section"><div class="weekly-form-section-title"><span>TÌNH TRẠNG CÔNG VIỆC</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskProgress">Mức hoàn thành đến hết tuần (%)</label><input id="weeklyTaskProgress" type="number" min="0" max="100" step="1" value="${escapeHtml(progressValue)}"></div><div class="weekly-update-field"><label for="weeklyTaskStatus">Trạng thái công việc</label>${renderWeeklyStatusSelect(statusValue)}</div>${renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusValue)}</div></section>
     <section class="weekly-form-section weekly-issue-section"><div class="weekly-form-section-title"><span>VƯỚNG MẮC VÀ XỬ LÝ</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskIssue">Vướng mắc/Rủi ro</label><textarea id="weeklyTaskIssue" placeholder="Nêu vướng mắc, nguyên nhân, tác động nếu có...">${escapeHtml(saved?.issue || '')}</textarea></div><div class="weekly-update-field"><label for="weeklyTaskRecommendation">Giải pháp/Đề xuất</label><textarea id="weeklyTaskRecommendation" placeholder="Nêu hướng xử lý, người/phòng cần phối hợp, đề xuất quyết định...">${escapeHtml(saved?.recommendation || '')}</textarea></div></div></section>
-    ${renderWeeklyBudgetBlock(selected, saved)}
-    <div class="weekly-update-actions"><button type="button" class="secondary-button" data-weekly-close-form>Hủy thay đổi</button><div><button id="saveWeeklyTaskUpdateButton" type="button" class="weekly-update-button">Lưu báo cáo tuần</button><span id="weeklyTaskSaveStatus" class="weekly-update-note"></span></div></div></section>`;
+    ${renderWeeklyBudgetBlock(selected, saved)}</section>`;
+}
+
+function renderWeeklySaveActions() {
+  return '<div class="weekly-update-actions"><button type="button" class="secondary-button" data-weekly-close-form>Hủy thay đổi</button><div><button id="saveWeeklyTaskUpdateButton" type="button" class="weekly-update-button">Lưu báo cáo tuần</button><span id="weeklyTaskSaveStatus" class="weekly-update-note"></span></div></div>';
 }
 
 function bindWeeklyTaskUpdateControls() {
