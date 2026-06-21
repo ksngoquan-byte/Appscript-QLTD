@@ -34,7 +34,7 @@ function qltdDevApiHandleGet(e) {
   }
 
   if (action === 'budget_getlivedashboard') {
-    return qltdDevApiJson_(qltdBudgetGetLiveDashboard_(params));
+    return qltdDevApiJson_(qltdBudgetGetLiveDashboardOptimized_(params));
   }
 
   if (action === 'budget_gettaskbudgetmap') {
