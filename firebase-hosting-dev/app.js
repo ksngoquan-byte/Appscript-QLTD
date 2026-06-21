@@ -74,6 +74,7 @@ let qltdGanttViewMode = 'progress';
 let qltdGanttBudgetRequestSeq = 0;
 const qltdGanttBudgetCache = new Map();
 const qltdGanttBudgetLoadingProjects = new Set();
+let qltdBudgetSyncRunning = false;
 let qltdActiveView = 'dashboard';
 let qltdDhtmlxLoadPromise = null;
 let qltdExcelJsLoadPromise = null;
@@ -4762,6 +4763,92 @@ function ensureGanttBudgetMapForProject(projectCode) {
   });
 }
 
+async function refreshGanttBudgetMapForProject(projectCode) {
+  const code = String(projectCode || '');
+  if (!code) return null;
+  qltdGanttBudgetCache.delete(code);
+  qltdGanttBudgetLoadingProjects.delete(code);
+  const result = await fetchBackendJson('budget_getTaskBudgetMap', {
+    email: currentUserProfile?.email || '',
+    projectCode: code,
+    force: String(Date.now())
+  });
+  if (!result.success) throw new Error(result.message || result.errors?.[0]?.message || result.errors?.[0]?.code || 'Không tải được ngân sách Gantt.');
+  const data = result.data || result;
+  qltdGanttBudgetCache.set(code, {
+    byMasterTaskCode: data.byMasterTaskCode || {},
+    updatedAt: data.updatedAt || ''
+  });
+  return data;
+}
+
+function formatBudgetSyncSummary(data, title) {
+  const model = data || {};
+  const lines = [
+    title || `Chuẩn bị đồng bộ ngân sách dự án ${model.projectName || model.projectCode || ''}`,
+    '',
+    `Dòng đã quét: ${model.rowsScanned || 0}`,
+    `Dòng đã chốt: ${model.approvedRows || 0}`,
+    `Tạo mới: ${Number(model.createItems || 0)} khoản / ${Number(model.createAllocations || 0)} phân bổ`,
+    `Cập nhật: ${Number(model.updateItems || 0)} khoản / ${Number(model.updateAllocations || 0)} phân bổ`,
+    `Vô hiệu hóa: ${Number(model.deactivateItems || 0)} khoản / ${Number(model.deactivateAllocations || 0)} phân bổ`,
+    `Không đổi: ${Number(model.unchanged || 0)}`,
+    `Lỗi/conflict cần kiểm tra: ${Number((model.errors || []).length || 0) + Number((model.conflicts || []).length || 0)}`
+  ];
+  return lines.join('\n');
+}
+
+function getBudgetSyncErrorMessage(result, fallback) {
+  const errors = result && (result.errors || result.data?.errors) || [];
+  if (errors.length) return errors.map((error) => error.message || error.errorCode || error.code).join('\n');
+  return fallback || 'Không đồng bộ được ngân sách.';
+}
+
+async function handleGanttBudgetSyncClick(button, payload) {
+  const projectCode = payload?.projectCode || getStoredProjectCode();
+  if (!projectCode || qltdBudgetSyncRunning) return;
+  qltdBudgetSyncRunning = true;
+  const previousText = button ? button.textContent : '';
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Đang preview...';
+  }
+
+  try {
+    const preview = await fetchBackendJson('budget_syncApprovedTaskBudgets', {
+      email: currentUserProfile?.email || '',
+      projectCode,
+      dryRun: '1',
+      force: String(Date.now())
+    });
+    if (!preview.success) throw new Error(getBudgetSyncErrorMessage(preview, 'Preview đồng bộ thất bại.'));
+    const previewData = preview.data || {};
+    const ok = window.confirm(`${formatBudgetSyncSummary(previewData)}\n\nBạn có tiếp tục không?`);
+    if (!ok) return;
+
+    if (button) button.textContent = 'Đang đồng bộ...';
+    const result = await postBackendJson({
+      action: 'budget_syncApprovedTaskBudgets',
+      email: currentUserProfile?.email || '',
+      projectCode,
+      dryRun: '0'
+    });
+    if (!result.success) throw new Error(getBudgetSyncErrorMessage(result, 'Đồng bộ ngân sách thất bại.'));
+    await refreshGanttBudgetMapForProject(projectCode);
+    if (qltdGanttPayload?.projectCode === projectCode) renderGanttPanel(qltdGanttPayload);
+    alert(formatBudgetSyncSummary(result.data || {}, `Đã đồng bộ ngân sách dự án ${result.data?.projectName || projectCode}`));
+  } catch (error) {
+    console.error('Cannot sync approved task budgets', error);
+    alert(`Không đồng bộ được ngân sách: ${error.message || error}`);
+  } finally {
+    qltdBudgetSyncRunning = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousText || 'Đồng bộ ngân sách';
+    }
+  }
+}
+
 function renderGanttPanel(payload) {
   const panel = document.getElementById('web07GanttPanel');
   if (!panel) return;
@@ -4843,6 +4930,7 @@ function renderGanttPanel(payload) {
         </span>
         <button id="ganttDatesToggle" type="button" class="${qltdGanttShowDates ? 'active' : ''}">Ngày trên bar</button>
         ${canExport ? '<button id="ganttExcelButton" type="button">Xuất Excel</button>' : ''}
+        ${qltdGanttViewMode === 'budget' ? '<button id="ganttBudgetSyncButton" type="button">Đồng bộ ngân sách</button>' : ''}
         <select id="ganttZoomSelect">
           <option value="day" ${qltdGanttZoom === 'day' ? 'selected' : ''}>Ngày</option>
           <option value="week" ${qltdGanttZoom === 'week' ? 'selected' : ''}>Tuần</option>
@@ -4899,6 +4987,11 @@ function bindGanttToolbar(payload) {
       document.getElementById('ganttLinkLegend')?.classList.toggle('is-muted', !qltdGanttShowLinks);
       applyGanttFilters();
     };
+  }
+
+  const budgetSyncButton = document.getElementById('ganttBudgetSyncButton');
+  if (budgetSyncButton) {
+    budgetSyncButton.onclick = () => handleGanttBudgetSyncClick(budgetSyncButton, payload);
   }
 
   const datesToggle = document.getElementById('ganttDatesToggle');
