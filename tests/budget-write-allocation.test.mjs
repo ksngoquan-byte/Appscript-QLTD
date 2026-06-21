@@ -39,6 +39,23 @@ const ALLOCATION_HEADERS = [
   'Trang thai', 'Ghi chu'
 ];
 
+const SUMMARY_HEADERS = [
+  'Ma du an', 'Ten du an', 'Loai ky', 'Ma ky', 'Ma cong viec Master', 'WBS',
+  'Cong viec', 'Phong/Ban', 'Ngan sach tong the', 'Ke hoach ky', 'Thuc hien ky',
+  'Thuc hien luy ke', 'Con lai', 'Ty le su dung', 'Canh bao', 'Cap nhat cuoi',
+  'Ma khoan ngan sach', 'Ten khoan ngan sach', 'Loai ngan sach', 'Nhom ngan sach',
+  'Giai doan ngan sach', 'Yeu cau ma cong viec Master', 'Ma phan bo',
+  'Ma cong viec chi tiet PB', 'Huong dong tien', 'Thuc thu/chi ky',
+  'Thuc thu/chi luy ke', 'Chua thu/chua chi'
+];
+
+const DASHBOARD_HEADERS = [
+  'Nhom chi tieu', 'Chi tieu', 'Ma du an', 'Ten du an', 'Loai ky', 'Ma ky',
+  'Gia tri', 'Don vi', 'Cap nhat cuoi', 'Ghi chu', 'Ma phong/ban', 'Phong/Ban',
+  'Loai ngan sach', 'Nhom ngan sach', 'Ma khoan ngan sach', 'Huong dong tien',
+  'Ma phan bo', 'Ma cong viec Master', 'Ma cong viec chi tiet PB'
+];
+
 const CONFIRMED_LABEL = '\u0110\u00e3 x\u00e1c nh\u1eadn';
 const SUBMITTED_LABEL = '\u0110\u00e3 g\u1eedi';
 const MONTH_LABEL = 'Th\u00e1ng';
@@ -127,6 +144,12 @@ class MockSheet {
   }
   getMaxRows() { return Math.max(this.rows.length, 1); }
   getMaxColumns() { return Math.max(this.getLastColumn(), 1); }
+  insertRowsAfter(row, count) {
+    const insertAt = Math.max(0, Number(row || 0));
+    const rows = Array.from({ length: Number(count || 0) }, () => []);
+    this.rows.splice(insertAt, 0, ...rows);
+    return this;
+  }
   getRange(row, column, numRows = 1, numColumns = 1) {
     return new MockRange(this, row, column, numRows, numColumns);
   }
@@ -222,7 +245,9 @@ function buildContext(options = {}) {
   const items = new MockSheet('CENTRAL_NS_Items', rowsWithHeader(4, ITEM_HEADERS, options.items || [itemRow()]));
   const allocations = new MockSheet('CENTRAL_NS_Allocations', rowsWithHeader(4, ALLOCATION_HEADERS, options.allocations || [allocationRow()]));
   const raw = new MockSheet('CENTRAL_NS_Raw', rowsWithHeader(4, RAW_HEADERS));
-  const central = new MockSpreadsheet('CENTRAL', [projects, departments, items, allocations, raw]);
+  const summary = new MockSheet('CENTRAL_NS_Tong_hop', rowsWithHeader(4, SUMMARY_HEADERS, options.summary || []));
+  const dashboard = new MockSheet('CENTRAL_NS_Dashboard', rowsWithHeader(4, DASHBOARD_HEADERS, options.dashboard || []));
+  const central = new MockSpreadsheet('CENTRAL', [projects, departments, items, allocations, raw, summary, dashboard]);
 
   const deptSheet = new MockSheet('D1', rowsWithHeader(4, [
     'STT', 'Noi dung cong viec', 'Ke hoach ngan sach', 'Ngan sach thuc te',
@@ -303,6 +328,66 @@ function expectWriteError(options, code, payloadOverrides = {}) {
   assert.equal(context.qltdBudgetGetCell_(rawRow, headerMap, 'Trang thai xac nhan', ''), CONFIRMED_LABEL);
   assert.equal(context.qltdBudgetGetCell_(rawRow, headerMap, 'Nguoi xac nhan', ''), 'admin@example.com');
   assert.notEqual(context.qltdBudgetGetCell_(rawRow, headerMap, 'Thoi diem xac nhan', ''), '');
+}
+
+{
+  const { context, central } = buildContext({
+    items: [itemRow({
+      budgetType: 'DEPT_STANDALONE',
+      masterTaskCode: '',
+      budgetItemCode: 'BI-STANDALONE',
+      budgetItemName: 'Standalone item',
+      approvedBudget: 2000000
+    })],
+    allocations: [allocationRow({ allocatedAmount: 3000000 })]
+  });
+  const monthPrepared = context.qltdBudgetPrepareWrite_(basePayload({
+    requestId: 'REQAGGMONTH01',
+    budgetType: 'DEPT_STANDALONE',
+    budgetItemCode: 'BI-STANDALONE',
+    masterTaskCode: '',
+    periodType: 'MONTH',
+    periodCode: '2026-06',
+    amount: 1200000
+  }), 'ACTUAL', 'weekly_taskupdates_save');
+  assert.equal(monthPrepared.error, null);
+  assert.equal(context.qltdBudgetExecutePreparedWriteNoLock_(monthPrepared.value).success, true);
+
+  const weekPrepared = context.qltdBudgetPrepareWrite_(basePayload({
+    requestId: 'REQAGGWEEK01',
+    budgetType: 'DEPT_STANDALONE',
+    budgetItemCode: 'BI-STANDALONE',
+    masterTaskCode: '',
+    periodType: 'WEEK',
+    periodCode: 'WEEK-2026-06-15',
+    amount: 500000
+  }), 'ACTUAL', 'weekly_taskupdates_save');
+  assert.equal(weekPrepared.error, null);
+  assert.equal(context.qltdBudgetExecutePreparedWriteNoLock_(weekPrepared.value).success, true);
+
+  const refresh = context.qltdBudgetRefreshAggregateForWriteNoLock_(weekPrepared.value);
+  assert.equal(refresh.success, true);
+  assert.equal(refresh.summaryRowsWritten, 1);
+  assert.equal(refresh.dashboardRowsWritten, 7);
+
+  const summary = central.getSheetByName('CENTRAL_NS_Tong_hop');
+  const summaryHeaderMap = context.qltdBudgetBuildHeaderMap_(SUMMARY_HEADERS);
+  const summaryRow = summary.rows[4];
+  assert.equal(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Ma khoan ngan sach', ''), 'BI-STANDALONE');
+  assert.equal(context.qltdBudgetAggregatePeriodKey_(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Loai ky', '')), 'WEEK');
+  assert.equal(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Ma ky', ''), 'WEEK-2026-06-15');
+  assert.equal(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Ma phan bo', ''), 'A1');
+  assert.equal(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Huong dong tien', ''), 'CHI');
+  assert.equal(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Ngan sach tong the', 0), 2000000);
+  assert.equal(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Thuc hien ky', 0), 500000);
+  assert.equal(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Thuc hien luy ke', 0), 500000);
+  assert.equal(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Con lai', 0), 1500000);
+  assert.equal(context.qltdBudgetGetCell_(summaryRow, summaryHeaderMap, 'Ty le su dung', 0), 0.25);
+
+  const retryRefresh = context.qltdBudgetRefreshAggregateForWriteNoLock_(weekPrepared.value);
+  assert.equal(retryRefresh.success, true);
+  assert.equal(summary.getLastRow(), 5);
+  assert.equal(context.qltdBudgetGetCell_(summary.rows[4], summaryHeaderMap, 'Thuc hien luy ke', 0), 500000);
 }
 
 function submitAndReadRecordType(operation, payloadOverrides) {

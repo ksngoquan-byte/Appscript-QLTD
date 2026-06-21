@@ -280,7 +280,29 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
           false
         );
       }
-      budgetResults.push(qltdWeeklyTaskUpdatesBuildBudgetResult_(preparedBudget, budgetResult));
+      const builtBudgetResult = qltdWeeklyTaskUpdatesBuildBudgetResult_(preparedBudget, budgetResult);
+      budgetResults.push(builtBudgetResult);
+      if (typeof qltdBudgetRefreshAggregateForWriteNoLock_ === 'function') {
+        try {
+          builtBudgetResult.aggregate = qltdBudgetRefreshAggregateForWriteNoLock_(preparedBudget);
+        } catch (aggregateError) {
+          return qltdWeeklyTaskUpdatesPartialWriteError_(
+            payload,
+            scope,
+            'AGGREGATE',
+            budgetResults,
+            {
+              code: aggregateError && aggregateError.code || 'AGGREGATE_REFRESH_FAILED',
+              message: qltdBudgetSafeErrorMessage_(aggregateError),
+              budgetItemCode: preparedBudget.weeklyBudgetMeta && preparedBudget.weeklyBudgetMeta.budgetItemCode || '',
+              reportId: preparedBudget.reportId,
+              requestId: preparedBudget.requestId,
+              details: aggregateError && aggregateError.details || null
+            },
+            false
+          );
+        }
+      }
     }
     const now = qltdWorkNowIso_();
     const completionProposal = qltdWeeklyTaskUpdatesIsCompletionProposal_(validation);
@@ -828,10 +850,12 @@ function qltdWeeklyTaskUpdatesReadBudgetActualIndex_(scope) {
     const amount = qltdBudgetToNumber_(qltdBudgetGetCell_(row, parsed.headerMap, 'Gia tri thuc hien ky nay', 0));
     const itemKey = qltdWeeklyTaskUpdatesBudgetItemKey_(projectCode, budgetItemCode, allocationCode, flowType);
     const allocationKey = qltdWeeklyTaskUpdatesBudgetAllocationKey_(projectCode, allocationCode, flowType);
-    result.byItem[itemKey] = Number(result.byItem[itemKey] || 0) + amount;
-    result.byAllocation[allocationKey] = Number(result.byAllocation[allocationKey] || 0) + amount;
     const periodType = qltdBudgetNormalizePeriodType_(qltdBudgetGetCell_(row, parsed.headerMap, 'Loai ky', ''));
     const periodCode = qltdWorkNormalizeWeekCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma ky', ''));
+    if (!periodType.error && periodType.value === 'WEEK') {
+      result.byItem[itemKey] = Number(result.byItem[itemKey] || 0) + amount;
+      result.byAllocation[allocationKey] = Number(result.byAllocation[allocationKey] || 0) + amount;
+    }
     if (!periodType.error && periodType.value === 'WEEK' && periodCode === scope.weekCode) {
       const current = result.byItemWeek[itemKey] || { amount: 0, note: '' };
       current.amount += amount;
@@ -921,6 +945,8 @@ function qltdWeeklyTaskUpdatesPartialWriteError_(payload, scope, stage, budgetRe
   const details = {
     stage: stage,
     requestId: String(payload && payload.requestId || '').trim(),
+    reportId: failedResult && failedResult.reportId || '',
+    budgetItemCode: failedResult && failedResult.budgetItemCode || '',
     taskSaved: !!taskSaved,
     budgetResults: budgetResults || [],
     failedCode: failed.code,

@@ -219,6 +219,151 @@ function qltdBudgetBuildAggregateData_(rawRows, headerMap, items, departments, t
   };
 }
 
+function qltdBudgetRefreshAggregateForWriteNoLock_(prepared) {
+  const target = qltdBudgetBuildAggregateRefreshTarget_(prepared || {});
+  if (target.error) {
+    const error = new Error(target.error.message);
+    error.code = target.error.code;
+    error.details = target.error.details;
+    throw error;
+  }
+
+  const sheets = qltdBudgetGetAggregateSheets_();
+  const rawParsed = qltdBudgetReadSheetAsObjects_(sheets.raw, 4);
+  const summaryParsed = qltdBudgetReadSheetAsObjects_(sheets.summary, 4);
+  const dashboardParsed = qltdBudgetReadSheetAsObjects_(sheets.dashboard, 4);
+  qltdBudgetRequireAggregateHeaders_(rawParsed.headers, QLTD_BUDGET_CENTRAL_RAW_HEADERS, QLTD_BUDGET_SHEET.CENTRAL_RAW);
+  qltdBudgetRequireAggregateHeaders_(summaryParsed.headers, QLTD_BUDGET_CENTRAL_SUMMARY_HEADERS, QLTD_BUDGET_SHEET.CENTRAL_SUMMARY);
+  qltdBudgetRequireAggregateHeaders_(dashboardParsed.headers, QLTD_BUDGET_CENTRAL_DASHBOARD_HEADERS, QLTD_BUDGET_SHEET.CENTRAL_DASHBOARD);
+
+  const itemsResult = qltdBudgetReadBudgetItems_();
+  const deptsResult = qltdBudgetReadProjectDepts_();
+  const aggregate = qltdBudgetBuildAggregateData_(
+    rawParsed.rows,
+    rawParsed.headerMap,
+    itemsResult.items || [],
+    deptsResult.departments || [],
+    sheets.raw.getParent().getSpreadsheetTimeZone()
+  );
+  const affectedSummary = aggregate.summary.filter(function(row) {
+    return qltdBudgetAggregateRowMatchesRefreshTarget_(row, target.value);
+  });
+  const affectedDashboard = aggregate.dashboard.filter(function(row) {
+    return qltdBudgetAggregateRowMatchesRefreshTarget_(row, target.value);
+  });
+
+  qltdBudgetUpsertAggregateDataRegion_(
+    sheets.summary,
+    QLTD_BUDGET_CENTRAL_SUMMARY_HEADERS.length,
+    affectedSummary.map(qltdBudgetSummaryToRow_),
+    function(row) {
+      return qltdBudgetSummaryDataRowMatchesRefreshTarget_(row, summaryParsed.headerMap, target.value);
+    }
+  );
+  qltdBudgetUpsertAggregateDataRegion_(
+    sheets.dashboard,
+    QLTD_BUDGET_CENTRAL_DASHBOARD_HEADERS.length,
+    affectedDashboard.map(qltdBudgetDashboardToRow_),
+    function(row) {
+      return qltdBudgetDashboardDataRowMatchesRefreshTarget_(row, dashboardParsed.headerMap, target.value);
+    }
+  );
+
+  return {
+    success: true,
+    target: target.value,
+    summaryRowsWritten: affectedSummary.length,
+    dashboardRowsWritten: affectedDashboard.length,
+    warnings: (itemsResult.warnings || []).concat(deptsResult.error ? [qltdBudgetWarning_('PROJECT_DEPTS_UNAVAILABLE', 'Khong doc duoc Project_Depts; ma phong/ban co the de trong.')] : [], aggregate.warnings || [])
+  };
+}
+
+function qltdBudgetBuildAggregateRefreshTarget_(prepared) {
+  const resolved = prepared.resolved || {};
+  const context = prepared.allocationContext || {};
+  const item = context.item || {};
+  const allocation = context.allocation || {};
+  const periodType = resolved.periodType || resolved.normalizedPayload && resolved.normalizedPayload.periodType || '';
+  const periodCode = qltdBudgetNormalizeAggregatePeriodCode_(periodType, resolved.periodCode || '', Session.getScriptTimeZone());
+  const target = {
+    projectCode: qltdBudgetNormalizeCode_(resolved.projectCode || item.projectCode || allocation.projectCode),
+    periodType: periodType,
+    periodKey: qltdBudgetAggregatePeriodKey_(periodType),
+    periodCode: periodCode,
+    periodSort: qltdBudgetParseAggregatePeriod_(periodType, periodCode),
+    budgetType: String(resolved.budgetType || item.budgetType || '').trim().toUpperCase(),
+    budgetItemCode: qltdBudgetNormalizeCode_(resolved.budgetItemCode || item.budgetItemCode),
+    allocationCode: qltdBudgetNormalizeCode_(item.allocationCode || allocation.allocationCode),
+    flowType: String(context.flowType || item.flowType || allocation.flowType || '').trim().toUpperCase()
+  };
+  const missing = [];
+  ['projectCode', 'periodKey', 'periodCode', 'budgetType', 'budgetItemCode', 'allocationCode', 'flowType'].forEach(function(field) {
+    if (!target[field]) missing.push(field);
+  });
+  if (missing.length) {
+    return {
+      value: null,
+      error: {
+        code: 'AGGREGATE_TARGET_INCOMPLETE',
+        message: 'Thieu thanh phan key de cap nhat aggregate.',
+        details: { missingFields: missing }
+      }
+    };
+  }
+  return { value: target, error: null };
+}
+
+function qltdBudgetAggregatePeriodKey_(periodType) {
+  const key = qltdBudgetNormalizeKey_(periodType);
+  if (key === 'thang' || key === 'month') return 'MONTH';
+  if (key === 'tuan' || key === 'week') return 'WEEK';
+  return '';
+}
+
+function qltdBudgetAggregateRowMatchesRefreshTarget_(row, target) {
+  if (qltdBudgetNormalizeCode_(row.projectCode) !== target.projectCode) return false;
+  if (qltdBudgetAggregatePeriodKey_(row.periodType) !== target.periodKey) return false;
+  if (String(row.budgetType || '').trim().toUpperCase() !== target.budgetType) return false;
+  if (qltdBudgetNormalizeCode_(row.budgetItemCode) !== target.budgetItemCode) return false;
+  if (qltdBudgetNormalizeCode_(row.allocationCode) !== target.allocationCode) return false;
+  if (String(row.flowType || '').trim().toUpperCase() !== target.flowType) return false;
+  if (target.periodSort === null) return qltdBudgetNormalizeCode_(row.periodCode) === qltdBudgetNormalizeCode_(target.periodCode);
+  return row.periodSort !== null && row.periodSort >= target.periodSort;
+}
+
+function qltdBudgetSummaryDataRowMatchesRefreshTarget_(row, headerMap, target) {
+  return qltdBudgetDataRowMatchesRefreshTarget_(row, headerMap, target);
+}
+
+function qltdBudgetDashboardDataRowMatchesRefreshTarget_(row, headerMap, target) {
+  return qltdBudgetDataRowMatchesRefreshTarget_(row, headerMap, target);
+}
+
+function qltdBudgetDataRowMatchesRefreshTarget_(row, headerMap, target) {
+  if (qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, headerMap, 'Ma du an', '')) !== target.projectCode) return false;
+  if (qltdBudgetAggregatePeriodKey_(qltdBudgetGetCell_(row, headerMap, 'Loai ky', '')) !== target.periodKey) return false;
+  if (String(qltdBudgetGetCell_(row, headerMap, 'Loai ngan sach', '') || '').trim().toUpperCase() !== target.budgetType) return false;
+  if (qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, headerMap, 'Ma khoan ngan sach', '')) !== target.budgetItemCode) return false;
+  if (qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, headerMap, 'Ma phan bo', '')) !== target.allocationCode) return false;
+  if (String(qltdBudgetGetCell_(row, headerMap, 'Huong dong tien', '') || '').trim().toUpperCase() !== target.flowType) return false;
+  if (target.periodSort === null) {
+    return qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, headerMap, 'Ma ky', '')) === qltdBudgetNormalizeCode_(target.periodCode);
+  }
+  const rowSort = qltdBudgetParseAggregatePeriod_(
+    qltdBudgetGetCell_(row, headerMap, 'Loai ky', ''),
+    qltdBudgetGetCell_(row, headerMap, 'Ma ky', '')
+  );
+  return rowSort !== null && rowSort >= target.periodSort;
+}
+
+function qltdBudgetUpsertAggregateDataRegion_(sheet, width, replacementRows, shouldReplace) {
+  const snapshot = qltdBudgetSnapshotDataRegion_(sheet, width);
+  const nextRows = snapshot.filter(function(row) {
+    return !shouldReplace(row);
+  }).concat(replacementRows || []);
+  qltdBudgetRewriteDataRegion_(sheet, nextRows, width);
+}
+
 function qltdBudgetParseAggregateRawRow_(item, headerMap, timeZone) {
   const row = item.raw;
   const periodType = String(qltdBudgetGetCell_(row, headerMap, 'Loai ky', '') || '').trim();
@@ -261,8 +406,8 @@ function qltdBudgetParseAggregateRawRow_(item, headerMap, timeZone) {
   }
   if (!value.projectCode) return qltdBudgetInvalidAggregateRow_('PROJECT_CODE_REQUIRED', 'Ma du an trong.');
   if (!value.periodCode) return qltdBudgetInvalidAggregateRow_('PERIOD_CODE_REQUIRED', 'Ma ky trong.');
-  const periodKey = qltdBudgetNormalizeKey_(value.periodType);
-  if (periodKey !== 'thang' && periodKey !== 'tuan') return qltdBudgetInvalidAggregateRow_('PERIOD_TYPE_INVALID', 'Loai ky khong phai Thang/Tuan.');
+  const periodKey = qltdBudgetAggregatePeriodKey_(value.periodType);
+  if (periodKey !== 'MONTH' && periodKey !== 'WEEK') return qltdBudgetInvalidAggregateRow_('PERIOD_TYPE_INVALID', 'Loai ky khong phai Thang/Tuan.');
   if (value.budgetType !== QLTD_BUDGET_TYPE.TASK_LINKED && value.budgetType !== QLTD_BUDGET_TYPE.DEPT_STANDALONE) {
     return qltdBudgetInvalidAggregateRow_('BUDGET_TYPE_INVALID', 'Loai ngan sach khong hop le.');
   }
@@ -283,14 +428,14 @@ function qltdBudgetNormalizeAggregatePeriodCode_(periodType, value, timeZone) {
     Object.prototype.toString.call(value) === '[object Date]' &&
     !isNaN(value.getTime())
   ) {
-    const periodKey = qltdBudgetNormalizeKey_(periodType);
+    const periodKey = qltdBudgetAggregatePeriodKey_(periodType);
     const targetTimeZone = String(timeZone || 'Asia/Ho_Chi_Minh');
 
-    if (periodKey === 'thang') {
+    if (periodKey === 'MONTH') {
       return Utilities.formatDate(value, targetTimeZone, 'yyyy-MM');
     }
 
-    if (periodKey === 'tuan') {
+    if (periodKey === 'WEEK') {
       return qltdBudgetAggregateIsoWeekCode_(value, targetTimeZone);
     }
   }
@@ -336,7 +481,7 @@ function qltdBudgetInvalidAggregateRow_(code, message) {
 }
 
 function qltdBudgetAggregateGroupKey_(row) {
-  return [row.projectCode, qltdBudgetNormalizeKey_(row.periodType).toUpperCase(), qltdBudgetNormalizeCode_(row.periodCode),
+  return [row.projectCode, qltdBudgetAggregatePeriodKey_(row.periodType), qltdBudgetNormalizeCode_(row.periodCode),
     qltdBudgetNormalizeCode_(row.deptCode), row.budgetType, qltdBudgetNormalizeCode_(row.budgetItemCode),
     qltdBudgetNormalizeCode_(row.allocationCode), row.flowType].join('|');
 }
@@ -455,7 +600,7 @@ function qltdBudgetResolveBudgetDeptCode_(projectCode, deptCode, deptName, depar
 
 function qltdBudgetParseAggregatePeriod_(periodType, periodCode) {
   const code = String(periodCode || '').trim().toUpperCase();
-  if (qltdBudgetNormalizeKey_(periodType) === 'thang') {
+  if (qltdBudgetAggregatePeriodKey_(periodType) === 'MONTH') {
     const month = /^(\d{4})-(\d{2})$/.exec(code);
     if (!month || Number(month[2]) < 1 || Number(month[2]) > 12) return null;
     return Number(month[1]) * 100 + Number(month[2]);
@@ -468,7 +613,7 @@ function qltdBudgetParseAggregatePeriod_(periodType, periodCode) {
 function qltdBudgetApplyCumulative_(summary) {
   const byEntityAndType = {};
   summary.forEach(function(group) {
-    const key = group.entityKey + '|' + qltdBudgetNormalizeKey_(group.periodType);
+    const key = group.entityKey + '|' + qltdBudgetAggregatePeriodKey_(group.periodType);
     if (!byEntityAndType[key]) byEntityAndType[key] = [];
     byEntityAndType[key].push(group);
   });

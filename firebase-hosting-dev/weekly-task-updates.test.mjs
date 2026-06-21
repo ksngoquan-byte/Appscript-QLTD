@@ -7,7 +7,15 @@ const sheetRows = [];
 const detailSyncCalls = [];
 const budgetReportIds = new Set();
 const budgetWriteCalls = [];
+const aggregateCalls = [];
+const rawBudgetRows = [];
 let failBudgetItemCode = '';
+let failAggregateBudgetItemCode = '';
+const RAW_BUDGET_HEADERS = [
+  'Report ID', 'Ma du an', 'Trang thai xac nhan', 'Sync status', 'Loai ban ghi',
+  'Ma khoan ngan sach', 'Ma phan bo', 'Huong dong tien', 'Gia tri thuc hien ky nay',
+  'Loai ky', 'Ma ky', 'Vuong mac/Ghi chu', 'Sync error'
+];
 const mockSheet = {
   getLastColumn: () => sheetRows[0]?.length || 0,
   getLastRow: () => sheetRows.length,
@@ -49,7 +57,18 @@ const context = {
     return { value: amount, error: null };
   },
   qltdBudgetNormalizePeriodType_: (value) => ({ value: String(value || '').trim().toUpperCase(), error: null }),
-  qltdBudgetGetReadonlySheet_: () => null,
+  qltdBudgetGetReadonlySheet_: () => ({ getName: () => 'CENTRAL_NS_Raw' }),
+  qltdBudgetGetSheetSchema_: () => ({ headerRow: 4 }),
+  qltdBudgetBuildHeaderMap_: (headers) => headers.reduce((map, header, index) => { map[String(header).toLowerCase()] = index; return map; }, {}),
+  qltdBudgetReadSheetAsObjects_: () => ({
+    headers: RAW_BUDGET_HEADERS,
+    headerMap: RAW_BUDGET_HEADERS.reduce((map, header, index) => { map[String(header).toLowerCase()] = index; return map; }, {}),
+    rows: rawBudgetRows.map((raw, index) => ({ raw, rowNumber: index + 5 }))
+  }),
+  qltdBudgetGetCell_: (row, headerMap, header, fallback = '') => {
+    const index = headerMap[String(header).toLowerCase()];
+    return index === undefined ? fallback : row[index];
+  },
   QLTD_BUDGET_SHEET: { CENTRAL_RAW: 'CENTRAL_NS_Raw' },
   QLTD_BUDGET_WRITE_CONFIRM_TOKEN: 'CONFIRM',
   QLTD_BUDGET_TYPE: { TASK_LINKED: 'TASK_LINKED', DEPT_STANDALONE: 'DEPT_STANDALONE' },
@@ -76,6 +95,19 @@ const context = {
     }
     return { success: true, data: { duplicate, syncStatus: 'SYNCED', centralRawRowNumber: budgetWriteCalls.length + 1 } };
   },
+  qltdBudgetRefreshAggregateForWriteNoLock_: (prepared) => {
+    aggregateCalls.push({
+      budgetItemCode: prepared.weeklyBudgetMeta.budgetItemCode,
+      reportId: prepared.reportId
+    });
+    if (prepared.weeklyBudgetMeta.budgetItemCode === failAggregateBudgetItemCode) {
+      const error = new Error('Aggregate refresh failed.');
+      error.code = 'AGGREGATE_REFRESH_FAILED';
+      error.details = { budgetItemCode: prepared.weeklyBudgetMeta.budgetItemCode };
+      throw error;
+    }
+    return { success: true, summaryRowsWritten: 1, dashboardRowsWritten: 7 };
+  },
   qltdWorkUpdateTask_: () => ({ success: true }),
   qltdWorkUpdateDetailTask_: (payload) => { detailSyncCalls.push(payload); return { success: true }; },
   QLTD_WORK_WRITE_LOCK_TIMEOUT_MS: 1000,
@@ -85,8 +117,8 @@ const context = {
   console
 };
 vm.createContext(context);
-vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_ };`, context);
-const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review, resolveActualDate, mapPbDetailStatus, syncTask } = context.api;
+vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_ };`, context);
+const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review, resolveActualDate, mapPbDetailStatus, syncTask, readBudgetActualIndex } = context.api;
 
 assert.equal(buildKey('p1', 'ptda', 'week-2026-06-01', 'master', 'CV-1'), 'P1|PTDA|WEEK-2026-06-01|MASTER|CV-1');
 assert.equal(date('2026-06-01'), '2026-06-01');
@@ -173,14 +205,17 @@ assert.equal(combined.success, true);
 assert.equal(combined.task.saved, true);
 assert.equal(combined.budget.savedCount, 1);
 assert.equal(combined.budget.results[0].metrics.cumulative, 500000);
+assert.equal(combined.budget.results[0].aggregate.summaryRowsWritten, 1);
 assert.equal(sheetRows.length, beforeCombinedRows + 1);
 assert.equal(budgetWriteCalls.length, 1);
+assert.equal(aggregateCalls.length, 1);
 
 const retry = save(combinedBase);
 assert.equal(retry.success, true);
 assert.equal(retry.budget.savedCount, 0);
 assert.equal(retry.budget.duplicateCount, 1);
 assert.equal(budgetWriteCalls.length, 1);
+assert.equal(aggregateCalls.length, 2);
 
 for (const [change, code] of [
   [{ allocationCode: 'WRONG' }, 'ALLOCATION_CODE_MISMATCH'],
@@ -207,6 +242,29 @@ assert.equal(partial.stage, 'BUDGET_WRITE');
 assert.equal(partial.budgetResults.length, 1);
 assert.equal(sheetRows.length, partialRowCount);
 failBudgetItemCode = '';
+
+failAggregateBudgetItemCode = 'NS-1';
+const aggregatePartialRowCount = sheetRows.length;
+const aggregatePartialWriteCount = budgetWriteCalls.length;
+const aggregatePartial = save({ ...saveBase, itemId: 'CV-AGGREGATE-PARTIAL', requestId: 'weekly-aggregate-001', budgetUpdates: [standaloneBudget] });
+assert.equal(aggregatePartial.success, false);
+assert.equal(aggregatePartial.code, 'PARTIAL_WRITE');
+assert.equal(aggregatePartial.stage, 'AGGREGATE');
+assert.equal(aggregatePartial.budgetItemCode, 'NS-1');
+assert.equal(aggregatePartial.budgetResults.length, 1);
+assert.equal(budgetWriteCalls.length, aggregatePartialWriteCount + 1);
+assert.equal(sheetRows.length, aggregatePartialRowCount);
+failAggregateBudgetItemCode = '';
+
+rawBudgetRows.push(
+  ['RAW-MONTH', 'P1', 'daxacnhan', 'SYNCED', 'PERFORMANCE_ACTUAL', 'NS-1', 'ALLOC-1', 'CHI', 1200000, 'MONTH', '2026-06', 'Chi tháng', ''],
+  ['RAW-WEEK', 'P1', 'daxacnhan', 'SYNCED', 'PERFORMANCE_ACTUAL', 'NS-1', 'ALLOC-1', 'CHI', 500000, 'WEEK', 'WEEK-2026-06-01', 'Chi tuần', '']
+);
+const weeklyActuals = readBudgetActualIndex({ projectCode: 'P1', weekCode: 'WEEK-2026-06-01' });
+const weeklyActualKey = context.qltdWeeklyTaskUpdatesBudgetItemKey_('P1', 'NS-1', 'ALLOC-1', 'CHI');
+assert.equal(weeklyActuals.byItem[weeklyActualKey], 500000);
+assert.equal(weeklyActuals.byItemWeek[weeklyActualKey].amount, 500000);
+rawBudgetRows.length = 0;
 
 const beforePendingRows = sheetRows.length;
 const pending = save({ ...saveBase, itemId: 'CV-100', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-20' });

@@ -52,6 +52,25 @@ assert.match(weeklyRow, /getWeeklyEffectiveTaskState\(item, saved\)/);
 assert.match(weeklyRow, /effective\.progress/);
 assert.match(weeklyRow, /effective\.status/);
 
+const savedUpdatesSource = app.slice(app.indexOf('function renderWeeklySavedUpdates'), app.indexOf('function renderWeeklyNextItems'));
+const savedUpdatesContext = {
+  escapeHtml: (value) => String(value ?? ''),
+  formatApprovalStatus: (value) => String(value || ''),
+  formatWeeklyDateTime: (value) => String(value || ''),
+  formatWeeklyCurrency: (value) => `${Number(value || 0).toLocaleString('vi-VN')} đ`
+};
+vm.createContext(savedUpdatesContext);
+vm.runInContext(`${savedUpdatesSource}\nthis.renderSavedUpdates = renderWeeklySavedUpdates;`, savedUpdatesContext);
+const savedStandaloneHtml = savedUpdatesContext.renderSavedUpdates([
+  { itemType: 'PB_DETAIL', itemId: 'DT-1', thisWeekResult: 'Done', progressEnd: 10, taskStatus: 'Doing', budgetThisWeek: 0, updatedBy: 'u', updatedAt: 't' }
+], [{ itemType: 'PB_DETAIL', itemId: 'DT-1', taskName: 'Task', budgetType: '', budgetItemCode: '' }]);
+assert.match(savedStandaloneHtml, /<td>—<\/td>/);
+assert.doesNotMatch(savedStandaloneHtml, /0 đ/);
+const savedTaskBudgetHtml = savedUpdatesContext.renderSavedUpdates([
+  { itemType: 'PB_DETAIL', itemId: 'DT-2', thisWeekResult: 'Done', progressEnd: 10, taskStatus: 'Doing', budgetThisWeek: 500000, updatedBy: 'u', updatedAt: 't' }
+], [{ itemType: 'PB_DETAIL', itemId: 'DT-2', taskName: 'Task', budgetType: 'TASK_LINKED', budgetItemCode: 'BI1' }]);
+assert.match(savedTaskBudgetHtml, /500\.000 đ/);
+
 const weeklyForm = latestFunction('renderWeeklySelectedForm', 'bindWeeklyTaskUpdateControls');
 assert.match(weeklyForm, /THÔNG TIN CÔNG VIỆC/);
 assert.match(weeklyForm, /KẾT QUẢ THỰC HIỆN TRONG TUẦN/);
