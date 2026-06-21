@@ -45,10 +45,21 @@ const APPS_SCRIPT_DEV_URL = 'https://script.google.com/macros/s/AKfycbx6iHCEf6Ba
 
 const DEFAULT_PERMISSIONS = {
   dashboard: false,
+  budgetDashboard: false,
   gantt: false,
   lookup: false,
+  help: false,
   reportUpdate: false,
   admin: false
+};
+
+const NAV_LABELS = {
+  workDashboard: 'Dashboard c\u00f4ng vi\u1ec7c',
+  budgetDashboard: 'Dashboard ng\u00e2n s\u00e1ch',
+  gantt: 'Gantt',
+  help: 'H\u01b0\u1edbng d\u1eabn s\u1eed d\u1ee5ng',
+  report: 'L\u1eadp & c\u1eadp nh\u1eadt c\u00f4ng vi\u1ec7c',
+  admin: 'Admin'
 };
 
 const PROJECT_STORAGE_KEY = 'qltd.selectedProjectCode.v1';
@@ -86,6 +97,8 @@ const qltdDetailPopupCache = new Map();
 let qltdDetailPopupRequestSeq = 0;
 let qltdAdminApprovalRequestSeq = 0;
 let qltdAdminApprovalView = { loading: false, error: '', approvals: [] };
+let qltdBudgetDashboardRequestSeq = 0;
+let qltdBudgetDashboardView = { loading: false, error: '', data: null, deptCode: '', view: 'project' };
 
 document.addEventListener('qltd:pb-detail-changed', (event) => {
   const detail = event.detail || {};
@@ -230,9 +243,11 @@ function normalizePermissions(permissions = {}, role = '') {
 
   return {
     dashboard: !!permissions.dashboard || canViewCore,
+    budgetDashboard: !!permissions.budgetDashboard || canViewCore,
     gantt: !!permissions.gantt || canViewCore,
     lookup: !!permissions.lookup || canViewCore,
-    reportUpdate: roleKey !== 'VIEWER' && !!permissions.reportUpdate,
+    help: !!permissions.help || canViewCore,
+    reportUpdate: !!permissions.reportUpdate || canViewCore,
     admin: canAdmin({ role }) || !!permissions.admin
   };
 }
@@ -257,14 +272,19 @@ function setNavVisibility(label, allowed) {
 }
 
 function applyPermissions(profile = {}) {
+  ensureTopNavigation();
   currentUserProfile = profile;
   currentPermissions = normalizePermissions(profile.permissions || DEFAULT_PERMISSIONS, profile.role);
 
-  setNavVisibility('Dashboard', currentPermissions.dashboard);
-  setNavVisibility('Gantt', currentPermissions.gantt);
-  setNavVisibility('Tra c\u1ee9u', currentPermissions.lookup);
-  setNavVisibility('B\u00e1o c\u1eadp nh\u1eadt', currentPermissions.reportUpdate);
-  setNavVisibility('Admin', currentPermissions.admin);
+  setNavVisibility(NAV_LABELS.workDashboard, currentPermissions.dashboard);
+  setNavVisibility('Dashboard', false);
+  setNavVisibility(NAV_LABELS.budgetDashboard, currentPermissions.budgetDashboard);
+  setNavVisibility(NAV_LABELS.gantt, currentPermissions.gantt);
+  setNavVisibility('Tra c\u1ee9u', false);
+  setNavVisibility(NAV_LABELS.help, currentPermissions.help);
+  setNavVisibility('B\u00e1o c\u1eadp nh\u1eadt', false);
+  setNavVisibility(NAV_LABELS.report, currentPermissions.reportUpdate);
+  setNavVisibility(NAV_LABELS.admin, currentPermissions.admin);
 }
 
 
@@ -314,6 +334,7 @@ function renderProjectOptions(projects = []) {
       status.classList.remove('hidden');
     }
     renderNoProjectDashboardState();
+    renderNoProjectBudgetDashboardState();
     renderNoProjectGanttState();
     return;
   }
@@ -339,6 +360,8 @@ function renderProjectOptions(projects = []) {
   selector.onchange = () => {
     setStoredProjectCode(selector.value);
     if (qltdActiveView === 'report') loadDeptPlansForSelectedProject(selector.value);
+    if (qltdActiveView === 'budget') loadBudgetDashboardForSelectedProject({ force: true });
+    if (qltdActiveView === 'admin') loadAdminMasterApprovals();
     loadGanttDataForSelectedProject(selector.value);
   };
 }
@@ -359,6 +382,7 @@ async function loadProjectsForSelector() {
       status.classList.remove('hidden');
     }
     renderDashboardError(error);
+    renderBudgetDashboardError(error);
     renderGanttError(error);
   }
 }
@@ -377,9 +401,9 @@ function qltdDevPerfEnabled() {
 }
 
 function findPrimaryNavContainer() {
-  const labels = ['Dashboard', 'Gantt', 'Tra c\u1ee9u', 'B\u00e1o c\u1eadp nh\u1eadt', 'Admin'];
+  const labels = [NAV_LABELS.workDashboard, NAV_LABELS.budgetDashboard, NAV_LABELS.gantt, NAV_LABELS.report, NAV_LABELS.admin, 'Dashboard'];
   const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
-  const dashboardButton = buttons.find((el) => String(el.textContent || '').trim() === labels[0]);
+  const dashboardButton = buttons.find((el) => labels.indexOf(String(el.textContent || '').trim()) !== -1);
 
   if (dashboardButton && dashboardButton.parentElement) {
     return dashboardButton.parentElement;
@@ -388,8 +412,24 @@ function findPrimaryNavContainer() {
   return document.querySelector('nav') || document.querySelector('.nav') || els.appShell;
 }
 
+function ensureTopNavigation() {
+  const nav = document.querySelector('nav.tabs');
+  if (!nav || nav.dataset.qltdFinalNav === '1') return nav;
+  nav.innerHTML = [
+    NAV_LABELS.workDashboard,
+    NAV_LABELS.budgetDashboard,
+    NAV_LABELS.gantt,
+    NAV_LABELS.help,
+    NAV_LABELS.report,
+    NAV_LABELS.admin
+  ].map((label) => `<button type="button" disabled>${escapeHtml(label)}</button>`).join('');
+  nav.dataset.qltdFinalNav = '1';
+  return nav;
+}
+
 function ensureProjectSelector() {
   if (!els.appShell) return null;
+  ensureTopNavigation();
 
   let wrapper = document.getElementById('projectSelectorPanel');
   if (wrapper) return wrapper;
@@ -407,7 +447,9 @@ function ensureProjectSelector() {
 
   const nav = findPrimaryNavContainer();
   if (nav) {
-    nav.appendChild(wrapper);
+    const adminButton = getNavButtonByLabel(NAV_LABELS.admin);
+    if (adminButton && adminButton.parentElement === nav) nav.insertBefore(wrapper, adminButton);
+    else nav.appendChild(wrapper);
   }
 
   return wrapper;
@@ -478,6 +520,13 @@ function ensureWeb07InlineStyles() {
       width: calc(100vw - 32px);
       max-width: none;
       margin: 12px auto;
+    }
+
+    body.qltd-budget-mode #web07BudgetDashboardPanel,
+    body.qltd-help-mode #web07HelpPanel {
+      width: calc(100vw - 56px);
+      max-width: none;
+      margin: 18px auto 40px;
     }
 
     body.qltd-gantt-mode #web07GanttPanel .web07-card {
@@ -790,6 +839,243 @@ function ensureWeb07InlineStyles() {
       font-size: 13px;
     }
 
+    .budget-dashboard {
+      display: grid;
+      gap: 14px;
+    }
+
+    .budget-filter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .budget-filter-row label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #475569;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .budget-filter-row select,
+    .budget-filter-row button {
+      height: 34px;
+      border: 1px solid #cbd6e2;
+      border-radius: 8px;
+      padding: 0 10px;
+      background: #fff;
+      color: #102033;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .budget-flow-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .budget-flow-card,
+    .budget-balance-card,
+    .budget-alerts-card,
+    .budget-items-card {
+      border: 1px solid #d7e0ea;
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+      box-shadow: 0 8px 22px rgba(16, 32, 51, .05);
+    }
+
+    .budget-flow-card header,
+    .budget-balance-card header,
+    .budget-alerts-card header,
+    .budget-items-card header {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+
+    .budget-flow-card h3,
+    .budget-balance-card h3,
+    .budget-alerts-card h3,
+    .budget-items-card h3 {
+      margin: 0;
+      font-size: 16px;
+      color: #102033;
+    }
+
+    .budget-gauge {
+      --value: 0deg;
+      width: 128px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: conic-gradient(#0f766e var(--value), #e5eaf0 0);
+      display: grid;
+      place-items: center;
+      margin: 4px auto 12px;
+    }
+
+    .budget-flow-card.is-chi .budget-gauge {
+      background: conic-gradient(#dc2626 var(--value), #e5eaf0 0);
+    }
+
+    .budget-gauge span {
+      width: 82px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: #fff;
+      display: grid;
+      place-items: center;
+      color: #102033;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .budget-number-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .budget-number-grid div {
+      border: 1px solid #edf1f5;
+      border-radius: 8px;
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .budget-number-grid span {
+      display: block;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .budget-number-grid strong {
+      display: block;
+      color: #102033;
+      font-size: 15px;
+      margin-top: 4px;
+      overflow-wrap: anywhere;
+    }
+
+    .budget-status-pill {
+      display: inline-flex;
+      min-height: 24px;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 900;
+      background: #e2e8f0;
+      color: #334155;
+    }
+
+    .budget-status-pill.is-critical,
+    .budget-status-pill.is-data {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .budget-status-pill.is-warning {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .budget-status-pill.is-info {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    .budget-status-pill.is-normal {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .budget-dashboard-table-wrap {
+      overflow: auto;
+      border: 1px solid #edf1f5;
+      border-radius: 8px;
+    }
+
+    .budget-dashboard-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      min-width: 980px;
+    }
+
+    .budget-dashboard-table th,
+    .budget-dashboard-table td {
+      border-bottom: 1px solid #edf1f5;
+      padding: 9px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .budget-dashboard-table td.is-number,
+    .budget-dashboard-table th.is-number {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .budget-alert-list {
+      display: grid;
+      gap: 8px;
+      max-height: 260px;
+      overflow: auto;
+    }
+
+    .budget-alert-row {
+      border: 1px solid #edf1f5;
+      border-radius: 8px;
+      padding: 9px;
+    }
+
+    .budget-alert-row strong,
+    .budget-alert-row span {
+      display: block;
+    }
+
+    .budget-alert-row span {
+      color: #64748b;
+      font-size: 12px;
+      margin-top: 3px;
+    }
+
+    .help-panel-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .help-panel-grid article {
+      border: 1px solid #d7e0ea;
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+    }
+
+    .help-panel-grid h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      color: #102033;
+    }
+
+    .help-panel-grid p {
+      margin: 0;
+      color: #475569;
+      line-height: 1.5;
+      font-size: 13px;
+    }
+
     @media (max-width: 900px) {
       .web07-panel {
         width: calc(100vw - 28px);
@@ -797,6 +1083,11 @@ function ensureWeb07InlineStyles() {
 
       .web07-gantt-box {
         min-height: 420px;
+      }
+
+      .budget-flow-grid,
+      .help-panel-grid {
+        grid-template-columns: 1fr;
       }
     }
   `;
@@ -825,6 +1116,24 @@ function ensureWeb07Panels() {
     els.appShell.appendChild(ganttPanel);
   }
 
+  let budgetPanel = document.getElementById('web07BudgetDashboardPanel');
+  if (!budgetPanel) {
+    budgetPanel = document.createElement('section');
+    budgetPanel.id = 'web07BudgetDashboardPanel';
+    budgetPanel.className = 'web07-panel hidden';
+    budgetPanel.innerHTML = '<div class="web07-card"><p class="empty-state">Đang chuẩn bị Dashboard ngân sách...</p></div>';
+    els.appShell.appendChild(budgetPanel);
+  }
+
+  let helpPanel = document.getElementById('web07HelpPanel');
+  if (!helpPanel) {
+    helpPanel = document.createElement('section');
+    helpPanel.id = 'web07HelpPanel';
+    helpPanel.className = 'web07-panel hidden';
+    helpPanel.innerHTML = '<div class="web07-card"><p class="empty-state">Đang chuẩn bị hướng dẫn sử dụng...</p></div>';
+    els.appShell.appendChild(helpPanel);
+  }
+
   let adminPanel = document.getElementById('web07AdminPanel');
   if (!adminPanel) {
     adminPanel = document.createElement('section');
@@ -840,12 +1149,16 @@ function showWeb07View(viewName) {
   ensureWeb07Panels();
   if (viewName === 'report') ensureDeptPlanPanel();
   document.body.classList.toggle('qltd-dashboard-mode', viewName === 'dashboard');
+  document.body.classList.toggle('qltd-budget-mode', viewName === 'budget');
   document.body.classList.toggle('qltd-gantt-mode', viewName === 'gantt');
+  document.body.classList.toggle('qltd-help-mode', viewName === 'help');
   document.body.classList.toggle('qltd-report-mode', viewName === 'report');
   document.body.classList.toggle('qltd-admin-mode', viewName === 'admin');
 
   const dashboard = document.getElementById('web07DashboardPanel');
+  const budgetPanel = document.getElementById('web07BudgetDashboardPanel');
   const ganttPanel = document.getElementById('web07GanttPanel');
+  const helpPanel = document.getElementById('web07HelpPanel');
   const adminPanel = document.getElementById('web07AdminPanel');
   const deptPanel = document.getElementById('deptPlanPanel');
   const placeholder = document.querySelector('.placeholder-panel');
@@ -854,17 +1167,21 @@ function showWeb07View(viewName) {
   if (summary) summary.classList.add('hidden');
   if (placeholder) placeholder.classList.add('hidden');
   if (dashboard) dashboard.classList.toggle('hidden', viewName !== 'dashboard');
+  if (budgetPanel) budgetPanel.classList.toggle('hidden', viewName !== 'budget');
   if (ganttPanel) ganttPanel.classList.toggle('hidden', viewName !== 'gantt');
+  if (helpPanel) helpPanel.classList.toggle('hidden', viewName !== 'help');
   if (adminPanel) adminPanel.classList.toggle('hidden', viewName !== 'admin');
   if (deptPanel) deptPanel.classList.toggle('hidden', viewName !== 'report');
 
-  ['Dashboard', 'Gantt', 'Báo cập nhật', 'Admin'].forEach((label) => {
+  [NAV_LABELS.workDashboard, NAV_LABELS.budgetDashboard, NAV_LABELS.gantt, NAV_LABELS.help, NAV_LABELS.report, NAV_LABELS.admin].forEach((label) => {
     const button = getNavButtonByLabel(label);
     if (button) button.classList.toggle('active', (
-      (label === 'Dashboard' && viewName === 'dashboard') ||
-      (label === 'Gantt' && viewName === 'gantt') ||
-      (label === 'Báo cập nhật' && viewName === 'report') ||
-      (label === 'Admin' && viewName === 'admin')
+      (label === NAV_LABELS.workDashboard && viewName === 'dashboard') ||
+      (label === NAV_LABELS.budgetDashboard && viewName === 'budget') ||
+      (label === NAV_LABELS.gantt && viewName === 'gantt') ||
+      (label === NAV_LABELS.help && viewName === 'help') ||
+      (label === NAV_LABELS.report && viewName === 'report') ||
+      (label === NAV_LABELS.admin && viewName === 'admin')
     ));
   });
 
@@ -882,6 +1199,17 @@ function showWeb07View(viewName) {
     window.scrollTo({ top: 0, behavior: 'auto' });
   }
 
+  if (viewName === 'budget') {
+    renderBudgetDashboardPanel();
+    loadBudgetDashboardForSelectedProject();
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  if (viewName === 'help') {
+    renderHelpPanel();
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
   if (viewName === 'admin') {
     renderAdminPanel();
     loadAdminMasterApprovals();
@@ -890,11 +1218,14 @@ function showWeb07View(viewName) {
 }
 
 function bindWeb07Navigation() {
+  ensureTopNavigation();
   const bindings = [
-    ['Dashboard', 'dashboard'],
-    ['Gantt', 'gantt'],
-    ['Báo cập nhật', 'report'],
-    ['Admin', 'admin']
+    [NAV_LABELS.workDashboard, 'dashboard'],
+    [NAV_LABELS.budgetDashboard, 'budget'],
+    [NAV_LABELS.gantt, 'gantt'],
+    [NAV_LABELS.help, 'help'],
+    [NAV_LABELS.report, 'report'],
+    [NAV_LABELS.admin, 'admin']
   ];
 
   bindings.forEach(([label, viewName]) => {
@@ -905,6 +1236,213 @@ function bindWeb07Navigation() {
       showWeb07View(viewName);
     });
   });
+}
+
+function renderNoProjectBudgetDashboardState() {
+  const panel = document.getElementById('web07BudgetDashboardPanel');
+  if (!panel) return;
+  panel.innerHTML = '<div class="web07-card"><p class="empty-state">Chưa có dự án ACTIVE để xem ngân sách.</p></div>';
+}
+
+async function loadBudgetDashboardForSelectedProject(options = {}) {
+  const panel = document.getElementById('web07BudgetDashboardPanel');
+  if (!panel) return;
+  const projectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+  if (!projectCode) {
+    qltdBudgetDashboardView = { loading: false, error: '', data: null, deptCode: '', view: 'project' };
+    renderNoProjectBudgetDashboardState();
+    return;
+  }
+
+  const seq = ++qltdBudgetDashboardRequestSeq;
+  qltdBudgetDashboardView = Object.assign({}, qltdBudgetDashboardView, {
+    loading: true,
+    error: '',
+    projectCode,
+    view: qltdBudgetDashboardView.deptCode ? 'department' : 'project'
+  });
+  renderBudgetDashboardPanel();
+
+  try {
+    const result = await fetchBackendJson('budget_getLiveDashboard', {
+      email: currentUserProfile?.email || '',
+      projectCode,
+      deptCode: qltdBudgetDashboardView.deptCode || '',
+      view: qltdBudgetDashboardView.deptCode ? 'department' : 'project',
+      force: options.force ? '1' : ''
+    });
+    if (seq !== qltdBudgetDashboardRequestSeq) return;
+    if (!result.success) throw new Error(result.message || result.errors?.[0]?.message || result.errors?.[0]?.code || 'Không tải được dashboard ngân sách.');
+    const data = result.data || result;
+    qltdBudgetDashboardView = {
+      loading: false,
+      error: '',
+      data,
+      deptCode: data.department?.deptCode || qltdBudgetDashboardView.deptCode || '',
+      projectCode,
+      view: data.view || (qltdBudgetDashboardView.deptCode ? 'department' : 'project')
+    };
+  } catch (error) {
+    if (seq !== qltdBudgetDashboardRequestSeq) return;
+    qltdBudgetDashboardView = Object.assign({}, qltdBudgetDashboardView, {
+      loading: false,
+      error: error.message || 'Không tải được dashboard ngân sách.'
+    });
+  }
+  renderBudgetDashboardPanel();
+}
+
+function renderBudgetDashboardPanel() {
+  const panel = document.getElementById('web07BudgetDashboardPanel');
+  if (!panel) return;
+  const state = qltdBudgetDashboardView;
+  const data = state.data || {};
+  const projectCode = document.getElementById('projectSelector')?.value || state.projectCode || getStoredProjectCode() || '';
+  const projectName = data.project?.projectName || qltdProjectRegistry.find((project) => String(project.projectCode) === String(projectCode))?.projectName || '';
+  const deptCode = state.deptCode || data.department?.deptCode || '';
+  const depts = Array.isArray(data.departments) ? data.departments : [];
+
+  panel.innerHTML = `<div class="budget-dashboard">
+    <section class="exec-header">
+      <div>
+        <p class="exec-eyebrow">Dashboard ngân sách</p>
+        <h2>${escapeHtml(projectName || projectCode || 'Dự án')}</h2>
+        <p class="exec-subtitle">${escapeHtml(projectCode || '')}${deptCode ? ` · ${escapeHtml(data.department?.deptName || deptCode)}` : ' · Toàn dự án'}${data.updatedAt ? ` · Cập nhật ${escapeHtml(formatWeeklyDateTime(data.updatedAt))}` : ''}</p>
+      </div>
+      <button id="budgetDashboardRefresh" class="exec-refresh" type="button">${state.loading ? 'Đang tải...' : 'Refresh'}</button>
+    </section>
+    <section class="budget-filter-row">
+      <label>Phòng/Ban<select id="budgetDashboardDeptFilter">
+        <option value="">Toàn dự án</option>
+        ${depts.map((dept) => `<option value="${escapeHtml(dept.deptCode || '')}" ${dept.deptCode === deptCode ? 'selected' : ''}>${escapeHtml(dept.deptCode || '')} - ${escapeHtml(dept.deptName || dept.deptCode || '')}</option>`).join('')}
+      </select></label>
+      <span class="web07-muted">Nguồn: CENTRAL_NS_Items · CENTRAL_NS_Allocations · CENTRAL_NS_Raw</span>
+    </section>
+    ${state.error ? `<div class="web07-card"><p class="empty-state">${escapeHtml(state.error)}</p></div>` : ''}
+    ${state.loading && !state.data ? '<div class="web07-card"><p class="empty-state">Đang tổng hợp ngân sách...</p></div>' : ''}
+    ${data.thu && data.chi ? renderBudgetDashboardContent(data) : ''}
+  </div>`;
+
+  const refresh = document.getElementById('budgetDashboardRefresh');
+  if (refresh) refresh.onclick = () => loadBudgetDashboardForSelectedProject({ force: true });
+  const deptFilter = document.getElementById('budgetDashboardDeptFilter');
+  if (deptFilter) {
+    deptFilter.onchange = (event) => {
+      qltdBudgetDashboardView = Object.assign({}, qltdBudgetDashboardView, {
+        deptCode: event.target.value || '',
+        view: event.target.value ? 'department' : 'project'
+      });
+      loadBudgetDashboardForSelectedProject({ force: true });
+    };
+  }
+}
+
+function renderBudgetDashboardContent(data) {
+  return `
+    <section class="budget-flow-grid">
+      ${renderBudgetFlowCard('THU', data.thu, 'Kế hoạch thu', 'Thực thu')}
+      ${renderBudgetFlowCard('CHI', data.chi, 'Kế hoạch chi', 'Thực chi')}
+      ${renderBudgetBalanceCard(data.balance || {})}
+    </section>
+    ${renderBudgetAlerts(data.alerts || [], data.alertsSummary || {})}
+    ${renderBudgetItemsTable(data.items || [])}
+  `;
+}
+
+function renderBudgetFlowCard(flowLabel, flow, planLabel, actualLabel) {
+  const rate = Number(flow?.usageRate || 0);
+  const percent = flow?.usageRate === null ? 'N/A' : `${Math.round(rate * 100)}%`;
+  const deg = Math.max(0, Math.min(360, rate * 360));
+  const tone = flowLabel === 'CHI' ? 'is-chi' : 'is-thu';
+  return `<article class="budget-flow-card ${tone}">
+    <header><h3>${escapeHtml(flowLabel)}</h3><span class="budget-status-pill is-${flow?.overAmount > 0 ? 'warning' : 'normal'}">${escapeHtml(percent)}</span></header>
+    <div class="budget-gauge" style="--value: ${deg}deg"><span>${escapeHtml(percent)}</span></div>
+    <div class="budget-number-grid">
+      <div><span>${escapeHtml(planLabel)}</span><strong>${formatWeeklyCurrency(flow?.planAmount || 0)}</strong></div>
+      <div><span>${escapeHtml(actualLabel)}</span><strong>${formatWeeklyCurrency(flow?.actualAmount || 0)}</strong></div>
+      <div><span>Còn lại</span><strong>${formatWeeklyCurrency(flow?.remainingAmount || 0)}</strong></div>
+      <div><span>Vượt</span><strong>${formatWeeklyCurrency(flow?.overAmount || 0)}</strong></div>
+    </div>
+  </article>`;
+}
+
+function renderBudgetBalanceCard(balance) {
+  const actualClass = Number(balance.actualBalance || 0) < 0 ? 'warning' : 'normal';
+  const coverage = balance.coverageRate === null || balance.coverageRate === undefined ? 'N/A' : `${Math.round(Number(balance.coverageRate || 0) * 100)}%`;
+  return `<article class="budget-balance-card">
+    <header><h3>Cân đối</h3><span class="budget-status-pill is-${actualClass}">${escapeHtml(coverage)}</span></header>
+    <div class="budget-number-grid">
+      <div><span>Kế hoạch THU - CHI</span><strong>${formatWeeklyCurrency(balance.plannedBalance || 0)}</strong></div>
+      <div><span>Thực tế THU - CHI</span><strong>${formatWeeklyCurrency(balance.actualBalance || 0)}</strong></div>
+      <div><span>Chênh lệch còn lại</span><strong>${formatWeeklyCurrency(balance.remainingBalance || 0)}</strong></div>
+      <div><span>Tỷ lệ bù chi</span><strong>${escapeHtml(coverage)}</strong></div>
+    </div>
+  </article>`;
+}
+
+function renderBudgetAlerts(alerts, summary) {
+  const topAlerts = alerts.slice(0, 10);
+  return `<section class="budget-alerts-card">
+    <header><h3>Cảnh báo ngân sách</h3><span class="budget-status-pill is-${summary.data ? 'data' : summary.critical ? 'critical' : summary.warning ? 'warning' : 'normal'}">${escapeHtml(summary.total || 0)} cảnh báo</span></header>
+    <div class="budget-number-grid">
+      <div><span>Dữ liệu</span><strong>${escapeHtml(summary.data || 0)}</strong></div>
+      <div><span>Nghiệp vụ</span><strong>${escapeHtml(summary.business || 0)}</strong></div>
+      <div><span>Critical</span><strong>${escapeHtml(summary.critical || 0)}</strong></div>
+      <div><span>Warning/Info</span><strong>${escapeHtml(Number(summary.warning || 0) + Number(summary.info || 0))}</strong></div>
+    </div>
+    ${topAlerts.length ? `<div class="budget-alert-list">${topAlerts.map(renderBudgetAlertRow).join('')}</div>` : '<p class="exec-empty">Không có cảnh báo.</p>'}
+  </section>`;
+}
+
+function renderBudgetAlertRow(alert) {
+  const severity = String(alert.severity || alert.category || '').toLowerCase();
+  return `<article class="budget-alert-row">
+    <strong><span class="budget-status-pill is-${escapeHtml(severity || 'normal')}">${escapeHtml(alert.code || '')}</span></strong>
+    <span>${escapeHtml(alert.message || '')}</span>
+    <span>${escapeHtml([alert.flowType, alert.deptCode, alert.budgetItemCode || alert.allocationCode].filter(Boolean).join(' · '))}</span>
+  </article>`;
+}
+
+function renderBudgetItemsTable(items) {
+  return `<section class="budget-items-card">
+    <header><h3>Khoản mục ngân sách</h3><span class="budget-status-pill is-normal">${escapeHtml(items.length)} khoản</span></header>
+    <div class="budget-dashboard-table-wrap">
+      <table class="budget-dashboard-table">
+        <thead><tr><th>Luồng</th><th>Phòng/Ban</th><th>Khoản mục</th><th>Loại</th><th>Phân bổ</th><th class="is-number">Kế hoạch</th><th class="is-number">Thực tế</th><th class="is-number">Còn lại</th><th class="is-number">Vượt</th><th>Trạng thái</th></tr></thead>
+        <tbody>${items.map(renderBudgetItemRow).join('')}</tbody>
+      </table>
+    </div>
+  </section>`;
+}
+
+function renderBudgetItemRow(item) {
+  const severity = String(item.severity || 'NORMAL').toLowerCase();
+  const rate = item.usageRate === null || item.usageRate === undefined ? 'N/A' : `${Math.round(Number(item.usageRate || 0) * 100)}%`;
+  return `<tr>
+    <td><span class="budget-flow-badge is-${escapeHtml(String(item.flowType || '').toLowerCase() || 'unknown')}">${escapeHtml(item.flowType || '')}</span></td>
+    <td>${escapeHtml(item.deptCode || '')}</td>
+    <td><strong>${escapeHtml(item.budgetItemName || item.budgetItemCode || '')}</strong><br><span class="web07-muted">${escapeHtml(item.budgetItemCode || '')}</span></td>
+    <td>${escapeHtml(item.budgetType || '')}</td>
+    <td>${escapeHtml(item.allocationCode || '')}</td>
+    <td class="is-number">${formatWeeklyCurrency(item.plannedAmount || 0)}</td>
+    <td class="is-number">${formatWeeklyCurrency(item.actualAmount || 0)}</td>
+    <td class="is-number">${formatWeeklyCurrency(item.remainingAmount || 0)}</td>
+    <td class="is-number">${formatWeeklyCurrency(item.overAmount || 0)}</td>
+    <td><span class="budget-status-pill is-${escapeHtml(severity)}">${escapeHtml(item.statusLabel || rate)}</span></td>
+  </tr>`;
+}
+
+function renderHelpPanel() {
+  const panel = document.getElementById('web07HelpPanel');
+  if (!panel) return;
+  panel.innerHTML = `<div class="web07-card">
+    <section class="exec-header"><div><p class="exec-eyebrow">Hướng dẫn sử dụng</p><h2>QLTD Entiz DEV</h2><p class="exec-subtitle">Các luồng chính đang dùng chung dự án được chọn ở thanh điều hướng.</p></div></section>
+    <section class="help-panel-grid">
+      <article><h3>Dashboard công việc</h3><p>Theo dõi tiến độ, quá hạn, mốc chính và kết quả tháng từ dữ liệu Gantt hiện hành.</p></article>
+      <article><h3>Dashboard ngân sách</h3><p>Theo dõi THU/CHI, cân đối và cảnh báo từ Items, Allocations, Raw đã xác nhận.</p></article>
+      <article><h3>Lập & cập nhật công việc</h3><p>Cập nhật tuần theo phòng/ban, gắn ngân sách từng khoản và lưu một lần cho công việc.</p></article>
+    </section>
+  </div>`;
 }
 
 function renderAdminPanel() {
@@ -2895,6 +3433,17 @@ function renderDashboardError(error) {
   panel.innerHTML = `
     <div class="web07-card">
       <p class="empty-state">Không tải được Dashboard từ Apps Script API.</p>
+      <p class="web07-muted">${escapeHtml(error.message || error)}</p>
+    </div>
+  `;
+}
+
+function renderBudgetDashboardError(error) {
+  const panel = document.getElementById('web07BudgetDashboardPanel');
+  if (!panel) return;
+  panel.innerHTML = `
+    <div class="web07-card">
+      <p class="empty-state">Không tải được Dashboard ngân sách từ Apps Script API.</p>
       <p class="web07-muted">${escapeHtml(error.message || error)}</p>
     </div>
   `;
