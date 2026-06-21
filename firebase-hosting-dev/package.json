@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node -e \"console.log('static hosting: no build step')\"",
-    "test": "node dashboard-overdue.test.mjs && node main-milestone-logic.test.mjs && node department-dashboard.test.mjs && node weekly-periods.test.mjs && node dept-plan-dates.test.mjs && node weekly-task-updates.test.mjs && node report-ux.test.mjs && node navigation-budget-dashboard.test.mjs && node gantt-budget-view.test.mjs && node budget-sync-ui.test.mjs && node performance-loading.test.mjs",
+    "test": "node dashboard-overdue.test.mjs && node main-milestone-logic.test.mjs && node department-dashboard.test.mjs && node weekly-periods.test.mjs && node dept-plan-dates.test.mjs && node weekly-task-updates.test.mjs && node report-ux.test.mjs && node navigation-budget-dashboard.test.mjs && node gantt-budget-view.test.mjs && node budget-sync-ui.test.mjs && node performance-loading.test.mjs && node performance-dashboard-cache.test.mjs",
     "deploy": "firebase deploy --only hosting --project qltd-entiz-dev-208a3"
   },
   "devDependencies": {
