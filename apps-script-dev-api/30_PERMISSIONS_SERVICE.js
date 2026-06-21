@@ -59,6 +59,15 @@ function qltdPermissionsForRole_(role) {
   };
 }
 
+function qltdCanUseGeneralFeature_(user) {
+  return !!user && String(user.status || '').trim().toUpperCase() === 'ACTIVE';
+}
+
+function qltdCanUseAdminFeature_(user) {
+  return qltdCanUseGeneralFeature_(user) &&
+    String(user.role || '').trim().toUpperCase() === 'ADMIN';
+}
+
 function qltdPermissionsCanWriteMainMilestones_(role) {
   return ['ADMIN', 'PMO', 'EDITOR'].indexOf(qltdUsersNormalizeRole_(role)) !== -1;
 }
