@@ -5,6 +5,9 @@ import vm from 'node:vm';
 const source = fs.readFileSync(new URL('../apps-script-dev-api/66_Weekly_Task_Update_Service.js', import.meta.url), 'utf8');
 const sheetRows = [];
 const detailSyncCalls = [];
+const budgetReportIds = new Set();
+const budgetWriteCalls = [];
+let failBudgetItemCode = '';
 const mockSheet = {
   getLastColumn: () => sheetRows[0]?.length || 0,
   getLastRow: () => sheetRows.length,
@@ -38,7 +41,41 @@ const context = {
   qltdBudgetReadBudgetItems_: () => ({ items: [], warnings: [] }),
   qltdWorkIsAdminScope_: () => true,
   qltdBudgetNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
+  qltdBudgetNormalizeKey_: (value) => String(value || '').trim().toLowerCase(),
+  qltdBudgetNormalizeAmount_: (value) => {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return { error: { code: 'AMOUNT_INVALID', message: 'Amount is invalid.' } };
+    if (amount < 0) return { error: { code: 'AMOUNT_NEGATIVE', message: 'Amount must not be negative.' } };
+    return { value: amount, error: null };
+  },
+  qltdBudgetNormalizePeriodType_: (value) => ({ value: String(value || '').trim().toUpperCase(), error: null }),
+  qltdBudgetGetReadonlySheet_: () => null,
+  QLTD_BUDGET_SHEET: { CENTRAL_RAW: 'CENTRAL_NS_Raw' },
+  QLTD_BUDGET_WRITE_CONFIRM_TOKEN: 'CONFIRM',
   QLTD_BUDGET_TYPE: { TASK_LINKED: 'TASK_LINKED', DEPT_STANDALONE: 'DEPT_STANDALONE' },
+  qltdBudgetPrepareWrite_: (payload) => {
+    if (payload.allocationCode !== 'ALLOC-1') return { error: { code: 'ALLOCATION_CODE_MISMATCH', message: 'Wrong allocation.' } };
+    if (payload.flowType !== 'CHI') return { error: { code: 'FLOW_TYPE_MISMATCH', message: 'Wrong flow.' } };
+    if (payload.budgetType !== 'DEPT_STANDALONE') return { error: { code: 'BUDGET_TYPE_MISMATCH', message: 'Wrong budget type.' } };
+    const approvedBudget = payload.budgetItemCode === 'NS-2' ? 1000000 : 2000000;
+    return { value: {
+      requestId: payload.requestId,
+      reportId: `REPORT-${payload.requestId}`,
+      allocationContext: {
+        item: { projectCode: 'P1', budgetItemCode: payload.budgetItemCode, allocationCode: 'ALLOC-1', flowType: 'CHI', approvedBudget, hasApprovedBudget: true },
+        allocation: { projectCode: 'P1', allocationCode: 'ALLOC-1', flowType: 'CHI', allocatedAmount: 3000000 }
+      }
+    } };
+  },
+  qltdBudgetExecutePreparedWriteNoLock_: (prepared) => {
+    if (prepared.weeklyBudgetMeta.budgetItemCode === failBudgetItemCode) return { success: false, code: 'RAW_APPEND_FAILED', message: 'Raw append failed.' };
+    const duplicate = budgetReportIds.has(prepared.reportId);
+    if (!duplicate) {
+      budgetReportIds.add(prepared.reportId);
+      budgetWriteCalls.push(prepared.weeklyBudgetMeta.budgetItemCode);
+    }
+    return { success: true, data: { duplicate, syncStatus: 'SYNCED', centralRawRowNumber: budgetWriteCalls.length + 1 } };
+  },
   qltdWorkUpdateTask_: () => ({ success: true }),
   qltdWorkUpdateDetailTask_: (payload) => { detailSyncCalls.push(payload); return { success: true }; },
   QLTD_WORK_WRITE_LOCK_TIMEOUT_MS: 1000,
@@ -128,10 +165,54 @@ assert.equal(sheetRows.length, 3);
 assert.equal(save({ ...saveBase, weekCode: 'WEEK-2026-06-08' }).inserted, true);
 assert.equal(sheetRows.length, 4);
 
+const standaloneBudget = { budgetItemCode: 'NS-1', allocationCode: 'ALLOC-1', budgetType: 'DEPT_STANDALONE', flowType: 'CHI', projectCode: 'P1', deptCode: 'PTDA', periodType: 'WEEK', periodCode: 'WEEK-2026-06-01', actualAmount: 500000, note: 'Chi tuần', masterTaskCode: '', pbTaskCode: '' };
+const combinedBase = { ...saveBase, itemId: 'CV-BUDGET', requestId: 'weekly-request-001', budgetUpdates: [standaloneBudget] };
+const beforeCombinedRows = sheetRows.length;
+const combined = save(combinedBase);
+assert.equal(combined.success, true);
+assert.equal(combined.task.saved, true);
+assert.equal(combined.budget.savedCount, 1);
+assert.equal(combined.budget.results[0].metrics.cumulative, 500000);
+assert.equal(sheetRows.length, beforeCombinedRows + 1);
+assert.equal(budgetWriteCalls.length, 1);
+
+const retry = save(combinedBase);
+assert.equal(retry.success, true);
+assert.equal(retry.budget.savedCount, 0);
+assert.equal(retry.budget.duplicateCount, 1);
+assert.equal(budgetWriteCalls.length, 1);
+
+for (const [change, code] of [
+  [{ allocationCode: 'WRONG' }, 'ALLOCATION_CODE_MISMATCH'],
+  [{ deptCode: 'OTHER' }, 'ALLOCATION_DEPT_MISMATCH'],
+  [{ flowType: 'THU' }, 'FLOW_TYPE_MISMATCH'],
+  [{ actualAmount: 2000001 }, 'BUDGET_ITEM_LIMIT_EXCEEDED'],
+  [{ actualAmount: -1 }, 'AMOUNT_NEGATIVE']
+]) {
+  const rowCount = sheetRows.length;
+  const writeCount = budgetWriteCalls.length;
+  const invalid = save({ ...saveBase, itemId: `CV-${code}`, requestId: `weekly-${code}-001`, budgetUpdates: [{ ...standaloneBudget, ...change }] });
+  assert.equal(invalid.success, false);
+  assert.equal(invalid.code, code);
+  assert.equal(sheetRows.length, rowCount);
+  assert.equal(budgetWriteCalls.length, writeCount);
+}
+
+failBudgetItemCode = 'NS-2';
+const partialRowCount = sheetRows.length;
+const partial = save({ ...saveBase, itemId: 'CV-PARTIAL', requestId: 'weekly-partial-001', budgetUpdates: [standaloneBudget, { ...standaloneBudget, budgetItemCode: 'NS-2', actualAmount: 250000 }] });
+assert.equal(partial.success, false);
+assert.equal(partial.code, 'PARTIAL_WRITE');
+assert.equal(partial.stage, 'BUDGET_WRITE');
+assert.equal(partial.budgetResults.length, 1);
+assert.equal(sheetRows.length, partialRowCount);
+failBudgetItemCode = '';
+
+const beforePendingRows = sheetRows.length;
 const pending = save({ ...saveBase, itemId: 'CV-100', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-20' });
 assert.equal(pending.update.approvalStatus, 'PENDING');
 assert.equal(pending.taskSync.approvalRequired, true);
-assert.equal(sheetRows.length, 5);
+assert.equal(sheetRows.length, beforePendingRows + 1);
 const reviewResult = review({ email: 'admin@example.com', updateId: pending.update.updateId, approvalStatus: 'APPROVED' });
 assert.equal(reviewResult.approval.approvalStatus, 'APPROVED');
 assert.equal(reviewResult.masterAutoUpdated, false);

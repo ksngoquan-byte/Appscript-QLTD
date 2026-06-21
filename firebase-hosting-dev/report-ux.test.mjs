@@ -61,6 +61,30 @@ assert.match(weeklyForm, /renderWeeklyActualDateLifecycle/);
 assert.match(weeklyForm, /weekly-form-close/);
 assert.match(weeklyForm, /Cong_viec/);
 
+const standaloneBudget = latestFunction('renderStandaloneBudgetWeeklyBlock', 'normalizeWeeklyBudgetAmount');
+assert.match(standaloneBudget, /data-weekly-budget-amount/);
+assert.match(standaloneBudget, /data-weekly-budget-note/);
+assert.match(standaloneBudget, /Chi thực hiện tuần này/);
+assert.match(standaloneBudget, /Thu thực hiện tuần này/);
+
+const budgetPayloadSource = app.slice(app.indexOf('function normalizeWeeklyBudgetAmount'), app.indexOf('function getWeeklySaveRequestId'));
+const budgetPayloadContext = {
+  qltdWeeklyTaskView: {
+    standaloneBudgetItems: [{ budgetItemCode: 'NS-1', allocationCode: 'ALLOC-1', flowType: 'CHI' }],
+    budgetDrafts: { 'NS-1': { amount: '500.000', note: 'Chi tuần', dirty: true } }
+  },
+  getBudgetFlowType: (item) => item.flowType
+};
+vm.createContext(budgetPayloadContext);
+vm.runInContext(`${budgetPayloadSource}\nthis.normalizeAmount = normalizeWeeklyBudgetAmount; this.buildBudgetUpdates = buildWeeklyBudgetUpdates;`, budgetPayloadContext);
+assert.equal(budgetPayloadContext.normalizeAmount('500.000').value, 500000);
+assert.equal(budgetPayloadContext.normalizeAmount('-1').error, 'Số tiền ngân sách không được âm.');
+const builtBudget = budgetPayloadContext.buildBudgetUpdates('P1', 'PTDA', 'WEEK-1');
+assert.equal(builtBudget.updates.length, 1);
+assert.deepEqual({ ...builtBudget.updates[0] }, { budgetItemCode: 'NS-1', allocationCode: 'ALLOC-1', budgetType: 'DEPT_STANDALONE', flowType: 'CHI', projectCode: 'P1', deptCode: 'PTDA', periodType: 'WEEK', periodCode: 'WEEK-1', actualAmount: 500000, note: 'Chi tuần', masterTaskCode: '', pbTaskCode: '' });
+budgetPayloadContext.qltdWeeklyTaskView.budgetDrafts['NS-1'].dirty = false;
+assert.equal(budgetPayloadContext.buildBudgetUpdates('P1', 'PTDA', 'WEEK-1').updates.length, 0);
+
 const loader = latestFunction('loadWeeklyTaskData(', 'loadWeeklyTaskDataForCurrent');
 assert.equal((loader.match(/fetchBackendJson\(/g) || []).length, 2);
 assert.match(loader, /itemsResult\.data \|\| itemsResult/);
@@ -71,7 +95,9 @@ assert.match(loader, /if \(filters\.force\) qltdWeeklyTaskCache\.delete\(key\)/)
 const weeklySave = latestFunction('saveWeeklyTaskUpdate()', 'showWeeklyToast');
 assert.match(weeklySave, /verifyWeeklyTaskUpdateSaved\(body\)/);
 assert.match(weeklySave, /Đã lưu cập nhật tuần, nhưng phản hồi kết nối bị gián đoạn\./);
-assert.doesNotMatch(weeklySave, /status\.textContent = error\.message/);
+assert.match(weeklySave, /error\.backendResult/);
+assert.match(weeklySave, /button\?\.dataset\.saving === '1'/);
+assert.match(weeklySave, /budgetUpdates: budgetPayload\.updates/);
 const verifySource = app.slice(app.indexOf('function weeklySavedUpdateMatchesPayload'), app.indexOf('function getWeeklySyncWarning'));
 assert.match(verifySource, /weekly_taskupdates_get/);
 assert.match(verifySource, /weeklySavedUpdateMatchesPayload/);

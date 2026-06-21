@@ -77,7 +77,8 @@ const qltdDepartmentDashboardCache = new Map();
 const qltdWeeklyDrafts = {};
 const qltdWeeklyTaskCache = new Map();
 let qltdWeeklyTaskRequestSeq = 0;
-let qltdWeeklyTaskView = { key: '', items: [], updates: [], nextItems: [], standaloneBudgetItems: [], loading: false, error: '' };
+let qltdWeeklyTaskView = { key: '', items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: {}, loading: false, error: '' };
+let qltdWeeklySaveRequestId = '';
 let qltdSelectedWeeklyItemKey = '';
 let qltdReportSubTab = 'plan';
 let qltdWeeklyForcedItem = null;
@@ -2252,7 +2253,64 @@ function renderWeeklyBudgetBlock(selected, saved) {
 
 function renderStandaloneBudgetWeeklyBlock(items) {
   if (!Array.isArray(items) || !items.length) return '';
-  return `<section class="weekly-standalone-budget"><h3>Ngân sách độc lập phòng/ban trong tuần</h3><div class="weekly-standalone-budget-grid">${items.map((item) => { const labels = getBudgetFlowLabels(item); return `<article>${renderBudgetFlowBadge(item)}<strong>${escapeHtml(item.budgetItemName || item.budgetItemCode || '')}</strong><span>${escapeHtml(labels.plan)}: ${formatWeeklyCurrency(item.approvedBudget || 0)}</span><small>${escapeHtml(item.budgetGroup || item.budgetStage || '')}</small></article>`; }).join('')}</div></section>`;
+  const drafts = qltdWeeklyTaskView.budgetDrafts || {};
+  return `<section class="weekly-standalone-budget"><h3>Ngân sách độc lập phòng/ban trong tuần</h3><div class="weekly-standalone-budget-grid">${items.map((item) => {
+    const labels = getBudgetFlowLabels(item);
+    const code = String(item.budgetItemCode || '').trim();
+    const draft = drafts[code] || {};
+    const actualLabel = labels.flow === 'CHI' ? 'Chi thực hiện tuần này' : labels.flow === 'THU' ? 'Thu thực hiện tuần này' : 'Thực hiện tuần này';
+    const noteLabel = labels.flow === 'CHI' ? 'Ghi chú chi' : labels.flow === 'THU' ? 'Ghi chú thu' : 'Ghi chú ngân sách';
+    return `<article data-budget-item-code="${escapeHtml(code)}">${renderBudgetFlowBadge(item)}<strong>${escapeHtml(item.budgetItemName || code)}</strong><span>${escapeHtml(labels.plan)}: ${formatWeeklyCurrency(item.approvedBudget || 0)}</span><span>${escapeHtml(actualLabel)}: ${formatWeeklyCurrency(item.actualThisWeek || 0)}</span><span>${escapeHtml(labels.cumulative)}: ${formatWeeklyCurrency(item.actualCumulative || 0)}</span><span>${escapeHtml(labels.remaining)}: ${formatWeeklyCurrency(item.remainingBudget ?? item.approvedBudget ?? 0)}</span><div class="weekly-update-field"><label>${escapeHtml(actualLabel)}</label><input type="text" inputmode="decimal" autocomplete="off" data-weekly-budget-amount="${escapeHtml(code)}" value="${escapeHtml(draft.amount || '')}"></div><div class="weekly-update-field"><label>${escapeHtml(noteLabel)}</label><textarea data-weekly-budget-note="${escapeHtml(code)}">${escapeHtml(draft.note || '')}</textarea></div><small>${escapeHtml(item.budgetGroup || item.budgetStage || '')}</small></article>`;
+  }).join('')}</div></section>`;
+}
+
+function normalizeWeeklyBudgetAmount(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return { value: 0, empty: true, error: '' };
+  let normalized = raw.replace(/\s/g, '');
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(normalized)) normalized = normalized.replace(/\./g, '');
+  else if (/^-?\d{1,3}(,\d{3})+$/.test(normalized)) normalized = normalized.replace(/,/g, '');
+  else normalized = normalized.replace(',', '.');
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount)) return { value: 0, empty: false, error: 'Số tiền ngân sách không hợp lệ.' };
+  if (amount < 0) return { value: amount, empty: false, error: 'Số tiền ngân sách không được âm.' };
+  return { value: amount, empty: false, error: '' };
+}
+
+function buildWeeklyBudgetUpdates(projectCode, deptCode, weekCode) {
+  const drafts = qltdWeeklyTaskView.budgetDrafts || {};
+  const updates = [];
+  for (const item of qltdWeeklyTaskView.standaloneBudgetItems || []) {
+    const code = String(item.budgetItemCode || '').trim();
+    const draft = drafts[code];
+    if (!draft?.dirty) continue;
+    const amount = normalizeWeeklyBudgetAmount(draft.amount);
+    if (amount.error) return { updates: [], error: `${item.budgetItemName || code}: ${amount.error}` };
+    if (amount.empty || amount.value === 0) continue;
+    updates.push({
+      budgetItemCode: code,
+      allocationCode: item.allocationCode || '',
+      budgetType: 'DEPT_STANDALONE',
+      flowType: getBudgetFlowType(item),
+      projectCode,
+      deptCode,
+      periodType: 'WEEK',
+      periodCode: weekCode,
+      actualAmount: amount.value,
+      note: String(draft.note || '').trim(),
+      masterTaskCode: '',
+      pbTaskCode: ''
+    });
+  }
+  return { updates, error: '' };
+}
+
+function getWeeklySaveRequestId() {
+  if (!qltdWeeklySaveRequestId) {
+    const token = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    qltdWeeklySaveRequestId = `weekly_${token}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+  }
+  return qltdWeeklySaveRequestId;
 }
 
 function normalizeWeeklyStatusKey(value) {
@@ -2362,6 +2420,17 @@ function bindWeeklyTaskUpdateControls() {
   });
   const budget = document.getElementById('weeklyTaskBudget');
   if (budget) budget.oninput = syncWeeklyBudgetValidation;
+  document.querySelectorAll('[data-weekly-budget-amount], [data-weekly-budget-note]').forEach((input) => {
+    input.oninput = () => {
+      const code = input.dataset.weeklyBudgetAmount || input.dataset.weeklyBudgetNote || '';
+      const drafts = qltdWeeklyTaskView.budgetDrafts || (qltdWeeklyTaskView.budgetDrafts = {});
+      const draft = drafts[code] || (drafts[code] = { amount: '', note: '', dirty: false });
+      if (input.dataset.weeklyBudgetAmount !== undefined) draft.amount = input.value;
+      else draft.note = input.value;
+      draft.dirty = true;
+      qltdWeeklySaveRequestId = '';
+    };
+  });
   syncWeeklyActualDateLifecycle();
   syncWeeklyBudgetValidation();
   const save = document.getElementById('saveWeeklyTaskUpdateButton'); if (save) save.onclick = saveWeeklyTaskUpdate;
@@ -2467,7 +2536,8 @@ async function loadWeeklyTaskData(payload, dept, week, periods, filters = {}) {
   const deptCode = dept.deptCode || dept.sheetName || ''; const key = getWeeklyTaskCacheKey(payload.projectCode, deptCode, week.weekId); const cached = qltdWeeklyTaskCache.get(key);
   if (filters.force) qltdWeeklyTaskCache.delete(key);
   if (cached && !filters.force) { qltdWeeklyTaskView = cached; renderWeeklyTaskRegion(); return; }
-  const seq = ++qltdWeeklyTaskRequestSeq; qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], loading: true, error: '' }; renderWeeklyTaskRegion();
+  const previousDrafts = qltdWeeklyTaskView.key === key ? (qltdWeeklyTaskView.budgetDrafts || {}) : {};
+  const seq = ++qltdWeeklyTaskRequestSeq; qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: previousDrafts, loading: true, error: '' }; renderWeeklyTaskRegion();
   const common = { email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode, weekCode: week.weekId };
   try {
     const [itemsResult, updatesResult] = await Promise.all([
@@ -2479,11 +2549,11 @@ async function loadWeeklyTaskData(payload, dept, week, periods, filters = {}) {
     const itemData = itemsResult.data || itemsResult; const updateData = updatesResult.data || updatesResult;
     const items = Array.isArray(itemData.items) ? itemData.items.slice() : [];
     if (qltdWeeklyForcedItem && qltdWeeklyForcedItem.projectCode === payload.projectCode && qltdWeeklyForcedItem.deptCode === deptCode && qltdWeeklyForcedItem.weekCode === week.weekId && !items.some((item) => item.itemType === qltdWeeklyForcedItem.itemType && item.itemId === qltdWeeklyForcedItem.itemId)) items.push(qltdWeeklyForcedItem);
-    qltdWeeklyTaskView = { key, items, updates: updateData.updates || [], nextItems: [], standaloneBudgetItems: itemData.standaloneBudgetItems || [], loading: false, error: '' };
+    qltdWeeklyTaskView = { key, items, updates: updateData.updates || [], nextItems: [], standaloneBudgetItems: itemData.standaloneBudgetItems || [], budgetDrafts: previousDrafts, loading: false, error: '' };
     if (!filters.force) qltdWeeklyTaskCache.set(key, qltdWeeklyTaskView);
   } catch (error) {
     if (seq !== qltdWeeklyTaskRequestSeq) return;
-    qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], loading: false, error: error.message || 'Không tải được dữ liệu Weekly.' };
+    qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: previousDrafts, loading: false, error: error.message || 'Không tải được dữ liệu Weekly.' };
   }
   renderWeeklyTaskRegion();
 }
@@ -2551,23 +2621,40 @@ async function saveWeeklyTaskUpdate() {
   if (button?.dataset.saving === '1') return;
   const validation = validateWeeklyTaskForm(item);
   if (validation.error) { if (status) status.textContent = validation.error; return; }
+  const projectCode = payload.projectCode;
+  const deptCode = dept.deptCode || dept.sheetName || '';
+  const budgetPayload = buildWeeklyBudgetUpdates(projectCode, deptCode, qltdSelectedWeekId);
+  if (budgetPayload.error) { if (status) status.textContent = budgetPayload.error; return; }
   const progressEnd = validation.progressEnd; let confirmProgressDecrease = false;
   if (progressEnd < Number(item.progress || 0)) { confirmProgressDecrease = window.confirm(`Tiến độ mới ${progressEnd}% thấp hơn tiến độ hiện tại ${item.progress}%. Bạn có xác nhận?`); if (!confirmProgressDecrease) return; }
-  const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode: dept.deptCode || dept.sheetName || '', weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: validation.status || '', actualStart: validation.dates.actualStart || '', actualFinish: validation.dates.actualFinish || '', actualStartEdit: validation.dates.actualStartEdit || '', actualFinishEdit: validation.dates.actualFinishEdit || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease };
+  const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode, deptCode, weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: validation.status || '', actualStart: validation.dates.actualStart || '', actualFinish: validation.dates.actualFinish || '', actualStartEdit: validation.dates.actualStartEdit || '', actualFinishEdit: validation.dates.actualFinishEdit || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease, budgetUpdates: budgetPayload.updates };
+  if (body.budgetUpdates.length) body.requestId = getWeeklySaveRequestId();
   if (button) { button.disabled = true; button.dataset.saving = '1'; button.textContent = 'Đang lưu...'; }
   if (status) status.textContent = 'Đang lưu...';
   try {
     const result = await postBackendJson(body);
-    if (!result.success) throw new Error(result.message || result.error?.message || result.code || result.error?.code || 'Lưu thất bại.');
+    if (!result.success) {
+      const backendError = new Error(result.message || result.error?.message || result.code || result.error?.code || 'Lưu thất bại.');
+      backendError.backendResult = result;
+      throw backendError;
+    }
     const data = result.data || result;
     qltdWeeklyForcedItem = null;
     applyWeeklySavedUpdateToView(body, data.update);
     const syncWarning = getWeeklySyncWarning(result);
-    const message = syncWarning ? 'Đã lưu cập nhật tuần, nhưng đồng bộ trạng thái nguồn chưa hoàn tất.' : data.update?.approvalStatus === 'PENDING' ? 'Đã gửi Admin phê duyệt cập nhật hoàn thành MASTER.' : 'Đã lưu cập nhật tuần.';
+    const budgetSaved = Number(data.budget?.savedCount || 0);
+    const message = syncWarning ? `Công việc đã lưu; ${budgetSaved} khoản ngân sách đã lưu, nhưng đồng bộ trạng thái nguồn chưa hoàn tất.` : data.update?.approvalStatus === 'PENDING' ? `Đã gửi Admin phê duyệt cập nhật hoàn thành MASTER; ${budgetSaved} khoản ngân sách đã lưu.` : `Công việc đã lưu; ${budgetSaved} khoản ngân sách đã lưu.`;
     if (status) status.textContent = message;
     showWeeklyToast(message);
+    qltdWeeklySaveRequestId = '';
+    qltdWeeklyTaskView.budgetDrafts = {};
     await loadWeeklyTaskDataForCurrent({ force: true });
   } catch (error) {
+    if (error.backendResult) {
+      if (status) status.textContent = error.message;
+      if (button) { button.disabled = false; button.dataset.saving = ''; button.textContent = 'Lưu báo cáo tuần'; }
+      return;
+    }
     const verified = await verifyWeeklyTaskUpdateSaved(body);
     if (verified) {
       qltdWeeklyForcedItem = null;
@@ -2575,6 +2662,8 @@ async function saveWeeklyTaskUpdate() {
       const message = 'Đã lưu cập nhật tuần, nhưng phản hồi kết nối bị gián đoạn.';
       if (status) status.textContent = message;
       showWeeklyToast(message);
+      qltdWeeklySaveRequestId = '';
+      qltdWeeklyTaskView.budgetDrafts = {};
       await loadWeeklyTaskDataForCurrent({ force: true });
       return;
     }

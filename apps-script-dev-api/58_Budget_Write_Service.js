@@ -7,8 +7,25 @@ function qltdBudgetSubmitActual_(payload) {
 }
 
 function qltdBudgetSubmitWrite_(payload, operation, action) {
+  const prepared = qltdBudgetPrepareWrite_(payload, operation, action);
+  if (prepared.error) return prepared.error;
+
+  const lock = LockService.getScriptLock();
+  let locked = false;
+  try {
+    locked = lock.tryLock(QLTD_BUDGET_WRITE_LOCK_TIMEOUT_MS);
+    if (!locked) {
+      return qltdBudgetWriteError_(action, 'WRITE_LOCK_TIMEOUT', 'Khong lay duoc lock ghi ngan sach.', prepared.value.meta);
+    }
+    return qltdBudgetExecutePreparedWriteNoLock_(prepared.value);
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function qltdBudgetPrepareWrite_(payload, operation, action) {
   const guard = qltdBudgetValidateWriteGuard_(payload, action);
-  if (guard.error) return guard.error;
+  if (guard.error) return { value: null, error: guard.error };
 
   const requestId = guard.requestId;
   const reportId = qltdBudgetBuildReportId_(operation, requestId);
@@ -20,42 +37,59 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
   };
 
   const admin = qltdBudgetValidateWriteUser_(guard.email, action, meta);
-  if (admin.error) return admin.error;
+  if (admin.error) return { value: null, error: admin.error };
 
   const allocationWrite = qltdBudgetValidateAllocationWriteControls_(payload, action, meta);
-  if (allocationWrite.error) return allocationWrite.error;
+  if (allocationWrite.error) return { value: null, error: allocationWrite.error };
   qltdBudgetApplyBudgetItemPayloadDefaults_(payload, allocationWrite.context);
 
   const dryRunAction = operation === 'PLAN' ? 'budget_submitPlanDryRun' : 'budget_submitActualDryRun';
   const resolveResult = qltdBudgetBuildDryRunPreview_(payload, operation, dryRunAction);
   if (!resolveResult || !resolveResult.success) {
-    return qltdBudgetWriteFromDryRunError_(action, resolveResult, meta);
+    return { value: null, error: qltdBudgetWriteFromDryRunError_(action, resolveResult, meta) };
   }
 
   const resolved = qltdBudgetBuildResolvedWriteContext_(resolveResult.data || {});
   resolved.operation = operation;
   const resolvedGuard = qltdBudgetValidateResolvedWriteContext_(resolved, action, meta);
-  if (resolvedGuard.error) return resolvedGuard.error;
+  if (resolvedGuard.error) return { value: null, error: resolvedGuard.error };
   const recordType = qltdBudgetResolveRecordType_(resolved.operation, resolved.periodType);
   if (recordType.error) {
-    return qltdBudgetWriteError_(action, recordType.error.code, recordType.error.message, Object.assign({}, meta, {
-      operation: resolved.operation,
-      periodType: resolved.periodType
-    }));
+    return {
+      value: null,
+      error: qltdBudgetWriteError_(action, recordType.error.code, recordType.error.message, Object.assign({}, meta, {
+        operation: resolved.operation,
+        periodType: resolved.periodType
+      }))
+    };
   }
   qltdBudgetApplyAllocationContextToResolved_(resolved, allocationWrite.context, guard.email, recordType.value);
   const writeWarnings = (resolveResult.warnings || []).concat(allocationWrite.context.warnings || []);
+  return {
+    value: {
+      operation: operation,
+      action: action,
+      requestId: requestId,
+      reportId: reportId,
+      meta: meta,
+      resolved: resolved,
+      allocationContext: allocationWrite.context,
+      writeWarnings: writeWarnings
+    },
+    error: null
+  };
+}
 
-  const lock = LockService.getScriptLock();
-  let locked = false;
+function qltdBudgetExecutePreparedWriteNoLock_(prepared) {
+  const operation = prepared.operation;
+  const action = prepared.action;
+  const requestId = prepared.requestId;
+  const reportId = prepared.reportId;
+  const meta = prepared.meta;
+  const resolved = prepared.resolved;
+  const writeWarnings = prepared.writeWarnings || [];
   let centralWrite = null;
-
   try {
-    locked = lock.tryLock(QLTD_BUDGET_WRITE_LOCK_TIMEOUT_MS);
-    if (!locked) {
-      return qltdBudgetWriteError_(action, 'WRITE_LOCK_TIMEOUT', 'Khong lay duoc lock ghi ngan sach.', meta);
-    }
-
     const duplicate = qltdBudgetFindCentralRawByReportId_(reportId);
     if (duplicate.found) {
       return qltdBudgetBuildDuplicateResponse_(duplicate, operation, resolved.budgetType, requestId, reportId, action, writeWarnings, meta);
@@ -127,8 +161,6 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
       code: error && error.code || 'WRITE_ERROR',
       message: message
     }, errorDetails)], meta);
-  } finally {
-    if (locked) lock.releaseLock();
   }
 }
 

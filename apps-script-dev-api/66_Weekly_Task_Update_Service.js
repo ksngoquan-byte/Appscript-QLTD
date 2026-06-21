@@ -245,10 +245,13 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
       requestedProgress: validation.progressEnd
     });
   }
+  const budgetPreparation = qltdWeeklyTaskUpdatesPrepareBudgetWrites_(payload || {}, scope, auth);
+  if (budgetPreparation.error) return budgetPreparation.error;
 
   const lock = LockService.getScriptLock();
   let locked = false;
   let saved;
+  const budgetResults = [];
   try {
     locked = lock.tryLock(QLTD_WORK_WRITE_LOCK_TIMEOUT_MS);
     if (!locked) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WRITE_LOCK_TIMEOUT', 'Cannot acquire weekly task update lock.', scope.meta, scope.warnings);
@@ -261,6 +264,23 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
         currentProgress: existing.progressEnd,
         requestedProgress: validation.progressEnd
       });
+    }
+    const budgetLimitCheck = qltdWeeklyTaskUpdatesValidateBudgetActualLimits_(budgetPreparation.writes, scope);
+    if (budgetLimitCheck.error) return budgetLimitCheck.error;
+    for (let budgetIndex = 0; budgetIndex < budgetPreparation.writes.length; budgetIndex += 1) {
+      const preparedBudget = budgetPreparation.writes[budgetIndex];
+      const budgetResult = qltdBudgetExecutePreparedWriteNoLock_(preparedBudget);
+      if (!budgetResult || !budgetResult.success) {
+        return qltdWeeklyTaskUpdatesPartialWriteError_(
+          payload,
+          scope,
+          'BUDGET_WRITE',
+          budgetResults,
+          budgetResult,
+          false
+        );
+      }
+      budgetResults.push(qltdWeeklyTaskUpdatesBuildBudgetResult_(preparedBudget, budgetResult));
     }
     const now = qltdWorkNowIso_();
     const completionProposal = qltdWeeklyTaskUpdatesIsCompletionProposal_(validation);
@@ -298,6 +318,11 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
       warnings: scope.warnings.slice()
     };
   } catch (error) {
+    if (budgetPreparation.writes.length) {
+      return qltdWeeklyTaskUpdatesPartialWriteError_(payload, scope, 'WEEKLY_ROW_WRITE', budgetResults, {
+        errors: [{ code: 'WEEKLY_ROW_WRITE_FAILED', message: qltdBudgetSafeErrorMessage_(error) }]
+      }, false);
+    }
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WRITE_ERROR', qltdBudgetSafeErrorMessage_(error), scope.meta, scope.warnings);
   } finally {
     if (locked) lock.releaseLock();
@@ -305,11 +330,28 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
 
   const sync = qltdWeeklyTaskUpdatesSyncTask_(payload, validation, scope, auth);
   if (sync.warning) saved.warnings.push(sync.warning);
+  if (budgetPreparation.writes.length && sync.warning) {
+    return qltdWeeklyTaskUpdatesPartialWriteError_(payload, scope, 'TASK_SYNC', budgetResults, sync.result, true);
+  }
   return qltdWorkOk_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, {
     inserted: saved.inserted,
     duplicatePrevented: saved.duplicatePrevented,
     update: saved.update,
-    taskSync: sync.result
+    taskSync: sync.result,
+    task: {
+      saved: true,
+      inserted: saved.inserted,
+      duplicatePrevented: saved.duplicatePrevented,
+      update: saved.update,
+      sync: sync.result
+    },
+    budget: {
+      saved: budgetResults.length > 0,
+      savedCount: budgetResults.filter(function(result) { return !result.duplicate; }).length,
+      duplicateCount: budgetResults.filter(function(result) { return result.duplicate; }).length,
+      skippedZeroCount: budgetPreparation.skippedZeroCount,
+      results: budgetResults
+    }
   }, saved.warnings, scope.meta);
 }
 
@@ -464,6 +506,7 @@ function qltdWeeklyTaskUpdatesReadBudgetContext_(scope) {
   if (typeof qltdBudgetReadBudgetItems_ !== 'function') return empty;
   const result = qltdBudgetReadBudgetItems_();
   const warnings = result.warnings || [];
+  const actuals = qltdWeeklyTaskUpdatesReadBudgetActualIndex_(scope);
   const projectCode = qltdBudgetNormalizeCode_(scope.projectCode);
   const deptCode = qltdBudgetNormalizeCode_(scope.deptCode);
   (result.items || []).forEach(function(item) {
@@ -471,6 +514,9 @@ function qltdWeeklyTaskUpdatesReadBudgetContext_(scope) {
     if (item.projectCode !== projectCode) return;
     if (qltdBudgetNormalizeCode_(item.deptCode) !== deptCode) return;
     const flowType = qltdWeeklyTaskUpdatesResolveCashFlowType_(item);
+    const itemKey = qltdWeeklyTaskUpdatesBudgetItemKey_(item.projectCode, item.budgetItemCode, item.allocationCode, flowType);
+    const weekActual = actuals.byItemWeek[itemKey] || { amount: 0, note: '' };
+    const cumulative = Number(actuals.byItem[itemKey] || 0);
     const dto = {
       budgetItemCode: item.budgetItemCode,
       budgetItemName: item.budgetItemName,
@@ -478,7 +524,15 @@ function qltdWeeklyTaskUpdatesReadBudgetContext_(scope) {
       budgetGroup: item.budgetGroup,
       budgetStage: item.budgetStage,
       approvedBudget: Number(item.approvedBudget || 0),
-      budgetFlowType: flowType
+      allocationCode: item.allocationCode || '',
+      flowType: flowType,
+      budgetFlowType: flowType,
+      masterTaskCode: item.masterTaskCode || '',
+      pbTaskCode: item.pbTaskCode || '',
+      actualThisWeek: Number(weekActual.amount || 0),
+      actualCumulative: cumulative,
+      remainingBudget: Math.max(0, Number(item.approvedBudget || 0) - cumulative),
+      budgetNote: weekActual.note || ''
     };
     if (item.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED && item.masterTaskCode) {
       empty.taskLinkedByMaster[qltdWeeklyTaskUpdatesNormalizeTaskCode_(item.masterTaskCode)] = dto;
@@ -486,7 +540,7 @@ function qltdWeeklyTaskUpdatesReadBudgetContext_(scope) {
       empty.standaloneItems.push(dto);
     }
   });
-  empty.warnings = warnings;
+  empty.warnings = warnings.concat(actuals.warnings || []);
   return empty;
 }
 
@@ -553,6 +607,327 @@ function qltdWeeklyTaskUpdatesValidatePayload_(payload, scope) {
     issue: String(payload.issue || '').trim(), recommendation: String(payload.recommendation || '').trim(),
     budgetThisWeek: budgetThisWeek, budgetNote: String(payload.budgetNote || '').trim(), error: null
   };
+}
+
+function qltdWeeklyTaskUpdatesPrepareBudgetWrites_(payload, scope, auth) {
+  const updates = payload.budgetUpdates;
+  if (updates === undefined || updates === null) {
+    return { writes: [], skippedZeroCount: 0, error: null };
+  }
+  if (!Array.isArray(updates)) {
+    return {
+      writes: [],
+      skippedZeroCount: 0,
+      error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'BUDGET_UPDATES_INVALID', 'budgetUpdates must be an array.', -1, '')
+    };
+  }
+  if (!updates.length) return { writes: [], skippedZeroCount: 0, error: null };
+
+  const baseRequestId = String(payload.requestId || '').trim();
+  if (!/^[A-Za-z0-9_-]{8,80}$/.test(baseRequestId)) {
+    return {
+      writes: [],
+      skippedZeroCount: 0,
+      error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'BUDGET_REQUEST_ID_INVALID', 'requestId is required for budgetUpdates and must be 8-80 safe characters.', -1, '')
+    };
+  }
+
+  const writes = [];
+  const seenBudgetItems = {};
+  let skippedZeroCount = 0;
+  for (let index = 0; index < updates.length; index += 1) {
+    const entry = updates[index] || {};
+    const rawAmount = entry.actualAmount;
+    if (rawAmount === undefined || rawAmount === null || String(rawAmount).trim() === '') {
+      return {
+        writes: [],
+        skippedZeroCount: skippedZeroCount,
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'BUDGET_AMOUNT_REQUIRED', 'actualAmount is required for each budget update.', index, entry.budgetItemCode)
+      };
+    }
+    const amount = qltdBudgetNormalizeAmount_(rawAmount);
+    if (amount.error) {
+      return {
+        writes: [],
+        skippedZeroCount: skippedZeroCount,
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, amount.error.code, amount.error.message, index, entry.budgetItemCode)
+      };
+    }
+    if (amount.value === 0) {
+      skippedZeroCount += 1;
+      continue;
+    }
+
+    const budgetItemCode = String(entry.budgetItemCode || '').trim();
+    const normalizedBudgetItemCode = qltdBudgetNormalizeCode_(budgetItemCode);
+    if (!normalizedBudgetItemCode) {
+      return {
+        writes: [],
+        skippedZeroCount: skippedZeroCount,
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'BUDGET_ITEM_CODE_REQUIRED', 'budgetItemCode is required.', index, budgetItemCode)
+      };
+    }
+    if (seenBudgetItems[normalizedBudgetItemCode]) {
+      return {
+        writes: [],
+        skippedZeroCount: skippedZeroCount,
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'BUDGET_UPDATE_DUPLICATE_ITEM', 'A budget item can appear only once in budgetUpdates.', index, budgetItemCode)
+      };
+    }
+    seenBudgetItems[normalizedBudgetItemCode] = true;
+
+    if (entry.projectCode && qltdBudgetNormalizeCode_(entry.projectCode) !== qltdBudgetNormalizeCode_(scope.projectCode)) {
+      return {
+        writes: [],
+        skippedZeroCount: skippedZeroCount,
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'ALLOCATION_PROJECT_MISMATCH', 'Budget update projectCode does not match weekly scope.', index, budgetItemCode)
+      };
+    }
+    if (entry.deptCode && qltdBudgetNormalizeCode_(entry.deptCode) !== qltdBudgetNormalizeCode_(scope.deptCode)) {
+      return {
+        writes: [],
+        skippedZeroCount: skippedZeroCount,
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'ALLOCATION_DEPT_MISMATCH', 'Budget update deptCode does not match weekly scope.', index, budgetItemCode)
+      };
+    }
+    const periodType = qltdBudgetNormalizePeriodType_(entry.periodType || 'WEEK');
+    if (periodType.error || periodType.value !== 'WEEK') {
+      return {
+        writes: [],
+        skippedZeroCount: skippedZeroCount,
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'BUDGET_PERIOD_MISMATCH', 'Weekly budget update must use periodType WEEK.', index, budgetItemCode)
+      };
+    }
+    if (entry.periodCode && qltdWorkNormalizeWeekCode_(entry.periodCode) !== scope.weekCode) {
+      return {
+        writes: [],
+        skippedZeroCount: skippedZeroCount,
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'BUDGET_PERIOD_MISMATCH', 'Budget periodCode does not match weekly scope.', index, budgetItemCode)
+      };
+    }
+
+    const budgetType = String(entry.budgetType || '').trim().toUpperCase();
+    const budgetRequestId = qltdWeeklyTaskUpdatesBuildBudgetRequestId_(baseRequestId, budgetItemCode);
+    const budgetPayload = {
+      confirm: QLTD_BUDGET_WRITE_CONFIRM_TOKEN,
+      requestId: budgetRequestId,
+      email: auth.email,
+      projectCode: scope.projectCode,
+      deptCode: scope.deptCode,
+      budgetType: budgetType,
+      budgetItemCode: budgetItemCode,
+      allocationCode: String(entry.allocationCode || '').trim(),
+      flowType: String(entry.flowType || '').trim(),
+      masterTaskCode: budgetType === QLTD_BUDGET_TYPE.DEPT_STANDALONE ? '' : String(entry.masterTaskCode || '').trim(),
+      periodType: 'WEEK',
+      periodCode: scope.weekCode,
+      amount: amount.value,
+      note: String(entry.note || '').trim(),
+      basis: 'WEEKLY_TASK_UPDATE'
+    };
+    const prepared = qltdBudgetPrepareWrite_(budgetPayload, 'ACTUAL', 'weekly_taskupdates_save');
+    if (prepared.error) {
+      const budgetError = qltdWeeklyTaskUpdatesFirstBudgetError_(prepared.error);
+      return {
+        writes: [],
+        skippedZeroCount: skippedZeroCount,
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, budgetError.code, budgetError.message, index, budgetItemCode, budgetError)
+      };
+    }
+    prepared.value.weeklyBudgetMeta = {
+      index: index,
+      budgetItemCode: budgetItemCode,
+      actualAmount: amount.value,
+      note: String(entry.note || '').trim()
+    };
+    writes.push(prepared.value);
+  }
+
+  const limitCheck = qltdWeeklyTaskUpdatesValidateBudgetActualLimits_(writes, scope);
+  if (limitCheck.error) return { writes: [], skippedZeroCount: skippedZeroCount, error: limitCheck.error };
+  return { writes: writes, skippedZeroCount: skippedZeroCount, error: null };
+}
+
+function qltdWeeklyTaskUpdatesBuildBudgetRequestId_(baseRequestId, budgetItemCode) {
+  const normalizedCode = qltdBudgetNormalizeCode_(budgetItemCode);
+  const safeCode = normalizedCode.replace(/[^A-Z0-9_-]/g, '_').slice(0, 24) || 'ITEM';
+  let hash = 0;
+  for (let index = 0; index < normalizedCode.length; index += 1) {
+    hash = ((hash << 5) - hash + normalizedCode.charCodeAt(index)) | 0;
+  }
+  const suffix = '_BUDGET_' + safeCode + '_' + Math.abs(hash).toString(36).toUpperCase();
+  return String(baseRequestId || '').slice(0, Math.max(1, 80 - suffix.length)) + suffix;
+}
+
+function qltdWeeklyTaskUpdatesFirstBudgetError_(response) {
+  const errors = response && response.errors || [];
+  if (errors.length) return {
+    code: errors[0].code || 'BUDGET_UPDATE_INVALID',
+    message: errors[0].message || errors[0].code || 'Budget update is invalid.'
+  };
+  return {
+    code: response && (response.code || response.error && response.error.code) || 'BUDGET_UPDATE_INVALID',
+    message: response && (response.message || response.error && response.error.message) || 'Budget update is invalid.'
+  };
+}
+
+function qltdWeeklyTaskUpdatesBudgetError_(scope, code, message, index, budgetItemCode, budgetError) {
+  return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, 'weekly_taskupdates_save', code, message, scope.meta, scope.warnings, {
+    budgetIndex: index,
+    budgetItemCode: String(budgetItemCode || '').trim(),
+    budgetError: budgetError || null
+  });
+}
+
+function qltdWeeklyTaskUpdatesBudgetItemKey_(projectCode, budgetItemCode, allocationCode, flowType) {
+  return [
+    qltdBudgetNormalizeCode_(projectCode),
+    qltdBudgetNormalizeCode_(budgetItemCode),
+    qltdBudgetNormalizeCode_(allocationCode),
+    String(flowType || '').trim().toUpperCase()
+  ].join('|');
+}
+
+function qltdWeeklyTaskUpdatesBudgetAllocationKey_(projectCode, allocationCode, flowType) {
+  return [
+    qltdBudgetNormalizeCode_(projectCode),
+    qltdBudgetNormalizeCode_(allocationCode),
+    String(flowType || '').trim().toUpperCase()
+  ].join('|');
+}
+
+function qltdWeeklyTaskUpdatesReadBudgetActualIndex_(scope) {
+  const result = { byItem: {}, byAllocation: {}, byItemWeek: {}, reports: {}, warnings: [] };
+  const sheet = qltdBudgetGetReadonlySheet_(QLTD_BUDGET_SHEET.CENTRAL_RAW);
+  if (!sheet) {
+    result.warnings.push(qltdWorkWarning_('CENTRAL_RAW_NOT_FOUND', 'CENTRAL_NS_Raw is unavailable for weekly budget totals.'));
+    return result;
+  }
+  const schema = qltdBudgetGetSheetSchema_(QLTD_BUDGET_SHEET.CENTRAL_RAW);
+  const parsed = qltdBudgetReadSheetAsObjects_(sheet, schema.headerRow);
+  (parsed.rows || []).forEach(function(item) {
+    const row = item.raw;
+    const reportId = String(qltdBudgetGetCell_(row, parsed.headerMap, 'Report ID', '') || '').trim();
+    const syncStatus = String(qltdBudgetGetCell_(row, parsed.headerMap, 'Sync status', '') || '').trim().toUpperCase();
+    if (reportId) {
+      result.reports[reportId] = {
+        syncStatus: syncStatus,
+        rowNumber: item.rowNumber,
+        syncError: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Sync error', '') || '').trim()
+      };
+    }
+    if (syncStatus !== 'SYNCED') return;
+    if (qltdBudgetNormalizeKey_(qltdBudgetGetCell_(row, parsed.headerMap, 'Trang thai xac nhan', '')) !== 'daxacnhan') return;
+    if (String(qltdBudgetGetCell_(row, parsed.headerMap, 'Loai ban ghi', '') || '').trim().toUpperCase() !== 'PERFORMANCE_ACTUAL') return;
+    const projectCode = qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma du an', ''));
+    if (projectCode !== qltdBudgetNormalizeCode_(scope.projectCode)) return;
+    const budgetItemCode = String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma khoan ngan sach', '') || '').trim();
+    const allocationCode = String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma phan bo', '') || '').trim();
+    const flowType = String(qltdBudgetGetCell_(row, parsed.headerMap, 'Huong dong tien', '') || '').trim().toUpperCase();
+    if (!budgetItemCode || !allocationCode || !flowType) return;
+    const amount = qltdBudgetToNumber_(qltdBudgetGetCell_(row, parsed.headerMap, 'Gia tri thuc hien ky nay', 0));
+    const itemKey = qltdWeeklyTaskUpdatesBudgetItemKey_(projectCode, budgetItemCode, allocationCode, flowType);
+    const allocationKey = qltdWeeklyTaskUpdatesBudgetAllocationKey_(projectCode, allocationCode, flowType);
+    result.byItem[itemKey] = Number(result.byItem[itemKey] || 0) + amount;
+    result.byAllocation[allocationKey] = Number(result.byAllocation[allocationKey] || 0) + amount;
+    const periodType = qltdBudgetNormalizePeriodType_(qltdBudgetGetCell_(row, parsed.headerMap, 'Loai ky', ''));
+    const periodCode = qltdWorkNormalizeWeekCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma ky', ''));
+    if (!periodType.error && periodType.value === 'WEEK' && periodCode === scope.weekCode) {
+      const current = result.byItemWeek[itemKey] || { amount: 0, note: '' };
+      current.amount += amount;
+      current.note = String(qltdBudgetGetCell_(row, parsed.headerMap, 'Vuong mac/Ghi chu', '') || current.note || '').trim();
+      result.byItemWeek[itemKey] = current;
+    }
+  });
+  return result;
+}
+
+function qltdWeeklyTaskUpdatesValidateBudgetActualLimits_(writes, scope) {
+  if (!writes || !writes.length) return { error: null };
+  const actuals = qltdWeeklyTaskUpdatesReadBudgetActualIndex_(scope);
+  const proposedByItem = {};
+  const proposedByAllocation = {};
+  for (let index = 0; index < writes.length; index += 1) {
+    const prepared = writes[index];
+    const duplicate = actuals.reports[prepared.reportId];
+    if (duplicate && duplicate.syncStatus !== 'SYNCED') {
+      return {
+        error: qltdWeeklyTaskUpdatesBudgetError_(
+          scope,
+          duplicate.syncStatus === 'ERROR' ? 'DUPLICATE_REQUEST_ERROR' : 'DUPLICATE_REQUEST_PENDING',
+          'A previous budget request with the same id is not safely completed.',
+          prepared.weeklyBudgetMeta.index,
+          prepared.weeklyBudgetMeta.budgetItemCode,
+          duplicate
+        )
+      };
+    }
+    prepared.weeklyDuplicate = !!duplicate;
+    const context = prepared.allocationContext || {};
+    const item = context.item || {};
+    const allocation = context.allocation || {};
+    const itemKey = qltdWeeklyTaskUpdatesBudgetItemKey_(item.projectCode, item.budgetItemCode, item.allocationCode, item.flowType);
+    const allocationKey = qltdWeeklyTaskUpdatesBudgetAllocationKey_(allocation.projectCode, allocation.allocationCode, allocation.flowType);
+    const contribution = prepared.weeklyDuplicate ? 0 : Number(prepared.weeklyBudgetMeta.actualAmount || 0);
+    proposedByItem[itemKey] = Number(proposedByItem[itemKey] || 0) + contribution;
+    proposedByAllocation[allocationKey] = Number(proposedByAllocation[allocationKey] || 0) + contribution;
+    const itemAfter = Number(actuals.byItem[itemKey] || 0) + proposedByItem[itemKey];
+    const itemLimit = Number(item.approvedBudget || 0);
+    if (!item.hasApprovedBudget || itemAfter > itemLimit) {
+      return {
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'BUDGET_ITEM_LIMIT_EXCEEDED', 'Budget actual exceeds the approved Budget Item amount.', prepared.weeklyBudgetMeta.index, item.budgetItemCode, {
+          currentAmount: Number(actuals.byItem[itemKey] || 0),
+          proposedAmount: proposedByItem[itemKey],
+          limit: itemLimit
+        })
+      };
+    }
+    const allocationAfter = Number(actuals.byAllocation[allocationKey] || 0) + proposedByAllocation[allocationKey];
+    const allocationLimit = Number(allocation.allocatedAmount || 0);
+    if (allocationAfter > allocationLimit) {
+      return {
+        error: qltdWeeklyTaskUpdatesBudgetError_(scope, 'ALLOCATION_LIMIT_EXCEEDED', 'Budget actual exceeds the allocation amount.', prepared.weeklyBudgetMeta.index, item.budgetItemCode, {
+          currentAmount: Number(actuals.byAllocation[allocationKey] || 0),
+          proposedAmount: proposedByAllocation[allocationKey],
+          limit: allocationLimit
+        })
+      };
+    }
+    prepared.weeklyBudgetMetrics = {
+      actualThisWeek: Number(actuals.byItemWeek[itemKey] && actuals.byItemWeek[itemKey].amount || 0) + contribution,
+      cumulative: itemAfter,
+      remaining: Math.max(0, itemLimit - itemAfter),
+      approvedBudget: itemLimit,
+      allocationRemaining: Math.max(0, allocationLimit - allocationAfter)
+    };
+  }
+  return { error: null };
+}
+
+function qltdWeeklyTaskUpdatesBuildBudgetResult_(prepared, result) {
+  return {
+    budgetItemCode: prepared.weeklyBudgetMeta.budgetItemCode,
+    requestId: prepared.requestId,
+    reportId: prepared.reportId,
+    duplicate: !!(result.data && result.data.duplicate),
+    syncStatus: result.data && result.data.syncStatus || '',
+    centralRawRowNumber: result.data && result.data.centralRawRowNumber || '',
+    metrics: prepared.weeklyBudgetMetrics || {}
+  };
+}
+
+function qltdWeeklyTaskUpdatesPartialWriteError_(payload, scope, stage, budgetResults, failedResult, taskSaved) {
+  const failed = qltdWeeklyTaskUpdatesFirstBudgetError_(failedResult || {});
+  const details = {
+    stage: stage,
+    requestId: String(payload && payload.requestId || '').trim(),
+    taskSaved: !!taskSaved,
+    budgetResults: budgetResults || [],
+    failedCode: failed.code,
+    failedMessage: failed.message
+  };
+  Logger.log(JSON.stringify(Object.assign({ action: 'weekly_taskupdates_save', code: 'PARTIAL_WRITE' }, details)));
+  return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, 'weekly_taskupdates_save', 'PARTIAL_WRITE', 'Weekly save completed only partially. Review logged rows before retrying.', scope.meta, scope.warnings, details);
 }
 
 function qltdWeeklyTaskUpdatesResolveActualDateLifecycle_(payload, validation, currentItem, scope) {
