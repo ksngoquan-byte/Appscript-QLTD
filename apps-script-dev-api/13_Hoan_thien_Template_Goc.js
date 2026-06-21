@@ -41,11 +41,11 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
 
   boCoDinhDongCotTruocKhiMergeTemplateQltdV1_(sheet);
 
-  damBaoSoCotQltdTemplateV1_(sheet, 26);
+  damBaoSoCotQltdTemplateV1_(sheet, 30);
   xoaNhomHangTemplateQltdV1_(sheet);
 
-  sheet.getRange(1, 1, 1, 26).breakApart();
-  sheet.getRange(1, 1, 1, 26)
+  sheet.getRange(1, 1, 1, 30).breakApart();
+  sheet.getRange(1, 1, 1, 30)
     .mergeAcross()
     .setValue('BẢNG TIẾN ĐỘ DỰ ÁN / TEMPLATE')
     .setFontWeight('bold')
@@ -81,24 +81,28 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
     'Điều chỉnh liên kết?',
     '',
     '',
-    'WBS_LEVEL_SYS'
+    'WBS_LEVEL_SYS',
+    '',
+    'Trần chi phí trực tiếp',
+    'Dự thu kế hoạch',
+    'Trạng thái ngân sách'
   ]];
 
-  sheet.getRange(4, 1, 1, 26).setValues(headers);
+  sheet.getRange(4, 1, 1, 30).setValues(headers);
 
   const maxRows = sheet.getMaxRows();
 
   // Dòng 5 là dòng mẫu công thức. Không clear dòng 5.
   if (maxRows >= 6) {
-    sheet.getRange(6, 1, maxRows - 5, 26).clearContent();
+    sheet.getRange(6, 1, maxRows - 5, 30).clearContent();
   }
 
   // Vẫn format từ dòng 5 để dòng mẫu và vùng nhập liệu đẹp.
   if (maxRows >= 5) {
-    apDungZebraVaKeBangTemplateQltdV1_(sheet, 5, 1, maxRows - 4, 26);
+    apDungZebraVaKeBangTemplateQltdV1_(sheet, 5, 1, maxRows - 4, 30);
   }
 
-  dinhDangHeaderBangTemplateQltdV1_(sheet.getRange(4, 1, 1, 26));
+  dinhDangHeaderBangTemplateQltdV1_(sheet.getRange(4, 1, 1, 30));
   thietLapHeaderCapNhatThucTeTienDoV1_(sheet);
 
   sheet.setFrozenRows(4);
@@ -127,6 +131,10 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
   sheet.setColumnWidth(22, 120);
   sheet.setColumnWidth(23, 180);
   sheet.setColumnWidth(26, 120);
+  sheet.setColumnWidth(27, 14);
+  sheet.setColumnWidth(28, 150);
+  sheet.setColumnWidth(29, 135);
+  sheet.setColumnWidth(30, 145);
 
   const rule = SpreadsheetApp.newDataValidation()
     .requireValueInList(['Cấp 1', 'Cấp 2', 'Cấp 3', 'Cấp 4'], true)
@@ -137,6 +145,19 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
     sheet.getRange(5, 2, maxRows - 4, 1).setDataValidation(rule);
 
     thietLapDropdownDieuChinhLienKetV1_(sheet, 5, maxRows - 4);
+
+    sheet.getRange(5, 28, maxRows - 4, 2)
+      .setNumberFormat('#,##0')
+      .setHorizontalAlignment('right');
+
+    const budgetStatusRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Nháp', 'Đã chốt', 'Khóa'], true)
+      .setAllowInvalid(false)
+      .build();
+
+    sheet.getRange(5, 30, maxRows - 4, 1)
+      .setDataValidation(budgetStatusRule)
+      .setHorizontalAlignment('center');
   }
 
   try {
@@ -146,7 +167,7 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
   }
 
   const formulaWarning = canhBaoOCoHamNhungMatFormulaTemplateQltdV1_(sheet);
-  const message = '- Đã hoàn thiện _TEMPLATE_Cong_viec: B=WBS, G=ID, W=Điều chỉnh liên kết?, Z=WBS_LEVEL_SYS, dropdown Cấp 1–4.';
+  const message = '- Đã hoàn thiện _TEMPLATE_Cong_viec: Z=WBS_LEVEL_SYS, AA=cột đệm, AB:AD=ngân sách; chỉ ẩn cột Z.';
 
   return formulaWarning ? message + '\n' + formulaWarning : message;
 }

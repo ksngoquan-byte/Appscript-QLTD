@@ -9,6 +9,7 @@
 
   SHEET: {
     CONG_VIEC: 'Cong_viec',
+    NS_KHONG_GAN_CV: 'NS_Khong_Gan_CV',
     CAU_HINH: 'Cau_hinh',
   },
 
@@ -36,7 +37,12 @@
       HOAN_THANH_THUC_TE: 20, // T
       GHI_CHU_CAP_NHAT: 21, // U
       NGAY_CAP_NHAT: 22,    // V
-      DIEU_CHINH_LIEN_KET: 23 // W
+      DIEU_CHINH_LIEN_KET: 23, // W
+      WBS_LEVEL_SYS: 26,       // Z
+      BUDGET_SPACER: 27,       // AA - cột đệm, không dùng cho dữ liệu nghiệp vụ
+      DIRECT_COST_CEILING: 28, // AB
+      PLANNED_REVENUE: 29,     // AC
+      BUDGET_STATUS: 30        // AD
     }
   },
 

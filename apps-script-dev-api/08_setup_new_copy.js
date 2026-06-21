@@ -325,9 +325,16 @@ function dinhDangSheetVanHanhSauCopyTemplateV1_(sheet, targetName) {
 }
 
 function dinhDangCongViecVanHanhSauCopyTemplateV1_(sheet) {
+  const requiredColumns = 30;
+  const currentColumns = sheet.getMaxColumns();
+
+  if (currentColumns < requiredColumns) {
+    sheet.insertColumnsAfter(currentColumns, requiredColumns - currentColumns);
+  }
+
   const maxRows = sheet.getMaxRows();
 
-  sheet.getRange(1, 1, 1, 26)
+  sheet.getRange(1, 1, 1, requiredColumns)
     .breakApart()
     .mergeAcross()
     .setValue('BẢNG TIẾN ĐỘ DỰ ÁN')
@@ -338,12 +345,20 @@ function dinhDangCongViecVanHanhSauCopyTemplateV1_(sheet) {
     .setHorizontalAlignment('left')
     .setVerticalAlignment('middle');
 
-  dinhDangHeaderBangVanHanhSauCopyV1_(sheet.getRange(4, 1, 1, 26));
+  sheet.getRange(4, 26, 1, 5).setValues([[
+    'WBS_LEVEL_SYS',
+    '',
+    'Trần chi phí trực tiếp',
+    'Dự thu kế hoạch',
+    'Trạng thái ngân sách'
+  ]]);
+
+  dinhDangHeaderBangVanHanhSauCopyV1_(sheet.getRange(4, 1, 1, requiredColumns));
 
   if (maxRows >= 5) {
     const bodyRows = maxRows - 4;
 
-    apDungZebraVaKeBangVanHanhSauCopyV1_(sheet, 5, 1, bodyRows, 26);
+    apDungZebraVaKeBangVanHanhSauCopyV1_(sheet, 5, 1, bodyRows, requiredColumns);
 
     // Wrap các cột dài.
     sheet.getRange(5, 8, bodyRows, 1).setWrap(true);   // H - Công việc / Phạm vi
@@ -366,6 +381,19 @@ function dinhDangCongViecVanHanhSauCopyTemplateV1_(sheet) {
           .build()
       )
       .setHorizontalAlignment('center'); // W
+
+    sheet.getRange(5, 28, bodyRows, 2)
+      .setNumberFormat('#,##0')
+      .setHorizontalAlignment('right'); // AB:AC
+
+    sheet.getRange(5, 30, bodyRows, 1)
+      .setDataValidation(
+        SpreadsheetApp.newDataValidation()
+          .requireValueInList(['Nháp', 'Đã chốt', 'Khóa'], true)
+          .setAllowInvalid(false)
+          .build()
+      )
+      .setHorizontalAlignment('center'); // AD
   }
 
   // Column width chuẩn.
@@ -393,6 +421,10 @@ function dinhDangCongViecVanHanhSauCopyTemplateV1_(sheet) {
   sheet.setColumnWidth(22, 120);
   sheet.setColumnWidth(23, 180);
   sheet.setColumnWidth(26, 120);
+  sheet.setColumnWidth(27, 14);
+  sheet.setColumnWidth(28, 150);
+  sheet.setColumnWidth(29, 135);
+  sheet.setColumnWidth(30, 145);
 
   sheet.setFrozenRows(4);
 
