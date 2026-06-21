@@ -842,12 +842,16 @@ function ensureWeb07InlineStyles() {
     .budget-dashboard {
       --budget-thu: #0f766e;
       --budget-thu-soft: #dff7ef;
+      --budget-thu-inner: #ccfbf1;
       --budget-chi: #d97706;
       --budget-chi-soft: #fff3d6;
+      --budget-chi-inner: #ffedd5;
       --budget-positive: #15803d;
+      --budget-positive-inner: #dcfce7;
       --budget-near-zero: #ca8a04;
+      --budget-near-zero-inner: #fef9c3;
       --budget-negative: #dc2626;
-      --budget-rest: #e5eaf0;
+      --budget-negative-inner: #fee2e2;
       --budget-ink: #102033;
       --budget-muted: #64748b;
       --budget-border: #d7e0ea;
@@ -963,10 +967,13 @@ function ensureWeb07InlineStyles() {
     .budget-gauge {
       --value: 0deg;
       --ring-color: var(--budget-thu);
+      --ring-rest: var(--budget-thu-soft);
+      --inner-bg: var(--budget-thu-inner);
+      --gauge-text: var(--budget-thu);
       width: clamp(210px, 17vw, 250px);
       aspect-ratio: 1;
       border-radius: 50%;
-      background: conic-gradient(var(--ring-color) var(--value), var(--budget-rest) 0);
+      background: conic-gradient(var(--ring-color) var(--value), var(--ring-rest) 0);
       display: grid;
       place-items: center;
       margin: 6px auto 16px;
@@ -975,30 +982,42 @@ function ensureWeb07InlineStyles() {
 
     .budget-flow-card.is-chi .budget-gauge {
       --ring-color: var(--budget-chi);
+      --ring-rest: var(--budget-chi-soft);
+      --inner-bg: var(--budget-chi-inner);
+      --gauge-text: var(--budget-chi);
     }
 
     .budget-balance-card.is-positive .budget-gauge {
       --ring-color: var(--budget-positive);
+      --ring-rest: #dcfce7;
+      --inner-bg: var(--budget-positive-inner);
+      --gauge-text: var(--budget-positive);
     }
 
     .budget-balance-card.is-near-zero .budget-gauge {
       --ring-color: var(--budget-near-zero);
+      --ring-rest: #fef9c3;
+      --inner-bg: var(--budget-near-zero-inner);
+      --gauge-text: var(--budget-near-zero);
     }
 
     .budget-balance-card.is-negative .budget-gauge {
       --ring-color: var(--budget-negative);
+      --ring-rest: #fee2e2;
+      --inner-bg: var(--budget-negative-inner);
+      --gauge-text: var(--budget-negative);
     }
 
     .budget-gauge span {
       width: 66%;
       aspect-ratio: 1;
       border-radius: 50%;
-      background: #fff;
+      background: var(--inner-bg);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: var(--budget-ink);
+      color: var(--gauge-text);
       text-align: center;
       padding: 10px;
       box-sizing: border-box;
@@ -1018,14 +1037,14 @@ function ensureWeb07InlineStyles() {
       font-size: 14px;
       font-style: normal;
       font-weight: 900;
-      color: var(--budget-muted);
+      color: var(--gauge-text);
     }
 
     .budget-gauge small {
       margin-top: 4px;
       font-size: 12px;
       font-weight: 800;
-      color: var(--budget-muted);
+      color: var(--gauge-text);
     }
 
     .budget-number-grid {
@@ -1389,6 +1408,10 @@ function renderNoProjectBudgetDashboardState() {
   panel.innerHTML = '<div class="web07-card"><p class="empty-state">Chưa có dự án ACTIVE để xem ngân sách.</p></div>';
 }
 
+function normalizeBudgetDeptCode(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
 async function loadBudgetDashboardForSelectedProject(options = {}) {
   const panel = document.getElementById('web07BudgetDashboardPanel');
   if (!panel) return;
@@ -1401,11 +1424,12 @@ async function loadBudgetDashboardForSelectedProject(options = {}) {
 
   const seq = ++qltdBudgetDashboardRequestSeq;
   const scope = qltdBudgetDashboardView.view === 'department' ? 'department' : 'project';
-  const requestDeptCode = scope === 'department' ? (qltdBudgetDashboardView.deptCode || '') : '';
+  const requestDeptCode = scope === 'department' ? normalizeBudgetDeptCode(qltdBudgetDashboardView.deptCode || '') : '';
   qltdBudgetDashboardView = Object.assign({}, qltdBudgetDashboardView, {
     loading: true,
     error: '',
     projectCode,
+    deptCode: requestDeptCode,
     view: scope
   });
   renderBudgetDashboardPanel();
@@ -1421,11 +1445,24 @@ async function loadBudgetDashboardForSelectedProject(options = {}) {
     if (seq !== qltdBudgetDashboardRequestSeq) return;
     if (!result.success) throw new Error(result.message || result.errors?.[0]?.message || result.errors?.[0]?.code || 'Không tải được dashboard ngân sách.');
     const data = result.data || result;
+    const responseDeptCode = normalizeBudgetDeptCode(data.department?.deptCode || '');
+    let nextDeptCode = '';
+    if (scope === 'department') {
+      nextDeptCode = requestDeptCode;
+      if (responseDeptCode && responseDeptCode !== requestDeptCode) {
+        console.warn('Budget dashboard response deptCode mismatch; keeping requested deptCode', {
+          requestDeptCode,
+          responseDeptCode
+        });
+      } else if (responseDeptCode) {
+        nextDeptCode = responseDeptCode;
+      }
+    }
     qltdBudgetDashboardView = {
       loading: false,
       error: '',
       data,
-      deptCode: scope === 'department' ? (data.department?.deptCode || requestDeptCode || '') : '',
+      deptCode: nextDeptCode,
       projectCode,
       view: scope,
       showAllBusinessAlerts: qltdBudgetDashboardView.showAllBusinessAlerts || false,
@@ -1450,8 +1487,17 @@ function renderBudgetDashboardPanel() {
   const projectCode = document.getElementById('projectSelector')?.value || state.projectCode || getStoredProjectCode() || '';
   const projectName = data.project?.projectName || qltdProjectRegistry.find((project) => String(project.projectCode) === String(projectCode))?.projectName || '';
   const depts = Array.isArray(data.departments) ? data.departments : [];
-  const deptCode = scope === 'department' ? (state.deptCode || data.department?.deptCode || depts[0]?.deptCode || '') : '';
-  const selectedDept = depts.find((dept) => String(dept.deptCode || '') === String(deptCode)) || data.department || null;
+  const normalizedDeptCodes = new Set(depts.map((dept) => normalizeBudgetDeptCode(dept.deptCode)).filter(Boolean));
+  const stateDeptCode = normalizeBudgetDeptCode(state.deptCode);
+  const responseDeptCode = normalizeBudgetDeptCode(data.department?.deptCode);
+  const firstDeptCode = normalizeBudgetDeptCode(depts[0]?.deptCode);
+  let deptCode = '';
+  if (scope === 'department') {
+    if (stateDeptCode && (!normalizedDeptCodes.size || normalizedDeptCodes.has(stateDeptCode))) deptCode = stateDeptCode;
+    else if (responseDeptCode && normalizedDeptCodes.has(responseDeptCode)) deptCode = responseDeptCode;
+    else deptCode = firstDeptCode;
+  }
+  const selectedDept = depts.find((dept) => normalizeBudgetDeptCode(dept.deptCode) === deptCode) || data.department || null;
 
   panel.innerHTML = `<div class="budget-dashboard">
     <section class="exec-header">
@@ -1467,7 +1513,10 @@ function renderBudgetDashboardPanel() {
         <button type="button" data-budget-scope="project" class="${scope === 'project' ? 'active' : ''}">Dashboard dự án</button>
         <button type="button" data-budget-scope="department" class="${scope === 'department' ? 'active' : ''}">Dashboard phòng/ban</button>
       </nav>
-      ${scope === 'department' ? `<label>Phòng/Ban<select id="budgetDashboardDeptFilter">${depts.map((dept) => `<option value="${escapeHtml(dept.deptCode || '')}" ${dept.deptCode === deptCode ? 'selected' : ''}>${escapeHtml(dept.deptCode || '')} - ${escapeHtml(dept.deptName || dept.deptCode || '')}</option>`).join('')}</select></label>` : ''}
+      ${scope === 'department' ? `<label>Phòng/Ban<select id="budgetDashboardDeptFilter">${depts.map((dept) => {
+        const optionDeptCode = normalizeBudgetDeptCode(dept.deptCode);
+        return `<option value="${escapeHtml(optionDeptCode)}" ${optionDeptCode === deptCode ? 'selected' : ''}>${escapeHtml(dept.deptCode || '')} - ${escapeHtml(dept.deptName || dept.deptCode || '')}</option>`;
+      }).join('')}</select></label>` : ''}
     </section>
     ${state.error ? `<div class="web07-card"><p class="empty-state">${escapeHtml(state.error)}</p></div>` : ''}
     ${state.loading && !state.data ? '<div class="web07-card"><p class="empty-state">Đang tổng hợp ngân sách...</p></div>' : ''}
@@ -1480,9 +1529,13 @@ function renderBudgetDashboardPanel() {
     button.onclick = () => {
       const nextScope = button.dataset.budgetScope === 'department' ? 'department' : 'project';
       if (nextScope === qltdBudgetDashboardView.view) return;
+      const currentDeptCode = normalizeBudgetDeptCode(qltdBudgetDashboardView.deptCode);
+      const nextDeptCode = nextScope === 'department'
+        ? (currentDeptCode && normalizedDeptCodes.has(currentDeptCode) ? currentDeptCode : firstDeptCode)
+        : '';
       qltdBudgetDashboardView = Object.assign({}, qltdBudgetDashboardView, {
         view: nextScope,
-        deptCode: nextScope === 'department' ? (qltdBudgetDashboardView.deptCode || depts[0]?.deptCode || '') : '',
+        deptCode: nextDeptCode,
         showAllBusinessAlerts: false,
         showAllDataAlerts: false
       });
@@ -1492,8 +1545,9 @@ function renderBudgetDashboardPanel() {
   const deptFilter = document.getElementById('budgetDashboardDeptFilter');
   if (deptFilter) {
     deptFilter.onchange = (event) => {
+      const nextDeptCode = normalizeBudgetDeptCode(event.target.value || '');
       qltdBudgetDashboardView = Object.assign({}, qltdBudgetDashboardView, {
-        deptCode: event.target.value || '',
+        deptCode: nextDeptCode,
         view: 'department',
         showAllBusinessAlerts: false,
         showAllDataAlerts: false

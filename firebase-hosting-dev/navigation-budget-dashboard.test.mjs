@@ -59,11 +59,17 @@ assert.match(bindings, /\[NAV_LABELS\.report, 'report'\]/);
 const loader = latestFunction('loadBudgetDashboardForSelectedProject', 'renderBudgetDashboardPanel');
 assert.match(loader, /budget_getLiveDashboard/);
 assert.match(loader, /deptCode: requestDeptCode/);
+assert.match(loader, /normalizeBudgetDeptCode\(qltdBudgetDashboardView\.deptCode/);
+assert.match(loader, /responseDeptCode && responseDeptCode !== requestDeptCode/);
+assert.match(loader, /keeping requested deptCode/);
 assert.match(loader, /scope === 'department'/);
 
 const budgetRenderer = latestFunction('renderBudgetDashboardPanel', 'renderBudgetDashboardContent');
 assert.doesNotMatch(budgetRenderer, /Nguồn: CENTRAL_NS_Items/);
 assert.match(budgetRenderer, /budgetDashboardDeptFilter/);
+assert.match(budgetRenderer, /normalizedDeptCodes/);
+assert.match(budgetRenderer, /optionDeptCode === deptCode/);
+assert.doesNotMatch(budgetRenderer, /dept\.deptCode === deptCode/);
 assert.match(budgetRenderer, /Dashboard dự án/);
 assert.match(budgetRenderer, /Dashboard phòng\/ban/);
 
@@ -124,8 +130,14 @@ assert.match(numberFormatting, /formatCompactBudgetAmount/);
 
 const styles = app.slice(app.indexOf('.budget-dashboard'), app.indexOf('@media (max-width: 900px)'));
 assert.match(styles, /--budget-thu/);
+assert.match(styles, /--budget-thu-inner/);
 assert.match(styles, /--budget-chi/);
+assert.match(styles, /--budget-chi-inner/);
+assert.match(styles, /--budget-positive-inner/);
+assert.match(styles, /--budget-negative-inner/);
 assert.match(styles, /conic-gradient/);
+assert.match(styles, /--ring-rest/);
+assert.match(styles, /--inner-bg/);
 assert.match(styles, /clamp\(210px/);
 assert.match(styles, /\.budget-dashboard-table/);
 assert.match(styles, /\.budget-alert-list/);
