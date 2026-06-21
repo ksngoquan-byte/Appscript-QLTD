@@ -4,7 +4,7 @@ const QLTD_BUDGET_SYNC_HEADER_SCAN_ROWS = 12;
 const QLTD_BUDGET_SYNC_HEADER_ALIASES = {
   masterTaskCode: ['ma_cong_viec', 'ma_cong_viec_master', 'ma_cv', 'master_task_code', 'mastertaskcode', 'task_code', 'code'],
   wbs: ['wbs', 'stt', 'ma_wbs', 'wbs_code'],
-  taskName: ['cong_viec', 'noi_dung_cong_viec', 'ten_cong_viec', 'task_name', 'name', 'text'],
+  taskName: ['cong_viec_pham_vi', 'congviecphamvi', 'pham_vi_cong_viec', 'cong_viec', 'noi_dung_cong_viec', 'ten_cong_viec', 'task_name', 'name', 'text'],
   dept: ['chu_tri', 'phong_ban_chu_tri', 'don_vi_chu_tri', 'ten_phong_ban', 'ma_phong_ban', 'phong_ban', 'dept', 'deptcode', 'owner'],
   directChiPlan: ['tran_chi_phi_truc_tiep', 'tran_chi_phi', 'chi_phi_truc_tiep', 'chi_phi_duoc_duyet', 'ke_hoach_chi'],
   plannedRevenue: ['du_thu_ke_hoach', 'du_thu', 'doanh_thu_ke_hoach', 'ke_hoach_thu'],
@@ -128,10 +128,16 @@ function qltdBudgetSyncReadCongViec_(project, action, meta) {
     return qltdBudgetSyncFindAliasIndex_(detected.headerIndex, group) < 0;
   });
   if (missing.length) {
+    const missingLabels = missing.map(qltdBudgetSyncHeaderGroupLabel_);
     return { error: qltdBudgetSyncResponse_(false, 'SOURCE_HEADER_MISSING', action, null, [], [{
       code: 'CONG_VIEC_REQUIRED_HEADER_MISSING',
-      message: 'Cong_viec thieu header bat buoc.',
-      missingHeaders: missing
+      message: 'Cong_viec thieu header bat buoc: ' + missingLabels.join(', '),
+      missingHeaders: missingLabels,
+      missingHeaderGroups: missing,
+      detectedHeaders: values[detected.rowIndex].map(function(value) { return String(value || '').trim(); }),
+      headerRowNumber: detected.rowIndex + 1,
+      spreadsheetId: spreadsheet.getId(),
+      sheetName: sheet.getName()
     }], meta) };
   }
 
@@ -162,6 +168,19 @@ function qltdBudgetSyncDetectHeader_(values) {
 
 function qltdBudgetSyncRequiredGroups_() {
   return ['masterTaskCode', 'wbs', 'taskName', 'dept', 'directChiPlan', 'plannedRevenue', 'budgetStatus'];
+}
+
+function qltdBudgetSyncHeaderGroupLabel_(group) {
+  const labels = {
+    masterTaskCode: 'Ma cong viec',
+    wbs: 'WBS',
+    taskName: 'Cong viec / Pham vi',
+    dept: 'Chu tri',
+    directChiPlan: 'Tran chi phi truc tiep',
+    plannedRevenue: 'Du thu ke hoach',
+    budgetStatus: 'Trang thai ngan sach'
+  };
+  return labels[group] || group;
 }
 
 function qltdBudgetSyncFindAliasIndex_(headerIndex, group) {

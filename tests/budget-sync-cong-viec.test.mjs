@@ -27,6 +27,36 @@ const ALLOCATION_HEADERS = [
   'Ma phong/ban', 'Ten phong/ban', 'Huong dong tien', 'Gia tri giao', 'Trang thai', 'Ghi chu'
 ];
 
+const LIVE_CONG_VIEC_HEADERS = [
+  'Mã công việc mẫu',
+  'WBS',
+  'Zone',
+  'Loại công trình',
+  'Công trình',
+  'Hạng mục/Tầng',
+  'ID',
+  'Công việc / Phạm vi',
+  'Chủ trì',
+  'Số ngày kế hoạch',
+  'Công việc liên kết',
+  'Bắt đầu kế hoạch',
+  'Kết thúc kế hoạch',
+  'Ghi chú',
+  'Mã công việc',
+  'Mã mốc hệ thống',
+  'Lỗi tiền nhiệm',
+  'Trạng thái thực hiện',
+  'Bắt đầu thực tế',
+  'Hoàn thành thực tế',
+  'Ghi chú cập nhật',
+  'Ngày cập nhật',
+  'Cảnh báo tiến độ',
+  'WBS_LEVEL_SYS',
+  'Trần chi phí trực tiếp',
+  'Dự thu kế hoạch',
+  'Trạng thái ngân sách'
+];
+
 class MockRange {
   constructor(sheet, row, column, numRows = 1, numColumns = 1) {
     this.sheet = sheet;
@@ -93,6 +123,10 @@ function rowsWithHeader(headerRow, headers, dataRows = []) {
   return Array.from({ length: headerRow - 1 }, () => []).concat([headers], dataRows);
 }
 
+function rowsWithLiveCongViecHeader(dataRows = [], headers = LIVE_CONG_VIEC_HEADERS) {
+  return [['Hoa'], [], [], headers].concat(dataRows);
+}
+
 function taskRow(overrides = {}) {
   const row = {
     code: 'CV-037',
@@ -105,6 +139,48 @@ function taskRow(overrides = {}) {
     ...overrides
   };
   return [row.code, row.wbs, row.task, row.dept, row.chi, row.thu, row.status];
+}
+
+function liveTaskRow(overrides = {}) {
+  const row = {
+    code: 'CV-037',
+    wbs: 'I.1',
+    task: 'Task 37 live',
+    dept: 'Dept One',
+    chi: 37084432112,
+    thu: 0,
+    status: 'Da chot',
+    ...overrides
+  };
+  return [
+    '',
+    row.wbs,
+    '',
+    '',
+    '',
+    '',
+    '',
+    row.task,
+    row.dept,
+    '',
+    '',
+    '',
+    '',
+    '',
+    row.code,
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    row.chi,
+    row.thu,
+    row.status
+  ];
 }
 
 function itemRow(overrides = {}) {
@@ -162,14 +238,20 @@ function buildContext(options = {}) {
     new MockSheet('CENTRAL_NS_Items', rowsWithHeader(4, ITEM_HEADERS, options.items || [])),
     new MockSheet('CENTRAL_NS_Allocations', rowsWithHeader(4, ALLOCATION_HEADERS, options.allocations || []))
   ]);
-  const master = new MockSpreadsheet('MASTER_1', [
-    new MockSheet('Cong_viec', rowsWithHeader(4, [
+  const congViecRows = options.liveCongViec
+    ? rowsWithLiveCongViecHeader(options.tasks || [
+      liveTaskRow(),
+      liveTaskRow({ code: 'CV-092', wbs: 'I.2', task: 'Task 92 live', dept: 'D2', chi: 0, thu: 11480000000 })
+    ], options.liveHeaders || LIVE_CONG_VIEC_HEADERS)
+    : rowsWithHeader(4, [
       'Ma cong viec', 'WBS', 'Cong viec', 'Chu tri',
       'Tran chi phi truc tiep', 'Du thu ke hoach', 'Trang thai ngan sach'
     ], options.tasks || [
       taskRow(),
       taskRow({ code: 'CV-092', wbs: 'I.2', task: 'Task 92', dept: 'D2', chi: 0, thu: 11480000000 })
-    ]))
+    ]);
+  const master = new MockSpreadsheet('MASTER_1', [
+    new MockSheet('Cong_viec', congViecRows)
   ]);
   const users = {
     'viewer@example.com': { email: 'viewer@example.com', status: 'ACTIVE', role: 'VIEWER' },
@@ -192,6 +274,52 @@ function buildContext(options = {}) {
 
 function rows(sheetName, spreadsheet) {
   return spreadsheet.getSheetByName(sheetName).rows;
+}
+
+{
+  const { context } = buildContext({ liveCongViec: true });
+  assert.equal(context.qltdBudgetNormalizeKey_('Công việc / Phạm vi'), context.qltdBudgetNormalizeKey_('cong_viec_pham_vi'));
+  assert.equal(context.qltdBudgetNormalizeKey_('Công việc / Phạm vi'), 'congviecphamvi');
+  const preview = context.qltdBudgetSyncApprovedTaskBudgets_({ email: 'viewer@example.com', projectCode: 'P1', dryRun: '1' });
+  assert.equal(preview.success, true);
+  assert.equal(preview.data.sourceHeaderRow, 4);
+  assert.equal(preview.data.sourceHeadersUsed.taskName, 'Công việc / Phạm vi');
+  assert.equal(preview.data.sourceHeadersUsed.masterTaskCode, 'Mã công việc');
+  assert.equal(preview.data.sourceHeadersUsed.dept, 'Chủ trì');
+  assert.equal(preview.data.sourceHeadersUsed.directChiPlan, 'Trần chi phí trực tiếp');
+  assert.equal(preview.data.sourceHeadersUsed.plannedRevenue, 'Dự thu kế hoạch');
+  assert.equal(preview.data.sourceHeadersUsed.budgetStatus, 'Trạng thái ngân sách');
+  assert.equal(preview.data.createItems, 2);
+  assert.equal(preview.data.errors.some(error => error.errorCode === 'CONG_VIEC_REQUIRED_HEADER_MISSING'), false);
+}
+
+{
+  const { context } = buildContext({
+    liveCongViec: true,
+    tasks: [
+      ['Hoa'],
+      liveTaskRow()
+    ]
+  });
+  const preview = context.qltdBudgetSyncApprovedTaskBudgets_({ email: 'viewer@example.com', projectCode: 'P1', dryRun: '1' });
+  assert.equal(preview.data.sourceHeaderRow, 4);
+}
+
+{
+  const { context } = buildContext({
+    liveCongViec: true,
+    liveHeaders: LIVE_CONG_VIEC_HEADERS.map(header => header === 'Công việc / Phạm vi' ? 'Thiếu tên' : header),
+    tasks: [liveTaskRow()]
+  });
+  const result = context.qltdBudgetSyncApprovedTaskBudgets_({ email: 'viewer@example.com', projectCode: 'P1', dryRun: '1' });
+  assert.equal(result.success, false);
+  assert.equal(result.errors[0].code, 'CONG_VIEC_REQUIRED_HEADER_MISSING');
+  assert.equal(Array.from(result.errors[0].missingHeaderGroups || []).join(','), 'taskName');
+  assert.equal(result.errors[0].headerRowNumber, 4);
+  assert.equal(result.errors[0].spreadsheetId, 'MASTER_1');
+  assert.equal(result.errors[0].sheetName, 'Cong_viec');
+  assert.ok(result.errors[0].detectedHeaders.includes('Thiếu tên'));
+  assert.match(result.errors[0].message, /Cong viec \/ Pham vi/);
 }
 
 {
