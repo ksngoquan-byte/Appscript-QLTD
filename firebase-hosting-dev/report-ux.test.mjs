@@ -34,6 +34,23 @@ assert.match(weeklyPanel, /renderStandaloneBudgetWeeklyBlock/);
 assert.match(weeklyPanel, /weekly-split-view/);
 assert.match(weeklyPanel, /DANH SÁCH CÔNG VIỆC/);
 assert.doesNotMatch(weeklyPanel, /renderWeekPeriodsHtml|renderWeeklyNextItems/);
+assert.match(weeklyPanel, /findWeeklySavedUpdate/);
+assert.match(weeklyPanel, /updateContext/);
+
+const weeklyStateSource = app.slice(app.indexOf('function normalizeWeeklyUpdateMatchValue'), app.indexOf('function renderWeeklyTaskUpdatePanel('));
+const weeklyStateContext = {};
+vm.createContext(weeklyStateContext);
+vm.runInContext(`${weeklyStateSource}\nthis.findSaved = findWeeklySavedUpdate; this.effective = getWeeklyEffectiveTaskState;`, weeklyStateContext);
+const weeklyItem = { itemType: 'PB_DETAIL', itemId: 'DT-1', progress: 0, status: 'Chưa bắt đầu', actualStart: '', actualFinish: '' };
+const weeklySaved = { projectCode: 'P1', deptCode: 'KEHOACH', weekCode: 'WEEK-1', itemType: 'PB_DETAIL', itemId: 'DT-1', progressEnd: 1, taskStatus: 'Đang thực hiện', actualStart: '2026-06-21', actualFinish: '' };
+assert.equal(weeklyStateContext.findSaved([weeklySaved], weeklyItem, { projectCode: 'p1', deptCode: 'kehoach', weekCode: 'week-1' }), weeklySaved);
+assert.equal(weeklyStateContext.findSaved([weeklySaved], weeklyItem, { projectCode: 'P1', deptCode: 'PTDA', weekCode: 'WEEK-1' }), null);
+assert.deepEqual({ ...weeklyStateContext.effective(weeklyItem, weeklySaved) }, { progress: 1, status: 'Đang thực hiện', actualStart: '2026-06-21', actualFinish: '' });
+
+const weeklyRow = latestFunction('renderWeeklyTaskRow', 'getWeeklyTaskBadgeClass');
+assert.match(weeklyRow, /getWeeklyEffectiveTaskState\(item, saved\)/);
+assert.match(weeklyRow, /effective\.progress/);
+assert.match(weeklyRow, /effective\.status/);
 
 const weeklyForm = latestFunction('renderWeeklySelectedForm', 'bindWeeklyTaskUpdateControls');
 assert.match(weeklyForm, /THÔNG TIN CÔNG VIỆC/);
@@ -49,6 +66,30 @@ assert.equal((loader.match(/fetchBackendJson\(/g) || []).length, 2);
 assert.match(loader, /itemsResult\.data \|\| itemsResult/);
 assert.match(loader, /updatesResult\.data \|\| updatesResult/);
 assert.doesNotMatch(loader, /nextResult|getNextWeeklyPeriod/);
+assert.match(loader, /if \(filters\.force\) qltdWeeklyTaskCache\.delete\(key\)/);
+
+const weeklySave = latestFunction('saveWeeklyTaskUpdate()', 'showWeeklyToast');
+assert.match(weeklySave, /verifyWeeklyTaskUpdateSaved\(body\)/);
+assert.match(weeklySave, /Đã lưu cập nhật tuần, nhưng phản hồi kết nối bị gián đoạn\./);
+assert.doesNotMatch(weeklySave, /status\.textContent = error\.message/);
+const verifySource = app.slice(app.indexOf('function weeklySavedUpdateMatchesPayload'), app.indexOf('function getWeeklySyncWarning'));
+assert.match(verifySource, /weekly_taskupdates_get/);
+assert.match(verifySource, /weeklySavedUpdateMatchesPayload/);
+const recoveryCalls = [];
+const recoveryContext = {
+  normalizeWeeklyUpdateMatchValue: (value) => String(value || '').trim().toUpperCase(),
+  fetchBackendJson: async (action, params) => {
+    recoveryCalls.push({ action, params });
+    return { success: true, updates: [weeklySaved] };
+  },
+  console
+};
+vm.createContext(recoveryContext);
+vm.runInContext(`${verifySource}\nthis.verifySaved = verifyWeeklyTaskUpdateSaved;`, recoveryContext);
+const recovered = await recoveryContext.verifySaved({ ...weeklySaved, email: 'user@example.com', thisWeekResult: '' });
+assert.equal(recovered.itemId, 'DT-1');
+assert.deepEqual(recoveryCalls.map((call) => call.action), ['weekly_taskupdates_get']);
+assert.equal(recoveryCalls[0].params.weekCode, 'WEEK-1');
 
 const popup = latestFunction('openDetailStatusPopup', 'renderWeeklyTaskUpdatePanel');
 assert.match(popup, /work_getdetailtasks/);

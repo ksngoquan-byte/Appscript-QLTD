@@ -4,6 +4,7 @@ import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../apps-script-dev-api/66_Weekly_Task_Update_Service.js', import.meta.url), 'utf8');
 const sheetRows = [];
+const detailSyncCalls = [];
 const mockSheet = {
   getLastColumn: () => sheetRows[0]?.length || 0,
   getLastRow: () => sheetRows.length,
@@ -39,7 +40,7 @@ const context = {
   qltdBudgetNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
   QLTD_BUDGET_TYPE: { TASK_LINKED: 'TASK_LINKED', DEPT_STANDALONE: 'DEPT_STANDALONE' },
   qltdWorkUpdateTask_: () => ({ success: true }),
-  qltdWorkUpdateDetailTask_: () => ({ success: true }),
+  qltdWorkUpdateDetailTask_: (payload) => { detailSyncCalls.push(payload); return { success: true }; },
   QLTD_WORK_WRITE_LOCK_TIMEOUT_MS: 1000,
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
   Utilities: { getUuid: (() => { let id = 0; return () => `UUID-${++id}`; })() },
@@ -47,8 +48,8 @@ const context = {
   console
 };
 vm.createContext(context);
-vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_ };`, context);
-const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review, resolveActualDate } = context.api;
+vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_ };`, context);
+const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review, resolveActualDate, mapPbDetailStatus, syncTask } = context.api;
 
 assert.equal(buildKey('p1', 'ptda', 'week-2026-06-01', 'master', 'CV-1'), 'P1|PTDA|WEEK-2026-06-01|MASTER|CV-1');
 assert.equal(date('2026-06-01'), '2026-06-01');
@@ -70,6 +71,22 @@ assert.equal(resolveActualDate({}, lifecycleMissingFinish, {}, lifecycleScope).e
 const lifecycleFinish = { progressEnd: 100, taskStatus: 'Hoàn thành', actualStart: '2026-06-01', actualFinish: '2026-06-20' };
 assert.equal(resolveActualDate({}, lifecycleFinish, {}, lifecycleScope).error, null);
 assert.equal(lifecycleFinish.actualFinishShouldWrite, true);
+
+assert.equal(mapPbDetailStatus('Đang thực hiện'), 'Đang làm');
+assert.equal(mapPbDetailStatus('Đang làm'), 'Đang làm');
+assert.equal(mapPbDetailStatus('Tạm dừng'), 'Tạm dừng');
+const pbSyncValidation = { itemType: 'PB_DETAIL', itemId: 'DT-1', progressEnd: 1, taskStatus: 'Đang thực hiện', actualStart: '2026-06-21', actualFinish: '', actualStartShouldWrite: true, actualFinishShouldWrite: false };
+const pbSyncScope = { projectCode: 'P1', deptCode: 'PTDA', meta: {}, warnings: [] };
+assert.equal(syncTask({}, pbSyncValidation, pbSyncScope, { email: 'user@example.com' }).result.success, true);
+assert.equal(detailSyncCalls.at(-1).status, 'Đang làm');
+assert.equal(detailSyncCalls.at(-1).progress, 1);
+assert.equal(detailSyncCalls.at(-1).actualStart, '2026-06-21');
+context.qltdWorkUpdateDetailTask_ = () => { throw new Error('validation rejected'); };
+const partialSync = syncTask({}, pbSyncValidation, pbSyncScope, { email: 'user@example.com' });
+assert.equal(partialSync.result.success, false);
+assert.equal(partialSync.result.code, 'PB_DETAIL_SYNC_EXCEPTION');
+assert.equal(partialSync.warning.code, 'TASK_SYNC_PARTIAL');
+context.qltdWorkUpdateDetailTask_ = (payload) => { detailSyncCalls.push(payload); return { success: true }; };
 
 const base = { wbs: '1.1', taskName: 'Công việc', planStart: '2026-06-01', planFinish: '2026-06-30', progress: 20 };
 assert.equal(buildItem('MASTER', 'CV-1', base, '2026-06-08', '2026-06-14', '').eligibleReason, 'PLANNED');

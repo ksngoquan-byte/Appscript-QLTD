@@ -2101,11 +2101,40 @@ async function openDetailStatusPopup(payload, dept, masterCode) {
   }
 }
 
+function normalizeWeeklyUpdateMatchValue(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function findWeeklySavedUpdate(updates, item, context = {}) {
+  if (!item || !Array.isArray(updates)) return null;
+  return updates.find((update) =>
+    update.itemType === item.itemType &&
+    update.itemId === item.itemId &&
+    normalizeWeeklyUpdateMatchValue(update.projectCode) === normalizeWeeklyUpdateMatchValue(context.projectCode) &&
+    normalizeWeeklyUpdateMatchValue(update.deptCode) === normalizeWeeklyUpdateMatchValue(context.deptCode) &&
+    normalizeWeeklyUpdateMatchValue(update.weekCode) === normalizeWeeklyUpdateMatchValue(context.weekCode)
+  ) || null;
+}
+
+function getWeeklyEffectiveTaskState(item, saved) {
+  const source = item || {};
+  const progress = saved && saved.progressEnd !== undefined && saved.progressEnd !== null
+    ? Number(saved.progressEnd)
+    : Number(source.progress || 0);
+  return {
+    progress: isNaN(progress) ? Number(source.progress || 0) : progress,
+    status: String(saved?.taskStatus || source.status || 'Chưa cập nhật').trim(),
+    actualStart: saved?.actualStart || source.actualStart || '',
+    actualFinish: saved?.actualFinish || source.actualFinish || ''
+  };
+}
+
 function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
   const key = getWeeklyTaskCacheKey(payload.projectCode, dept.deptCode || dept.sheetName || '', week.weekId);
   const state = qltdWeeklyTaskView.key === key ? qltdWeeklyTaskView : { items: [], updates: [], standaloneBudgetItems: [], loading: true, error: '' };
   const selected = state.items.find((item) => `${item.itemType}:${item.itemId}` === qltdSelectedWeeklyItemKey) || null;
-  const saved = selected ? state.updates.find((update) => update.itemType === selected.itemType && update.itemId === selected.itemId) : null;
+  const updateContext = { projectCode: payload.projectCode, deptCode: dept.deptCode || dept.sheetName || '', weekCode: week.weekId };
+  const saved = selected ? findWeeklySavedUpdate(state.updates, selected, updateContext) : null;
   const deptName = dept.deptName || dept.displayName || dept.name || dept.deptCode || dept.sheetName || '';
   const projectName = payload.projectName || payload.projectCode || '';
   return `<section class="weekly-update-panel" aria-label="Cập nhật kết quả tuần">
@@ -2126,7 +2155,7 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
     <div class="weekly-split-view">
       <aside class="weekly-list-panel" aria-label="Danh sách công việc cần cập nhật">
         <div class="weekly-list-toolbar"><div><h3>DANH SÁCH CÔNG VIỆC</h3><span>${state.loading ? 'Đang tải...' : `${state.items.length} công việc`}</span></div><input id="weeklyTaskSearch" type="search" placeholder="Tìm WBS, tên hoặc mã..."><select id="weeklyTaskGroup"><option value="ALL">Tất cả</option><option value="OVERDUE">Quá hạn</option><option value="IN_PROGRESS">Đang thực hiện</option><option value="PLANNED">Đã bắt đầu theo kế hoạch</option><option value="COMPLETED_THIS_WEEK">Hoàn thành trong tuần</option></select></div>
-        ${renderWeeklyTaskList(state.items, state.updates)}
+        ${renderWeeklyTaskList(state.items, state.updates, updateContext)}
       </aside>
       <main class="weekly-detail-panel" aria-label="Chi tiết công việc">
         ${selected ? renderWeeklySelectedForm(selected, saved) : '<div class="weekly-form-placeholder"><strong>CHI TIẾT CÔNG VIỆC</strong><span>Chọn “Cập nhật” tại một công việc để mở biểu mẫu.</span></div>'}
@@ -2137,28 +2166,29 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
   </section>`;
 }
 
-function renderWeeklyTaskList(items, updates) {
+function renderWeeklyTaskList(items, updates, context) {
   if (!items.length) return '<p class="empty-state">Không có công việc cần cập nhật trong kỳ này.</p>';
   const groups = [
     ['OVERDUE', 'Quá hạn chưa hoàn thành'], ['IN_PROGRESS', 'Đang thực hiện'], ['PLANNED', 'Đã bắt đầu theo kế hoạch'],
     ['UPDATED', 'Đã cập nhật tuần này'], ['COMPLETED_THIS_WEEK', 'Hoàn thành trong tuần'], ['UNSCHEDULED', 'Chưa có lịch']
   ];
-  const updateKeys = new Set(updates.map((update) => `${update.itemType}:${update.itemId}`));
   return `<div class="weekly-task-groups">${groups.map(([code, label]) => {
     const rows = items.filter((item) => {
-      const isUpdated = updateKeys.has(`${item.itemType}:${item.itemId}`);
+      const isUpdated = !!findWeeklySavedUpdate(updates, item, context);
       if (code === 'UPDATED') return isUpdated && item.eligibleReason !== 'COMPLETED_THIS_WEEK';
       if (code === 'COMPLETED_THIS_WEEK') return item.eligibleReason === code;
       return !isUpdated && item.eligibleReason === code;
     });
     if (!rows.length) return '';
-    return `<section class="weekly-task-group"><h4>${escapeHtml(label)} <span>${rows.length}</span></h4>${rows.map((item) => renderWeeklyTaskRow(item, updateKeys.has(`${item.itemType}:${item.itemId}`))).join('')}</section>`;
+    return `<section class="weekly-task-group"><h4>${escapeHtml(label)} <span>${rows.length}</span></h4>${rows.map((item) => renderWeeklyTaskRow(item, findWeeklySavedUpdate(updates, item, context))).join('')}</section>`;
   }).join('')}</div>`;
 }
 
-function renderWeeklyTaskRow(item, updated) {
+function renderWeeklyTaskRow(item, saved) {
+  const updated = !!saved;
+  const effective = getWeeklyEffectiveTaskState(item, saved);
   const overdueDays = item.eligibleReason === 'OVERDUE' && item.planFinish ? Math.max(1, Math.floor((Date.now() - new Date(`${item.planFinish}T00:00:00`).getTime()) / 86400000)) : 0;
-  const statusText = item.officialComplete ? 'Hoàn thành — 100%' : (item.status || 'Chưa cập nhật');
+  const statusText = item.officialComplete ? 'Hoàn thành — 100%' : effective.status;
   const badge = updated ? 'Đã cập nhật tuần này' : overdueDays ? `Quá hạn ${overdueDays} ngày` : item.eligibleReason === 'IN_PROGRESS' ? 'Đang thực hiện' : item.eligibleReason === 'COMPLETED_THIS_WEEK' ? 'Hoàn thành trong tuần' : 'Theo kế hoạch';
   const key = `${item.itemType}:${item.itemId}`;
   const ownerDisplay = getWeeklyPersonDisplay(item.owner);
@@ -2167,7 +2197,7 @@ function renderWeeklyTaskRow(item, updated) {
     item.progressReadonly ? 'is-summary' : '',
     key === qltdSelectedWeeklyItemKey ? 'is-selected' : ''
   ].filter(Boolean).join(' ');
-  return `<article class="${rowClass}"><div class="weekly-task-main"><div class="weekly-task-kicker"><span class="weekly-item-type">${escapeHtml(item.itemType)}</span>${renderBudgetFlowBadge(item)}</div><strong>${escapeHtml(item.wbs ? `${item.wbs} · ${item.taskName}` : item.taskName)}</strong><small>BĐ KH: ${escapeHtml(formatIsoDateVi(item.planStart) || '—')} · KT KH: ${escapeHtml(formatIsoDateVi(item.planFinish) || '—')}</small><small title="${escapeHtml(item.owner || '')}">Chủ trì: ${escapeHtml(ownerDisplay)}</small></div><div class="weekly-task-state"><span>${escapeHtml(item.officialComplete ? 100 : item.progress)}%</span><small>${escapeHtml(statusText)}</small><em class="weekly-task-badge ${escapeHtml(getWeeklyTaskBadgeClass(item, updated, overdueDays))}">${escapeHtml(badge)}</em></div><div class="weekly-task-actions">${item.progressReadonly ? `<button type="button" class="secondary-button" data-weekly-master-details="${escapeHtml(item.masterTaskCode)}">Xem chi tiết</button><button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">Đề xuất HT</button>` : `<button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">${updated ? 'Sửa cập nhật' : 'Cập nhật'}</button>`}</div></article>`;
+  return `<article class="${rowClass}"><div class="weekly-task-main"><div class="weekly-task-kicker"><span class="weekly-item-type">${escapeHtml(item.itemType)}</span>${renderBudgetFlowBadge(item)}</div><strong>${escapeHtml(item.wbs ? `${item.wbs} · ${item.taskName}` : item.taskName)}</strong><small>BĐ KH: ${escapeHtml(formatIsoDateVi(item.planStart) || '—')} · KT KH: ${escapeHtml(formatIsoDateVi(item.planFinish) || '—')}</small><small title="${escapeHtml(item.owner || '')}">Chủ trì: ${escapeHtml(ownerDisplay)}</small></div><div class="weekly-task-state"><span>${escapeHtml(item.officialComplete ? 100 : effective.progress)}%</span><small>${escapeHtml(statusText)}</small><em class="weekly-task-badge ${escapeHtml(getWeeklyTaskBadgeClass(item, updated, overdueDays))}">${escapeHtml(badge)}</em></div><div class="weekly-task-actions">${item.progressReadonly ? `<button type="button" class="secondary-button" data-weekly-master-details="${escapeHtml(item.masterTaskCode)}">Xem chi tiết</button><button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">Đề xuất HT</button>` : `<button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">${updated ? 'Sửa cập nhật' : 'Cập nhật'}</button>`}</div></article>`;
 }
 
 function getWeeklyTaskBadgeClass(item, updated, overdueDays) {
@@ -2285,9 +2315,11 @@ function renderWeeklySelectedForm(selected, saved) {
   const completionHint = selected.itemType === 'MASTER' ? '<p class="weekly-approval-hint">Nếu đề xuất 100%, trạng thái Hoàn thành hoặc có ngày hoàn thành thực tế, hệ thống chỉ gửi Admin duyệt. Không tự cập nhật Cong_viec hoặc cột W.</p>' : '';
   const progressValue = saved?.progressEnd ?? selected.progress ?? 0;
   const statusValue = saved?.taskStatus || selected.status || (Number(progressValue) >= 100 ? 'Hoàn thành' : 'Chưa bắt đầu');
+  const effectiveState = getWeeklyEffectiveTaskState(selected, saved);
+  const currentStatusDisplay = selected.officialComplete ? 'Hoàn thành — 100%' : `${effectiveState.status} — ${effectiveState.progress}%`;
   const ownerDisplay = getWeeklyPersonDisplay(selected.owner);
   return `<section class="weekly-inline-form"><div class="weekly-form-topbar"><div><div class="weekly-update-title">${escapeHtml(selected.wbs ? `${selected.wbs} · ${selected.taskName}` : selected.taskName)}</div><div class="weekly-update-meta">${escapeHtml(selected.itemType)} · ${renderMasterPlanPeriod(selected)}</div></div><button type="button" class="weekly-form-close" data-weekly-close-form aria-label="Đóng">×</button></div>
-    <section class="weekly-form-section weekly-task-info"><div class="weekly-form-section-title"><span>THÔNG TIN CÔNG VIỆC</span>${renderBudgetFlowBadge(selected)}</div><div class="weekly-info-grid"><div><span>Loại</span><strong>${escapeHtml(selected.itemType)}</strong></div><div title="${escapeHtml(selected.owner || '')}"><span>Chủ trì</span><strong>${escapeHtml(ownerDisplay)}</strong></div><div><span>Kế hoạch</span><strong>${escapeHtml(formatIsoDateVi(selected.planStart) || '—')} – ${escapeHtml(formatIsoDateVi(selected.planFinish) || '—')}</strong></div><div><span>Trạng thái hiện tại</span><strong>${escapeHtml(selected.officialComplete ? 'Hoàn thành — 100%' : (selected.status || 'Chưa cập nhật'))}</strong></div><div><span>Ngân sách kế hoạch</span><strong>${selected.hasBudget ? formatWeeklyCurrency(selected.plannedBudget) : '—'}</strong></div></div>${completionHint}</section>
+    <section class="weekly-form-section weekly-task-info"><div class="weekly-form-section-title"><span>THÔNG TIN CÔNG VIỆC</span>${renderBudgetFlowBadge(selected)}</div><div class="weekly-info-grid"><div><span>Loại</span><strong>${escapeHtml(selected.itemType)}</strong></div><div title="${escapeHtml(selected.owner || '')}"><span>Chủ trì</span><strong>${escapeHtml(ownerDisplay)}</strong></div><div><span>Kế hoạch</span><strong>${escapeHtml(formatIsoDateVi(selected.planStart) || '—')} – ${escapeHtml(formatIsoDateVi(selected.planFinish) || '—')}</strong></div><div><span>Trạng thái hiện tại</span><strong>${escapeHtml(currentStatusDisplay)}</strong></div><div><span>Ngân sách kế hoạch</span><strong>${selected.hasBudget ? formatWeeklyCurrency(selected.plannedBudget) : '—'}</strong></div></div>${completionHint}</section>
     <section class="weekly-form-section weekly-result-section"><div class="weekly-form-section-title"><span>KẾT QUẢ THỰC HIỆN TRONG TUẦN</span></div><div class="weekly-update-field"><label for="weeklyTaskResult">Kết quả thực hiện trong tuần</label><textarea id="weeklyTaskResult" placeholder="Nêu kết quả đã hoàn thành, sản phẩm đầu ra, mốc đã chốt...">${escapeHtml(saved?.thisWeekResult || '')}</textarea></div></section>
     <section class="weekly-form-section"><div class="weekly-form-section-title"><span>TÌNH TRẠNG CÔNG VIỆC</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskProgress">Mức hoàn thành đến hết tuần (%)</label><input id="weeklyTaskProgress" type="number" min="0" max="100" step="1" value="${escapeHtml(progressValue)}"></div><div class="weekly-update-field"><label for="weeklyTaskStatus">Trạng thái công việc</label>${renderWeeklyStatusSelect(statusValue)}</div>${renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusValue)}</div></section>
     <section class="weekly-form-section weekly-issue-section"><div class="weekly-form-section-title"><span>VƯỚNG MẮC VÀ XỬ LÝ</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskIssue">Vướng mắc/Rủi ro</label><textarea id="weeklyTaskIssue" placeholder="Nêu vướng mắc, nguyên nhân, tác động nếu có...">${escapeHtml(saved?.issue || '')}</textarea></div><div class="weekly-update-field"><label for="weeklyTaskRecommendation">Giải pháp/Đề xuất</label><textarea id="weeklyTaskRecommendation" placeholder="Nêu hướng xử lý, người/phòng cần phối hợp, đề xuất quyết định...">${escapeHtml(saved?.recommendation || '')}</textarea></div></div></section>
@@ -2433,6 +2465,7 @@ function renderWeeklyTaskRegion() {
 async function loadWeeklyTaskData(payload, dept, week, periods, filters = {}) {
   if (!payload?.projectCode || !dept || !week) return;
   const deptCode = dept.deptCode || dept.sheetName || ''; const key = getWeeklyTaskCacheKey(payload.projectCode, deptCode, week.weekId); const cached = qltdWeeklyTaskCache.get(key);
+  if (filters.force) qltdWeeklyTaskCache.delete(key);
   if (cached && !filters.force) { qltdWeeklyTaskView = cached; renderWeeklyTaskRegion(); return; }
   const seq = ++qltdWeeklyTaskRequestSeq; qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], loading: true, error: '' }; renderWeeklyTaskRegion();
   const common = { email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode, weekCode: week.weekId };
@@ -2461,6 +2494,55 @@ function loadWeeklyTaskDataForCurrent(filters = {}) {
   return loadWeeklyTaskData(payload, dept, week, [week], filters);
 }
 
+function weeklySavedUpdateMatchesPayload(update, payload) {
+  if (!update || !payload) return false;
+  return normalizeWeeklyUpdateMatchValue(update.projectCode) === normalizeWeeklyUpdateMatchValue(payload.projectCode) &&
+    normalizeWeeklyUpdateMatchValue(update.deptCode) === normalizeWeeklyUpdateMatchValue(payload.deptCode) &&
+    normalizeWeeklyUpdateMatchValue(update.weekCode) === normalizeWeeklyUpdateMatchValue(payload.weekCode) &&
+    update.itemType === payload.itemType &&
+    update.itemId === payload.itemId &&
+    Number(update.progressEnd) === Number(payload.progressEnd) &&
+    String(update.taskStatus || '').trim() === String(payload.taskStatus || '').trim() &&
+    String(update.actualStart || '') === String(payload.actualStart || '') &&
+    String(update.actualFinish || '') === String(payload.actualFinish || '') &&
+    String(update.thisWeekResult || '') === String(payload.thisWeekResult || '');
+}
+
+async function verifyWeeklyTaskUpdateSaved(payload) {
+  try {
+    const result = await fetchBackendJson('weekly_taskupdates_get', {
+      email: payload.email || '',
+      projectCode: payload.projectCode,
+      deptCode: payload.deptCode,
+      weekCode: payload.weekCode
+    });
+    if (!result.success) return null;
+    const data = result.data || result;
+    return (data.updates || []).find((update) => weeklySavedUpdateMatchesPayload(update, payload)) || null;
+  } catch (error) {
+    console.warn('Cannot verify weekly update after POST interruption', error);
+    return null;
+  }
+}
+
+function getWeeklySyncWarning(result) {
+  const warnings = result?.warnings || result?.data?.warnings || [];
+  return warnings.find((warning) => warning?.code === 'TASK_SYNC_PARTIAL') || null;
+}
+
+function applyWeeklySavedUpdateToView(payload, update) {
+  const key = getWeeklyTaskCacheKey(payload.projectCode, payload.deptCode, payload.weekCode);
+  qltdWeeklyTaskCache.delete(key);
+  if (!update || qltdWeeklyTaskView.key !== key) return;
+  const updates = (qltdWeeklyTaskView.updates || []).filter((item) => !(
+    item.itemType === update.itemType && item.itemId === update.itemId &&
+    normalizeWeeklyUpdateMatchValue(item.projectCode) === normalizeWeeklyUpdateMatchValue(update.projectCode) &&
+    normalizeWeeklyUpdateMatchValue(item.deptCode) === normalizeWeeklyUpdateMatchValue(update.deptCode) &&
+    normalizeWeeklyUpdateMatchValue(item.weekCode) === normalizeWeeklyUpdateMatchValue(update.weekCode)
+  ));
+  qltdWeeklyTaskView = { ...qltdWeeklyTaskView, updates: updates.concat([update]) };
+}
+
 async function saveWeeklyTaskUpdate() {
   const item = qltdWeeklyTaskView.items.find((candidate) => `${candidate.itemType}:${candidate.itemId}` === qltdSelectedWeeklyItemKey); if (!item) return;
   const payload = qltdDeptPlanPayload || {}; const dept = (payload.departments || []).find((candidate) => (candidate.deptCode || candidate.sheetName) === qltdSelectedDeptCode) || {};
@@ -2479,13 +2561,24 @@ async function saveWeeklyTaskUpdate() {
     if (!result.success) throw new Error(result.message || result.error?.message || result.code || result.error?.code || 'Lưu thất bại.');
     const data = result.data || result;
     qltdWeeklyForcedItem = null;
-    qltdWeeklyTaskCache.delete(qltdWeeklyTaskView.key);
-    const message = data.update?.approvalStatus === 'PENDING' ? 'Đã gửi Admin phê duyệt cập nhật hoàn thành MASTER.' : 'Đã lưu cập nhật tuần.';
+    applyWeeklySavedUpdateToView(body, data.update);
+    const syncWarning = getWeeklySyncWarning(result);
+    const message = syncWarning ? 'Đã lưu cập nhật tuần, nhưng đồng bộ trạng thái nguồn chưa hoàn tất.' : data.update?.approvalStatus === 'PENDING' ? 'Đã gửi Admin phê duyệt cập nhật hoàn thành MASTER.' : 'Đã lưu cập nhật tuần.';
     if (status) status.textContent = message;
     showWeeklyToast(message);
     await loadWeeklyTaskDataForCurrent({ force: true });
   } catch (error) {
-    if (status) status.textContent = error.message || 'Không lưu được cập nhật.';
+    const verified = await verifyWeeklyTaskUpdateSaved(body);
+    if (verified) {
+      qltdWeeklyForcedItem = null;
+      applyWeeklySavedUpdateToView(body, verified);
+      const message = 'Đã lưu cập nhật tuần, nhưng phản hồi kết nối bị gián đoạn.';
+      if (status) status.textContent = message;
+      showWeeklyToast(message);
+      await loadWeeklyTaskDataForCurrent({ force: true });
+      return;
+    }
+    if (status) status.textContent = 'Không thể xác nhận kết quả lưu. Vui lòng kiểm tra kết nối và tải lại dữ liệu.';
     if (button) { button.disabled = false; button.dataset.saving = ''; button.textContent = 'Lưu báo cáo tuần'; }
   }
 }

@@ -601,15 +601,48 @@ function qltdWeeklyTaskUpdatesTruthy_(value) {
   return value === true || value === 1 || text === '1' || text === 'true' || text === 'yes';
 }
 
+function qltdWeeklyTaskUpdatesMapPbDetailStatus_(value) {
+  const status = String(value || '').trim();
+  const key = qltdWeeklyTaskUpdatesNormalizeStatusKey_(status);
+  if (key === 'dangthuchien' || key === 'danglam') return 'Đang làm';
+  if (key === 'chuabatdau') return 'Chưa bắt đầu';
+  if (key === 'tamdung') return 'Tạm dừng';
+  if (key === 'hoanthanh') return 'Hoàn thành';
+  return status;
+}
+
 function qltdWeeklyTaskUpdatesSyncTask_(payload, validation, scope, auth) {
   const updates = { status: validation.taskStatus };
   if (validation.actualStartShouldWrite) updates.actualStart = validation.actualStart;
   if (validation.actualFinishShouldWrite) updates.actualFinish = validation.actualFinish;
   if (validation.itemType === 'PB_DETAIL') {
+    updates.status = qltdWeeklyTaskUpdatesMapPbDetailStatus_(validation.taskStatus);
     updates.action = 'work_updatedetailtask'; updates.email = auth.email; updates.projectCode = scope.projectCode;
     updates.deptCode = scope.deptCode; updates.detailTaskId = validation.itemId; updates.progress = validation.progressEnd;
-    const result = qltdWorkUpdateDetailTask_(updates);
-    return result && result.success ? { result: result } : { result: result, warning: qltdWorkWarning_('TASK_SYNC_PARTIAL', 'Weekly update was saved but PB_DETAIL sync failed.') };
+    let result;
+    try {
+      result = qltdWorkUpdateDetailTask_(updates);
+    } catch (error) {
+      result = {
+        success: false,
+        code: 'PB_DETAIL_SYNC_EXCEPTION',
+        message: qltdBudgetSafeErrorMessage_(error)
+      };
+      Logger.log(JSON.stringify({
+        action: 'weekly_taskupdates_save',
+        code: 'PB_DETAIL_SYNC_EXCEPTION',
+        detailTaskId: validation.itemId,
+        message: result.message
+      }));
+    }
+    return result && result.success ? { result: result } : {
+      result: result,
+      warning: qltdWorkWarning_('TASK_SYNC_PARTIAL', 'Weekly update was saved but PB_DETAIL sync failed.', {
+        detailTaskId: validation.itemId,
+        syncCode: result && (result.code || result.error && result.error.code) || '',
+        syncMessage: result && (result.message || result.error && result.error.message) || ''
+      })
+    };
   }
   if (qltdWeeklyTaskUpdatesIsCompletionProposal_(validation)) {
     return {
