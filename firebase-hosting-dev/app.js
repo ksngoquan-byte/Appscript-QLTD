@@ -98,7 +98,7 @@ let qltdDetailPopupRequestSeq = 0;
 let qltdAdminApprovalRequestSeq = 0;
 let qltdAdminApprovalView = { loading: false, error: '', approvals: [] };
 let qltdBudgetDashboardRequestSeq = 0;
-let qltdBudgetDashboardView = { loading: false, error: '', data: null, deptCode: '', view: 'project' };
+let qltdBudgetDashboardView = { loading: false, error: '', data: null, deptCode: '', view: 'project', showAllBusinessAlerts: false, showAllDataAlerts: false };
 
 document.addEventListener('qltd:pb-detail-changed', (event) => {
   const detail = event.detail || {};
@@ -840,8 +840,47 @@ function ensureWeb07InlineStyles() {
     }
 
     .budget-dashboard {
+      --budget-thu: #0f766e;
+      --budget-thu-soft: #dff7ef;
+      --budget-chi: #d97706;
+      --budget-chi-soft: #fff3d6;
+      --budget-positive: #15803d;
+      --budget-near-zero: #ca8a04;
+      --budget-negative: #dc2626;
+      --budget-rest: #e5eaf0;
+      --budget-ink: #102033;
+      --budget-muted: #64748b;
+      --budget-border: #d7e0ea;
       display: grid;
       gap: 14px;
+    }
+
+    .budget-scope-tabs {
+      display: inline-flex;
+      border: 1px solid var(--budget-border);
+      border-radius: 8px;
+      background: #f8fafc;
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .budget-scope-tabs button {
+      height: 34px;
+      border: 0;
+      border-radius: 6px;
+      padding: 0 12px;
+      background: transparent;
+      color: #475569;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .budget-scope-tabs button.active {
+      background: #ffffff;
+      color: var(--budget-ink);
+      box-shadow: 0 4px 12px rgba(16, 32, 51, .08);
     }
 
     .budget-filter-row {
@@ -856,7 +895,7 @@ function ensureWeb07InlineStyles() {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      color: #475569;
+      color: var(--budget-muted);
       font-weight: 800;
       font-size: 13px;
     }
@@ -864,11 +903,11 @@ function ensureWeb07InlineStyles() {
     .budget-filter-row select,
     .budget-filter-row button {
       height: 34px;
-      border: 1px solid #cbd6e2;
+      border: 1px solid var(--budget-border);
       border-radius: 8px;
       padding: 0 10px;
       background: #fff;
-      color: #102033;
+      color: var(--budget-ink);
       font: inherit;
       font-size: 13px;
       font-weight: 700;
@@ -878,17 +917,27 @@ function ensureWeb07InlineStyles() {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
+      align-items: stretch;
+    }
+
+    .budget-flow-grid.is-department-single {
+      grid-template-columns: minmax(280px, 520px);
+    }
+
+    .budget-flow-grid.is-department-double {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .budget-flow-card,
     .budget-balance-card,
     .budget-alerts-card,
     .budget-items-card {
-      border: 1px solid #d7e0ea;
+      border: 1px solid var(--budget-border);
       border-radius: 8px;
       background: #fff;
-      padding: 16px;
+      padding: 18px;
       box-shadow: 0 8px 22px rgba(16, 32, 51, .05);
+      min-height: 100%;
     }
 
     .budget-flow-card header,
@@ -908,34 +957,75 @@ function ensureWeb07InlineStyles() {
     .budget-items-card h3 {
       margin: 0;
       font-size: 16px;
-      color: #102033;
+      color: var(--budget-ink);
     }
 
     .budget-gauge {
       --value: 0deg;
-      width: 128px;
+      --ring-color: var(--budget-thu);
+      width: clamp(210px, 17vw, 250px);
       aspect-ratio: 1;
       border-radius: 50%;
-      background: conic-gradient(#0f766e var(--value), #e5eaf0 0);
+      background: conic-gradient(var(--ring-color) var(--value), var(--budget-rest) 0);
       display: grid;
       place-items: center;
-      margin: 4px auto 12px;
+      margin: 6px auto 16px;
+      box-shadow: inset 0 0 0 1px rgba(16, 32, 51, .04);
     }
 
     .budget-flow-card.is-chi .budget-gauge {
-      background: conic-gradient(#dc2626 var(--value), #e5eaf0 0);
+      --ring-color: var(--budget-chi);
+    }
+
+    .budget-balance-card.is-positive .budget-gauge {
+      --ring-color: var(--budget-positive);
+    }
+
+    .budget-balance-card.is-near-zero .budget-gauge {
+      --ring-color: var(--budget-near-zero);
+    }
+
+    .budget-balance-card.is-negative .budget-gauge {
+      --ring-color: var(--budget-negative);
     }
 
     .budget-gauge span {
-      width: 82px;
+      width: 66%;
       aspect-ratio: 1;
       border-radius: 50%;
       background: #fff;
-      display: grid;
-      place-items: center;
-      color: #102033;
-      font-size: 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--budget-ink);
+      text-align: center;
+      padding: 10px;
+      box-sizing: border-box;
+      line-height: 1.18;
+      box-shadow: 0 4px 16px rgba(16, 32, 51, .06);
+    }
+
+    .budget-gauge strong {
+      font-size: clamp(20px, 2.2vw, 30px);
       font-weight: 900;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    .budget-gauge em {
+      margin-top: 4px;
+      font-size: 14px;
+      font-style: normal;
+      font-weight: 900;
+      color: var(--budget-muted);
+    }
+
+    .budget-gauge small {
+      margin-top: 4px;
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--budget-muted);
     }
 
     .budget-number-grid {
@@ -953,17 +1043,24 @@ function ensureWeb07InlineStyles() {
 
     .budget-number-grid span {
       display: block;
-      color: #64748b;
+      color: var(--budget-muted);
       font-size: 12px;
       font-weight: 800;
     }
 
     .budget-number-grid strong {
       display: block;
-      color: #102033;
+      color: var(--budget-ink);
       font-size: 15px;
       margin-top: 4px;
       overflow-wrap: anywhere;
+    }
+
+    .budget-note {
+      margin: 0;
+      color: var(--budget-muted);
+      font-size: 12px;
+      line-height: 1.45;
     }
 
     .budget-status-pill {
@@ -1029,8 +1126,6 @@ function ensureWeb07InlineStyles() {
     .budget-alert-list {
       display: grid;
       gap: 8px;
-      max-height: 260px;
-      overflow: auto;
     }
 
     .budget-alert-row {
@@ -1048,6 +1143,46 @@ function ensureWeb07InlineStyles() {
       color: #64748b;
       font-size: 12px;
       margin-top: 3px;
+    }
+
+    .budget-alert-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .budget-alert-summary div {
+      border: 1px solid #edf1f5;
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .budget-alert-summary span {
+      display: block;
+      color: var(--budget-muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .budget-alert-summary strong {
+      display: block;
+      margin-top: 4px;
+      color: var(--budget-ink);
+      font-size: 18px;
+    }
+
+    .budget-show-all {
+      margin-top: 10px;
+      height: 32px;
+      border: 1px solid var(--budget-border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--budget-ink);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
     }
 
     .help-panel-grid {
@@ -1086,8 +1221,18 @@ function ensureWeb07InlineStyles() {
       }
 
       .budget-flow-grid,
+      .budget-flow-grid.is-department-single,
+      .budget-flow-grid.is-department-double,
       .help-panel-grid {
         grid-template-columns: 1fr;
+      }
+
+      .budget-gauge {
+        width: clamp(170px, 58vw, 210px);
+      }
+
+      .budget-alert-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
   `;
@@ -1249,17 +1394,19 @@ async function loadBudgetDashboardForSelectedProject(options = {}) {
   if (!panel) return;
   const projectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
   if (!projectCode) {
-    qltdBudgetDashboardView = { loading: false, error: '', data: null, deptCode: '', view: 'project' };
+    qltdBudgetDashboardView = { loading: false, error: '', data: null, deptCode: '', view: 'project', showAllBusinessAlerts: false, showAllDataAlerts: false };
     renderNoProjectBudgetDashboardState();
     return;
   }
 
   const seq = ++qltdBudgetDashboardRequestSeq;
+  const scope = qltdBudgetDashboardView.view === 'department' ? 'department' : 'project';
+  const requestDeptCode = scope === 'department' ? (qltdBudgetDashboardView.deptCode || '') : '';
   qltdBudgetDashboardView = Object.assign({}, qltdBudgetDashboardView, {
     loading: true,
     error: '',
     projectCode,
-    view: qltdBudgetDashboardView.deptCode ? 'department' : 'project'
+    view: scope
   });
   renderBudgetDashboardPanel();
 
@@ -1267,8 +1414,8 @@ async function loadBudgetDashboardForSelectedProject(options = {}) {
     const result = await fetchBackendJson('budget_getLiveDashboard', {
       email: currentUserProfile?.email || '',
       projectCode,
-      deptCode: qltdBudgetDashboardView.deptCode || '',
-      view: qltdBudgetDashboardView.deptCode ? 'department' : 'project',
+      deptCode: requestDeptCode,
+      view: scope,
       force: options.force ? '1' : ''
     });
     if (seq !== qltdBudgetDashboardRequestSeq) return;
@@ -1278,9 +1425,11 @@ async function loadBudgetDashboardForSelectedProject(options = {}) {
       loading: false,
       error: '',
       data,
-      deptCode: data.department?.deptCode || qltdBudgetDashboardView.deptCode || '',
+      deptCode: scope === 'department' ? (data.department?.deptCode || requestDeptCode || '') : '',
       projectCode,
-      view: data.view || (qltdBudgetDashboardView.deptCode ? 'department' : 'project')
+      view: scope,
+      showAllBusinessAlerts: qltdBudgetDashboardView.showAllBusinessAlerts || false,
+      showAllDataAlerts: qltdBudgetDashboardView.showAllDataAlerts || false
     };
   } catch (error) {
     if (seq !== qltdBudgetDashboardRequestSeq) return;
@@ -1297,109 +1446,170 @@ function renderBudgetDashboardPanel() {
   if (!panel) return;
   const state = qltdBudgetDashboardView;
   const data = state.data || {};
+  const scope = state.view === 'department' ? 'department' : 'project';
   const projectCode = document.getElementById('projectSelector')?.value || state.projectCode || getStoredProjectCode() || '';
   const projectName = data.project?.projectName || qltdProjectRegistry.find((project) => String(project.projectCode) === String(projectCode))?.projectName || '';
-  const deptCode = state.deptCode || data.department?.deptCode || '';
   const depts = Array.isArray(data.departments) ? data.departments : [];
+  const deptCode = scope === 'department' ? (state.deptCode || data.department?.deptCode || depts[0]?.deptCode || '') : '';
+  const selectedDept = depts.find((dept) => String(dept.deptCode || '') === String(deptCode)) || data.department || null;
 
   panel.innerHTML = `<div class="budget-dashboard">
     <section class="exec-header">
       <div>
         <p class="exec-eyebrow">Dashboard ngân sách</p>
         <h2>${escapeHtml(projectName || projectCode || 'Dự án')}</h2>
-        <p class="exec-subtitle">${escapeHtml(projectCode || '')}${deptCode ? ` · ${escapeHtml(data.department?.deptName || deptCode)}` : ' · Toàn dự án'}${data.updatedAt ? ` · Cập nhật ${escapeHtml(formatWeeklyDateTime(data.updatedAt))}` : ''}</p>
+        <p class="exec-subtitle">${escapeHtml(projectCode || '')}${scope === 'department' && selectedDept ? ` · ${escapeHtml(selectedDept.deptName || selectedDept.deptCode || '')}` : ' · Toàn dự án'}${data.updatedAt ? ` · Cập nhật ${escapeHtml(formatWeeklyDateTime(data.updatedAt))}` : ''}</p>
       </div>
       <button id="budgetDashboardRefresh" class="exec-refresh" type="button">${state.loading ? 'Đang tải...' : 'Refresh'}</button>
     </section>
     <section class="budget-filter-row">
-      <label>Phòng/Ban<select id="budgetDashboardDeptFilter">
-        <option value="">Toàn dự án</option>
-        ${depts.map((dept) => `<option value="${escapeHtml(dept.deptCode || '')}" ${dept.deptCode === deptCode ? 'selected' : ''}>${escapeHtml(dept.deptCode || '')} - ${escapeHtml(dept.deptName || dept.deptCode || '')}</option>`).join('')}
-      </select></label>
-      <span class="web07-muted">Nguồn: CENTRAL_NS_Items · CENTRAL_NS_Allocations · CENTRAL_NS_Raw</span>
+      <nav class="budget-scope-tabs" aria-label="Chế độ Dashboard ngân sách">
+        <button type="button" data-budget-scope="project" class="${scope === 'project' ? 'active' : ''}">Dashboard dự án</button>
+        <button type="button" data-budget-scope="department" class="${scope === 'department' ? 'active' : ''}">Dashboard phòng/ban</button>
+      </nav>
+      ${scope === 'department' ? `<label>Phòng/Ban<select id="budgetDashboardDeptFilter">${depts.map((dept) => `<option value="${escapeHtml(dept.deptCode || '')}" ${dept.deptCode === deptCode ? 'selected' : ''}>${escapeHtml(dept.deptCode || '')} - ${escapeHtml(dept.deptName || dept.deptCode || '')}</option>`).join('')}</select></label>` : ''}
     </section>
     ${state.error ? `<div class="web07-card"><p class="empty-state">${escapeHtml(state.error)}</p></div>` : ''}
     ${state.loading && !state.data ? '<div class="web07-card"><p class="empty-state">Đang tổng hợp ngân sách...</p></div>' : ''}
-    ${data.thu && data.chi ? renderBudgetDashboardContent(data) : ''}
+    ${data.thu && data.chi ? renderBudgetDashboardContent(data, scope) : ''}
   </div>`;
 
   const refresh = document.getElementById('budgetDashboardRefresh');
   if (refresh) refresh.onclick = () => loadBudgetDashboardForSelectedProject({ force: true });
+  document.querySelectorAll('[data-budget-scope]').forEach((button) => {
+    button.onclick = () => {
+      const nextScope = button.dataset.budgetScope === 'department' ? 'department' : 'project';
+      if (nextScope === qltdBudgetDashboardView.view) return;
+      qltdBudgetDashboardView = Object.assign({}, qltdBudgetDashboardView, {
+        view: nextScope,
+        deptCode: nextScope === 'department' ? (qltdBudgetDashboardView.deptCode || depts[0]?.deptCode || '') : '',
+        showAllBusinessAlerts: false,
+        showAllDataAlerts: false
+      });
+      loadBudgetDashboardForSelectedProject({ force: true });
+    };
+  });
   const deptFilter = document.getElementById('budgetDashboardDeptFilter');
   if (deptFilter) {
     deptFilter.onchange = (event) => {
       qltdBudgetDashboardView = Object.assign({}, qltdBudgetDashboardView, {
         deptCode: event.target.value || '',
-        view: event.target.value ? 'department' : 'project'
+        view: 'department',
+        showAllBusinessAlerts: false,
+        showAllDataAlerts: false
       });
       loadBudgetDashboardForSelectedProject({ force: true });
     };
   }
+  bindBudgetAlertShowAllButtons();
 }
 
-function renderBudgetDashboardContent(data) {
+function renderBudgetDashboardContent(data, scope) {
+  const isDepartment = scope === 'department';
+  const hasThu = budgetFlowHasValue(data.thu);
+  const hasChi = budgetFlowHasValue(data.chi);
+  const flowCards = isDepartment
+    ? [
+      hasThu || !hasChi ? renderBudgetFlowCard('THU', data.thu, 'Kế hoạch dự thu', 'Đã ghi nhận') : '',
+      hasChi || !hasThu ? renderBudgetFlowCard('CHI', data.chi, 'Kế hoạch chi', 'Đã thực hiện') : ''
+    ].filter(Boolean)
+    : [
+      renderBudgetFlowCard('THU', data.thu, 'Kế hoạch dự thu', 'Đã ghi nhận'),
+      renderBudgetFlowCard('CHI', data.chi, 'Kế hoạch chi', 'Đã thực hiện'),
+      renderBudgetBalanceCard(data.balance || {})
+    ];
+  const gridClass = isDepartment
+    ? (flowCards.length === 1 ? 'budget-flow-grid is-department-single' : 'budget-flow-grid is-department-double')
+    : 'budget-flow-grid';
   return `
-    <section class="budget-flow-grid">
-      ${renderBudgetFlowCard('THU', data.thu, 'Kế hoạch thu', 'Thực thu')}
-      ${renderBudgetFlowCard('CHI', data.chi, 'Kế hoạch chi', 'Thực chi')}
-      ${renderBudgetBalanceCard(data.balance || {})}
+    <section class="${gridClass}">
+      ${flowCards.join('')}
     </section>
-    ${renderBudgetAlerts(data.alerts || [], data.alertsSummary || {})}
+    <p class="budget-note">Số liệu phản ánh mức thực hiện/ghi nhận ngân sách, chưa phải dòng tiền thực tế.</p>
+    ${renderBudgetAlerts(data.alerts || [])}
     ${renderBudgetItemsTable(data.items || [])}
   `;
 }
 
 function renderBudgetFlowCard(flowLabel, flow, planLabel, actualLabel) {
-  const rate = Number(flow?.usageRate || 0);
-  const percent = flow?.usageRate === null ? 'N/A' : `${Math.round(rate * 100)}%`;
-  const deg = Math.max(0, Math.min(360, rate * 360));
+  const rate = normalizeBudgetRate(flow?.usageRate);
+  const percent = formatBudgetPercent(flow?.usageRate);
+  const deg = budgetRingDegrees(rate);
   const tone = flowLabel === 'CHI' ? 'is-chi' : 'is-thu';
+  const actual = Number(flow?.actualAmount || 0);
+  const over = Number(flow?.overAmount || 0);
+  const remainingLabel = flowLabel === 'CHI' ? 'Còn được chi' : 'Còn phải ghi nhận';
+  const overLabel = flowLabel === 'CHI' ? 'Vượt trần' : 'Vượt kế hoạch';
   return `<article class="budget-flow-card ${tone}">
-    <header><h3>${escapeHtml(flowLabel)}</h3><span class="budget-status-pill is-${flow?.overAmount > 0 ? 'warning' : 'normal'}">${escapeHtml(percent)}</span></header>
-    <div class="budget-gauge" style="--value: ${deg}deg"><span>${escapeHtml(percent)}</span></div>
+    <header><h3>${escapeHtml(flowLabel)}</h3><span class="budget-status-pill is-${over > 0 ? 'warning' : 'normal'}">${escapeHtml(percent)}</span></header>
+    <div class="budget-gauge" style="--value: ${deg}deg" title="${escapeHtml(formatWeeklyCurrency(actual))}">
+      <span><strong>${escapeHtml(formatCompactBudgetAmount(actual))}</strong><em>${escapeHtml(percent)}</em><small>${escapeHtml(actualLabel)}</small></span>
+    </div>
     <div class="budget-number-grid">
-      <div><span>${escapeHtml(planLabel)}</span><strong>${formatWeeklyCurrency(flow?.planAmount || 0)}</strong></div>
-      <div><span>${escapeHtml(actualLabel)}</span><strong>${formatWeeklyCurrency(flow?.actualAmount || 0)}</strong></div>
-      <div><span>Còn lại</span><strong>${formatWeeklyCurrency(flow?.remainingAmount || 0)}</strong></div>
-      <div><span>Vượt</span><strong>${formatWeeklyCurrency(flow?.overAmount || 0)}</strong></div>
+      <div><span>${escapeHtml(planLabel)}</span><strong title="${escapeHtml(formatWeeklyCurrency(flow?.planAmount || 0))}">${formatCompactBudgetAmount(flow?.planAmount || 0)}</strong></div>
+      <div><span>${escapeHtml(remainingLabel)}</span><strong title="${escapeHtml(formatWeeklyCurrency(flow?.remainingAmount || 0))}">${formatCompactBudgetAmount(flow?.remainingAmount || 0)}</strong></div>
+      ${over > 0 ? `<div><span>${escapeHtml(overLabel)}</span><strong title="${escapeHtml(formatWeeklyCurrency(over))}">${formatCompactBudgetAmount(over)}</strong></div>` : ''}
     </div>
   </article>`;
 }
 
 function renderBudgetBalanceCard(balance) {
-  const actualClass = Number(balance.actualBalance || 0) < 0 ? 'warning' : 'normal';
-  const coverage = balance.coverageRate === null || balance.coverageRate === undefined ? 'N/A' : `${Math.round(Number(balance.coverageRate || 0) * 100)}%`;
-  return `<article class="budget-balance-card">
-    <header><h3>Cân đối</h3><span class="budget-status-pill is-${actualClass}">${escapeHtml(coverage)}</span></header>
+  const actualBalance = Number(balance.actualBalance || 0);
+  const tone = actualBalance < 0 ? 'negative' : Math.abs(actualBalance) < 1 ? 'near-zero' : 'positive';
+  const coverage = balance.coverageRate === null || balance.coverageRate === undefined ? 'Chưa phát sinh chi' : formatBudgetPercent(balance.coverageRate);
+  const deg = balance.coverageRate === null || balance.coverageRate === undefined ? 0 : budgetRingDegrees(normalizeBudgetRate(balance.coverageRate));
+  return `<article class="budget-balance-card is-${tone}">
+    <header><h3>Cân đối</h3><span class="budget-status-pill is-${tone === 'negative' ? 'critical' : tone === 'near-zero' ? 'warning' : 'normal'}">${escapeHtml(coverage)}</span></header>
+    <div class="budget-gauge" style="--value: ${deg}deg" title="${escapeHtml(formatWeeklyCurrency(actualBalance))}">
+      <span><strong>${escapeHtml(formatCompactBudgetAmount(actualBalance))}</strong><small>Cân đối thực hiện ngân sách</small></span>
+    </div>
     <div class="budget-number-grid">
-      <div><span>Kế hoạch THU - CHI</span><strong>${formatWeeklyCurrency(balance.plannedBalance || 0)}</strong></div>
-      <div><span>Thực tế THU - CHI</span><strong>${formatWeeklyCurrency(balance.actualBalance || 0)}</strong></div>
-      <div><span>Chênh lệch còn lại</span><strong>${formatWeeklyCurrency(balance.remainingBalance || 0)}</strong></div>
-      <div><span>Tỷ lệ bù chi</span><strong>${escapeHtml(coverage)}</strong></div>
+      <div><span>Cân đối kế hoạch ngân sách</span><strong title="${escapeHtml(formatWeeklyCurrency(balance.plannedBalance || 0))}">${formatCompactBudgetAmount(balance.plannedBalance || 0)}</strong></div>
+      <div><span>Tỷ lệ bao phủ chi</span><strong>${escapeHtml(coverage)}</strong></div>
     </div>
   </article>`;
 }
 
-function renderBudgetAlerts(alerts, summary) {
-  const topAlerts = alerts.slice(0, 10);
-  return `<section class="budget-alerts-card">
-    <header><h3>Cảnh báo ngân sách</h3><span class="budget-status-pill is-${summary.data ? 'data' : summary.critical ? 'critical' : summary.warning ? 'warning' : 'normal'}">${escapeHtml(summary.total || 0)} cảnh báo</span></header>
-    <div class="budget-number-grid">
-      <div><span>Dữ liệu</span><strong>${escapeHtml(summary.data || 0)}</strong></div>
-      <div><span>Nghiệp vụ</span><strong>${escapeHtml(summary.business || 0)}</strong></div>
-      <div><span>Critical</span><strong>${escapeHtml(summary.critical || 0)}</strong></div>
-      <div><span>Warning/Info</span><strong>${escapeHtml(Number(summary.warning || 0) + Number(summary.info || 0))}</strong></div>
-    </div>
-    ${topAlerts.length ? `<div class="budget-alert-list">${topAlerts.map(renderBudgetAlertRow).join('')}</div>` : '<p class="exec-empty">Không có cảnh báo.</p>'}
-  </section>`;
+function renderBudgetAlerts(alerts) {
+  const grouped = groupBudgetAlerts(alerts);
+  const summary = summarizeGroupedBudgetAlerts(grouped.all);
+  return `
+    <section class="budget-alerts-card">
+      <header><h3>Cảnh báo ngân sách</h3><span class="budget-status-pill is-${summary.critical ? 'critical' : summary.warning ? 'warning' : summary.info ? 'info' : 'normal'}">${escapeHtml(grouped.business.length)} cảnh báo</span></header>
+      ${renderBudgetAlertSummary(summary)}
+      ${renderBudgetAlertList(grouped.business, qltdBudgetDashboardView.showAllBusinessAlerts, 'business')}
+    </section>
+    <section class="budget-alerts-card">
+      <header><h3>Cảnh báo dữ liệu</h3><span class="budget-status-pill is-${grouped.data.length ? 'warning' : 'normal'}">${escapeHtml(grouped.data.length)} cảnh báo</span></header>
+      ${renderBudgetAlertList(grouped.data, qltdBudgetDashboardView.showAllDataAlerts, 'data')}
+    </section>
+  `;
+}
+
+function renderBudgetAlertSummary(summary) {
+  return `<div class="budget-alert-summary">
+    <div><span>Nghiêm trọng</span><strong>${escapeHtml(summary.critical)}</strong></div>
+    <div><span>Cần xử lý</span><strong>${escapeHtml(summary.warning)}</strong></div>
+    <div><span>Cần theo dõi</span><strong>${escapeHtml(summary.info)}</strong></div>
+    <div><span>Bình thường</span><strong>${escapeHtml(summary.normal)}</strong></div>
+  </div>`;
+}
+
+function renderBudgetAlertList(alerts, showAll, kind) {
+  if (!alerts.length) return '<p class="exec-empty">Không có cảnh báo.</p>';
+  const rows = (showAll ? alerts : alerts.slice(0, 5)).map(renderBudgetAlertRow).join('');
+  const button = alerts.length > 5
+    ? `<button type="button" class="budget-show-all" data-budget-alert-show="${escapeHtml(kind)}">${showAll ? 'Thu gọn' : 'Xem tất cả'}</button>`
+    : '';
+  return `<div class="budget-alert-list">${rows}</div>${button}`;
 }
 
 function renderBudgetAlertRow(alert) {
-  const severity = String(alert.severity || alert.category || '').toLowerCase();
   return `<article class="budget-alert-row">
-    <strong><span class="budget-status-pill is-${escapeHtml(severity || 'normal')}">${escapeHtml(alert.code || '')}</span></strong>
-    <span>${escapeHtml(alert.message || '')}</span>
-    <span>${escapeHtml([alert.flowType, alert.deptCode, alert.budgetItemCode || alert.allocationCode].filter(Boolean).join(' · '))}</span>
+    <strong><span class="budget-status-pill is-${escapeHtml(alert.severityClass)}">${escapeHtml(alert.severityLabel)}</span> ${escapeHtml(alert.flowLabel)}</strong>
+    <span>${escapeHtml(alert.itemLabel)}${alert.deptCode ? ` · ${escapeHtml(alert.deptCode)}` : ''}</span>
+    <span>${escapeHtml(alert.message)}${alert.valueText ? ` · ${escapeHtml(alert.valueText)}` : ''}</span>
+    <span>${escapeHtml(alert.count)} bản ghi được gom</span>
   </article>`;
 }
 
@@ -1408,7 +1618,7 @@ function renderBudgetItemsTable(items) {
     <header><h3>Khoản mục ngân sách</h3><span class="budget-status-pill is-normal">${escapeHtml(items.length)} khoản</span></header>
     <div class="budget-dashboard-table-wrap">
       <table class="budget-dashboard-table">
-        <thead><tr><th>Luồng</th><th>Phòng/Ban</th><th>Khoản mục</th><th>Loại</th><th>Phân bổ</th><th class="is-number">Kế hoạch</th><th class="is-number">Thực tế</th><th class="is-number">Còn lại</th><th class="is-number">Vượt</th><th>Trạng thái</th></tr></thead>
+        <thead><tr><th>THU/CHI</th><th>Phòng/Ban</th><th>Khoản mục</th><th class="is-number">Kế hoạch</th><th class="is-number">Đã ghi nhận/thực hiện</th><th class="is-number">Còn lại</th><th class="is-number">Tỷ lệ</th><th>Trạng thái</th></tr></thead>
         <tbody>${items.map(renderBudgetItemRow).join('')}</tbody>
       </table>
     </div>
@@ -1417,19 +1627,213 @@ function renderBudgetItemsTable(items) {
 
 function renderBudgetItemRow(item) {
   const severity = String(item.severity || 'NORMAL').toLowerCase();
-  const rate = item.usageRate === null || item.usageRate === undefined ? 'N/A' : `${Math.round(Number(item.usageRate || 0) * 100)}%`;
+  const rate = formatBudgetPercent(item.usageRate);
   return `<tr>
     <td><span class="budget-flow-badge is-${escapeHtml(String(item.flowType || '').toLowerCase() || 'unknown')}">${escapeHtml(item.flowType || '')}</span></td>
     <td>${escapeHtml(item.deptCode || '')}</td>
-    <td><strong>${escapeHtml(item.budgetItemName || item.budgetItemCode || '')}</strong><br><span class="web07-muted">${escapeHtml(item.budgetItemCode || '')}</span></td>
-    <td>${escapeHtml(item.budgetType || '')}</td>
-    <td>${escapeHtml(item.allocationCode || '')}</td>
-    <td class="is-number">${formatWeeklyCurrency(item.plannedAmount || 0)}</td>
-    <td class="is-number">${formatWeeklyCurrency(item.actualAmount || 0)}</td>
-    <td class="is-number">${formatWeeklyCurrency(item.remainingAmount || 0)}</td>
-    <td class="is-number">${formatWeeklyCurrency(item.overAmount || 0)}</td>
-    <td><span class="budget-status-pill is-${escapeHtml(severity)}">${escapeHtml(item.statusLabel || rate)}</span></td>
+    <td><strong title="${escapeHtml(item.budgetItemCode || '')}">${escapeHtml(item.budgetItemName || item.budgetItemCode || '')}</strong></td>
+    <td class="is-number" title="${escapeHtml(formatWeeklyCurrency(item.plannedAmount || 0))}">${formatCompactBudgetAmount(item.plannedAmount || 0)}</td>
+    <td class="is-number" title="${escapeHtml(formatWeeklyCurrency(item.actualAmount || 0))}">${formatCompactBudgetAmount(item.actualAmount || 0)}</td>
+    <td class="is-number" title="${escapeHtml(formatWeeklyCurrency(item.remainingAmount || 0))}">${formatCompactBudgetAmount(item.remainingAmount || 0)}</td>
+    <td class="is-number">${escapeHtml(rate)}</td>
+    <td><span class="budget-status-pill is-${escapeHtml(severity)}">${escapeHtml(formatBudgetItemStatus(item.statusLabel || severity))}</span></td>
   </tr>`;
+}
+
+function budgetFlowHasValue(flow) {
+  return Number(flow?.planAmount || 0) > 0 || Number(flow?.actualAmount || 0) > 0;
+}
+
+function normalizeBudgetRate(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function budgetRingDegrees(rate) {
+  return Math.max(0, Math.min(360, normalizeBudgetRate(rate) * 360));
+}
+
+function formatBudgetPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return '0%';
+  const percent = number * 100;
+  const digits = percent < 1 ? 2 : percent < 10 ? 1 : 0;
+  return `${percent.toLocaleString('vi-VN', { maximumFractionDigits: digits })}%`;
+}
+
+function formatCompactBudgetAmount(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return '0';
+  const sign = number < 0 ? '-' : '';
+  const abs = Math.abs(number);
+  if (abs >= 1000000000) return `${sign}${(abs / 1000000000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} tỷ`;
+  if (abs >= 1000000) return `${sign}${(abs / 1000000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} triệu`;
+  if (abs >= 1000) return `${sign}${(abs / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} nghìn`;
+  return `${sign}${abs.toLocaleString('vi-VN', { maximumFractionDigits: 0 })}`;
+}
+
+function groupBudgetAlerts(alerts = []) {
+  const groups = {};
+  (alerts || []).forEach((alert) => {
+    const mapped = mapBudgetAlert(alert);
+    const key = [mapped.category, mapped.normalizedCode, mapped.budgetItemCode, mapped.deptCode].join('|');
+    if (!groups[key]) groups[key] = mapped;
+    else {
+      groups[key].count += 1;
+      groups[key].rawAlerts.push(alert);
+      if (!groups[key].valueText && mapped.valueText) groups[key].valueText = mapped.valueText;
+    }
+  });
+  const all = Object.values(groups).sort(compareBudgetAlertGroups);
+  return {
+    all,
+    business: all.filter((alert) => alert.category === 'BUSINESS'),
+    data: all.filter((alert) => alert.category === 'DATA')
+  };
+}
+
+function mapBudgetAlert(alert = {}) {
+  const normalizedCode = normalizeBudgetAlertCode(alert.code);
+  const severity = mapBudgetAlertSeverity(alert, normalizedCode);
+  return {
+    category: alert.category === 'DATA' ? 'DATA' : 'BUSINESS',
+    normalizedCode,
+    severity,
+    severityClass: severity.toLowerCase(),
+    severityLabel: mapBudgetSeverityLabel(severity),
+    flowLabel: alert.category === 'DATA' ? 'Dữ liệu' : (alert.flowType || 'Ngân sách'),
+    itemLabel: alert.budgetItemName || alert.budgetItemCode || alert.allocationCode || 'Khoản ngân sách',
+    deptCode: alert.deptCode || '',
+    budgetItemCode: alert.budgetItemCode || '',
+    message: mapBudgetAlertMessage(normalizedCode, alert.message),
+    valueText: formatBudgetAlertValue(alert),
+    count: 1,
+    rawAlerts: [alert]
+  };
+}
+
+function normalizeBudgetAlertCode(code) {
+  const key = String(code || '').trim().toUpperCase();
+  const aliases = {
+    ALLOCATION_NOT_FOUND: 'ITEM_ACTIVE_NO_CONFIRMED_ALLOCATION',
+    ITEM_ALLOCATION_MISSING: 'ITEM_ACTIVE_NO_CONFIRMED_ALLOCATION',
+    ALLOCATION_NOT_CONFIRMED: 'ITEM_ACTIVE_NO_CONFIRMED_ALLOCATION',
+    RAW_WITHOUT_ACTIVE_ITEM: 'RAW_WITHOUT_BUDGET_ITEM',
+    RAW_FLOW_MISMATCH: 'FLOW_TYPE_MISMATCH',
+    ALLOCATION_FLOW_MISMATCH: 'FLOW_TYPE_MISMATCH',
+    RAW_REPORT_ID_DUPLICATE: 'DUPLICATE_REPORT_ID',
+    ALLOCATION_CODE_DUPLICATE: 'DUPLICATE_REPORT_ID'
+  };
+  return aliases[key] || key;
+}
+
+function mapBudgetAlertMessage(code, fallback) {
+  const labels = {
+    RAW_NOT_CONFIRMED: 'Giao dịch chưa được xác nhận',
+    RAW_NOT_SYNCED: 'Giao dịch chưa đồng bộ',
+    ITEM_ACTIVE_NO_CONFIRMED_ALLOCATION: 'Khoản ngân sách chưa có phân bổ đã chốt',
+    RAW_WITHOUT_BUDGET_ITEM: 'Giao dịch chưa gắn khoản ngân sách',
+    FLOW_TYPE_MISMATCH: 'Loại THU/CHI không khớp',
+    TASK_LINKED_MASTER_MISMATCH: 'Khoản ngân sách không khớp công việc Master',
+    INACTIVE_ITEM_HAS_ACTUAL: 'Khoản ngừng hoạt động vẫn phát sinh thực hiện',
+    DUPLICATE_REPORT_ID: 'Có nguy cơ trùng bản ghi báo cáo',
+    MASTER_TASK_NOT_FOUND: 'Không tìm thấy công việc Master',
+    VUOT_TRAN: 'Vượt trần',
+    SAP_HET_NGAN_SACH: 'Sắp hết ngân sách',
+    CAN_CHU_Y: 'Cần chú ý',
+    CHUA_THUC_HIEN: 'Chưa thực hiện',
+    CHUA_GHI_NHAN_THU: 'Chưa ghi nhận',
+    DAT_KE_HOACH: 'Đạt kế hoạch',
+    VUOT_KE_HOACH: 'Vượt kế hoạch'
+  };
+  return labels[code] || fallback || 'Cảnh báo cần kiểm tra';
+}
+
+function mapBudgetAlertSeverity(alert, normalizedCode) {
+  const raw = String(alert.severity || '').toUpperCase();
+  if (raw === 'CRITICAL' || normalizedCode === 'VUOT_TRAN') return 'CRITICAL';
+  if (raw === 'WARNING' || alert.category === 'DATA') return 'WARNING';
+  if (raw === 'INFO') return 'INFO';
+  return 'NORMAL';
+}
+
+function mapBudgetSeverityLabel(severity) {
+  const map = {
+    CRITICAL: 'Nghiêm trọng',
+    WARNING: 'Cần xử lý',
+    INFO: 'Cần theo dõi',
+    NORMAL: 'Bình thường'
+  };
+  return map[severity] || map.NORMAL;
+}
+
+function compareBudgetAlertGroups(a, b) {
+  const rank = { CRITICAL: 0, WARNING: 1, INFO: 2, NORMAL: 3 };
+  const severityDiff = (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9);
+  if (severityDiff) return severityDiff;
+  return String(a.itemLabel || '').localeCompare(String(b.itemLabel || ''), 'vi');
+}
+
+function summarizeGroupedBudgetAlerts(alerts) {
+  const summary = { critical: 0, warning: 0, info: 0, normal: 0 };
+  alerts.forEach((alert) => {
+    if (alert.severity === 'CRITICAL') summary.critical += 1;
+    else if (alert.severity === 'WARNING') summary.warning += 1;
+    else if (alert.severity === 'INFO') summary.info += 1;
+    else summary.normal += 1;
+  });
+  return summary;
+}
+
+function formatBudgetAlertValue(alert) {
+  const amount = alert.actualAmount ?? alert.plannedAmount ?? alert.currentAmount ?? alert.proposedAmount;
+  return amount === undefined || amount === null || amount === '' ? '' : formatCompactBudgetAmount(amount);
+}
+
+function formatBudgetItemStatus(value) {
+  const key = qltdNormalizeTextKey(value);
+  const map = {
+    chuathuchien: 'Chưa thực hiện',
+    chuaghinhan: 'Chưa ghi nhận',
+    datkehoach: 'Đạt kế hoạch',
+    vuotkehoach: 'Vượt kế hoạch',
+    vuottran: 'Vượt trần',
+    saphetngansach: 'Sắp hết ngân sách',
+    canchuy: 'Cần chú ý',
+    trongnguong: 'Trong ngưỡng',
+    dangghinhan: 'Đang ghi nhận',
+    datablocked: 'Cần xử lý dữ liệu',
+    normal: 'Bình thường',
+    info: 'Cần theo dõi',
+    warning: 'Cần xử lý',
+    critical: 'Nghiêm trọng'
+  };
+  return map[key] || String(value || 'Bình thường');
+}
+
+function qltdNormalizeTextKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function bindBudgetAlertShowAllButtons() {
+  document.querySelectorAll('[data-budget-alert-show]').forEach((button) => {
+    button.onclick = () => {
+      const kind = button.dataset.budgetAlertShow;
+      if (kind === 'business') {
+        qltdBudgetDashboardView.showAllBusinessAlerts = !qltdBudgetDashboardView.showAllBusinessAlerts;
+      } else if (kind === 'data') {
+        qltdBudgetDashboardView.showAllDataAlerts = !qltdBudgetDashboardView.showAllDataAlerts;
+      }
+      renderBudgetDashboardPanel();
+    };
+  });
 }
 
 function renderHelpPanel() {
