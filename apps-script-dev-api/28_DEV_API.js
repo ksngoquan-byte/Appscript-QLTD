@@ -17,6 +17,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiProfile_(params.email);
   }
 
+  if (action === 'bootstrap') {
+    return qltdDevApiJson_(qltdDevApiBootstrap_(params));
+  }
+
   if (action === 'budget_getprojects') {
     return qltdDevApiJson_(qltdBudgetGetProjects_(params));
   }
