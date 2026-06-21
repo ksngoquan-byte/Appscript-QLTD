@@ -434,6 +434,7 @@ expectWriteError({ allocations: [allocationRow({ deptCode: 'D2' })] }, 'ALLOCATI
 expectWriteError({ allocations: [allocationRow({ flowType: 'THU' })] }, 'ALLOCATION_FLOW_MISMATCH');
 expectWriteError({}, 'ALLOCATION_FLOW_MISMATCH', { flowType: 'THU' });
 expectWriteError({}, 'BUDGET_ITEM_CODE_REQUIRED', { budgetItemCode: '' });
+expectWriteError({}, 'TASK_LINKED_MASTER_MISMATCH', { masterTaskCode: 'OTHER' });
 expectWriteError({ items: [] }, 'BUDGET_ITEM_NOT_FOUND');
 expectWriteError({ items: [itemRow({ status: 'INACTIVE' })] }, 'BUDGET_ITEM_INACTIVE');
 expectWriteError({ items: [itemRow({ allocationCode: '' })] }, 'ALLOCATION_CODE_REQUIRED');

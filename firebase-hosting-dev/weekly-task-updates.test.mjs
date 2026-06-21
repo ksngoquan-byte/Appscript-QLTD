@@ -9,6 +9,8 @@ const budgetReportIds = new Set();
 const budgetWriteCalls = [];
 const aggregateCalls = [];
 const rawBudgetRows = [];
+let budgetItems = [];
+let allocations = [];
 let failBudgetItemCode = '';
 let failAggregateBudgetItemCode = '';
 const RAW_BUDGET_HEADERS = [
@@ -46,7 +48,8 @@ const context = {
   qltdWorkReadTaskTarget_: () => ({ error: true }),
   qltdPbDetailBuildSheetContext_: () => ({ error: true }),
   qltdGanttGetDataForProject_: () => ({ success: true, data: [] }),
-  qltdBudgetReadBudgetItems_: () => ({ items: [], warnings: [] }),
+  qltdBudgetReadBudgetItems_: () => ({ items: budgetItems, warnings: [] }),
+  qltdBudgetReadAllocations_: () => ({ allocations, warnings: [] }),
   qltdWorkIsAdminScope_: () => true,
   qltdBudgetNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
   qltdBudgetNormalizeKey_: (value) => String(value || '').trim().toLowerCase(),
@@ -73,16 +76,22 @@ const context = {
   QLTD_BUDGET_WRITE_CONFIRM_TOKEN: 'CONFIRM',
   QLTD_BUDGET_TYPE: { TASK_LINKED: 'TASK_LINKED', DEPT_STANDALONE: 'DEPT_STANDALONE' },
   qltdBudgetPrepareWrite_: (payload) => {
-    if (payload.allocationCode !== 'ALLOC-1') return { error: { code: 'ALLOCATION_CODE_MISMATCH', message: 'Wrong allocation.' } };
     if (payload.flowType !== 'CHI') return { error: { code: 'FLOW_TYPE_MISMATCH', message: 'Wrong flow.' } };
-    if (payload.budgetType !== 'DEPT_STANDALONE') return { error: { code: 'BUDGET_TYPE_MISMATCH', message: 'Wrong budget type.' } };
-    const approvedBudget = payload.budgetItemCode === 'NS-2' ? 1000000 : 2000000;
+    if (payload.budgetType === 'TASK_LINKED') {
+      if (payload.masterTaskCode !== 'D5-036') return { error: { code: 'TASK_LINKED_MASTER_MISMATCH', message: 'Wrong master.' } };
+      if (payload.allocationCode !== 'ALLOC-TL') return { error: { code: 'ALLOCATION_CODE_MISMATCH', message: 'Wrong allocation.' } };
+    } else {
+      if (payload.allocationCode !== 'ALLOC-1') return { error: { code: 'ALLOCATION_CODE_MISMATCH', message: 'Wrong allocation.' } };
+      if (payload.budgetType !== 'DEPT_STANDALONE') return { error: { code: 'BUDGET_TYPE_MISMATCH', message: 'Wrong budget type.' } };
+    }
+    const approvedBudget = payload.budgetType === 'TASK_LINKED' ? 12015541930 : payload.budgetItemCode === 'NS-2' ? 1000000 : 2000000;
+    const allocationCode = payload.budgetType === 'TASK_LINKED' ? 'ALLOC-TL' : 'ALLOC-1';
     return { value: {
       requestId: payload.requestId,
       reportId: `REPORT-${payload.requestId}`,
       allocationContext: {
-        item: { projectCode: 'P1', budgetItemCode: payload.budgetItemCode, allocationCode: 'ALLOC-1', flowType: 'CHI', approvedBudget, hasApprovedBudget: true },
-        allocation: { projectCode: 'P1', allocationCode: 'ALLOC-1', flowType: 'CHI', allocatedAmount: 3000000 }
+        item: { projectCode: 'P1', budgetItemCode: payload.budgetItemCode, allocationCode, flowType: 'CHI', approvedBudget, hasApprovedBudget: true },
+        allocation: { projectCode: 'P1', allocationCode, flowType: 'CHI', allocatedAmount: payload.budgetType === 'TASK_LINKED' ? 12015541930 : 3000000 }
       }
     } };
   },
@@ -117,8 +126,8 @@ const context = {
   console
 };
 vm.createContext(context);
-vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_ };`, context);
-const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review, resolveActualDate, mapPbDetailStatus, syncTask, readBudgetActualIndex } = context.api;
+vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_ };`, context);
+const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review, resolveActualDate, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext } = context.api;
 
 assert.equal(buildKey('p1', 'ptda', 'week-2026-06-01', 'master', 'CV-1'), 'P1|PTDA|WEEK-2026-06-01|MASTER|CV-1');
 assert.equal(date('2026-06-01'), '2026-06-01');
@@ -216,6 +225,41 @@ assert.equal(retry.budget.savedCount, 0);
 assert.equal(retry.budget.duplicateCount, 1);
 assert.equal(budgetWriteCalls.length, 1);
 assert.equal(aggregateCalls.length, 2);
+
+budgetItems = [
+  { status: 'ACTIVE', projectCode: 'P1', deptCode: 'PTDA', budgetType: 'TASK_LINKED', masterTaskCode: 'D5-036', budgetItemCode: 'TL-1', budgetItemName: 'Mong 1', approvedBudget: 12015541930, allocationCode: 'ALLOC-TL', flowType: 'CHI' },
+  { status: 'ACTIVE', projectCode: 'P1', deptCode: 'PTDA', budgetType: 'TASK_LINKED', masterTaskCode: 'D5-036', budgetItemCode: 'TL-2', budgetItemName: 'Mong 2', approvedBudget: 1000000, allocationCode: 'ALLOC-TL', flowType: 'CHI' },
+  { status: 'ACTIVE', projectCode: 'P1', deptCode: 'PTDA', budgetType: 'TASK_LINKED', masterTaskCode: 'OTHER', budgetItemCode: 'TL-OTHER', budgetItemName: 'Other', approvedBudget: 1000000, allocationCode: 'ALLOC-TL', flowType: 'CHI' },
+  { status: 'ACTIVE', projectCode: 'P1', deptCode: 'PTDA', budgetType: 'DEPT_STANDALONE', masterTaskCode: '', budgetItemCode: 'NS-STANDALONE', budgetItemName: 'Standalone', approvedBudget: 2000000, allocationCode: 'ALLOC-1', flowType: 'CHI' }
+];
+allocations = [
+  { allocationCode: 'ALLOC-TL', projectCode: 'P1', deptCode: 'PTDA', flowType: 'CHI', allocatedAmount: 12015541930, status: 'CONFIRMED' },
+  { allocationCode: 'ALLOC-1', projectCode: 'P1', deptCode: 'PTDA', flowType: 'CHI', allocatedAmount: 3000000, status: 'CONFIRMED' }
+];
+rawBudgetRows.push(['RAW-TL', 'P1', 'daxacnhan', 'SYNCED', 'PERFORMANCE_ACTUAL', 'TL-1', 'ALLOC-TL', 'CHI', 1000000, 'WEEK', 'WEEK-2026-06-01', 'Chi mong', '']);
+const budgetContext = readBudgetContext({ projectCode: 'P1', deptCode: 'PTDA', weekCode: 'WEEK-2026-06-01' });
+assert.equal(budgetContext.taskLinkedByMaster['D5-036'].length, 2);
+assert.equal(budgetContext.taskLinkedByMaster['OTHER'].length, 1);
+assert.equal(budgetContext.standaloneItems.length, 1);
+assert.equal(budgetContext.taskLinkedByMaster['D5-036'][0].actualThisWeek, 1000000);
+rawBudgetRows.length = 0;
+
+const taskLinkedBudget = { budgetItemCode: 'TL-1', allocationCode: 'ALLOC-TL', budgetType: 'TASK_LINKED', flowType: 'CHI', projectCode: 'P1', deptCode: 'PTDA', periodType: 'WEEK', periodCode: 'WEEK-2026-06-01', actualAmount: 1000000, note: 'Chi mong', masterTaskCode: 'D5-036', pbTaskCode: '' };
+const taskLinkedBase = { ...saveBase, itemId: 'D5-036', requestId: 'weekly-tasklinked-001', budgetUpdates: [taskLinkedBudget] };
+const beforeTaskLinkedRows = sheetRows.length;
+const taskLinked = save(taskLinkedBase);
+assert.equal(taskLinked.success, true);
+assert.equal(taskLinked.budget.savedCount, 1);
+assert.equal(taskLinked.budget.results[0].metrics.cumulative, 1000000);
+assert.equal(taskLinked.budget.results[0].metrics.remaining, 12014541930);
+assert.equal(sheetRows.length, beforeTaskLinkedRows + 1);
+const taskLinkedRetry = save(taskLinkedBase);
+assert.equal(taskLinkedRetry.success, true);
+assert.equal(taskLinkedRetry.budget.duplicateCount, 1);
+assert.equal(budgetWriteCalls.filter((code) => code === 'TL-1').length, 1);
+const wrongMaster = save({ ...saveBase, itemId: 'D5-036-WRONG', requestId: 'weekly-tasklinked-wrong-001', budgetUpdates: [{ ...taskLinkedBudget, masterTaskCode: 'OTHER' }] });
+assert.equal(wrongMaster.success, false);
+assert.equal(wrongMaster.code, 'TASK_LINKED_MASTER_MISMATCH');
 
 for (const [change, code] of [
   [{ allocationCode: 'WRONG' }, 'ALLOCATION_CODE_MISMATCH'],

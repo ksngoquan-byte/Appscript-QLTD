@@ -75,6 +75,11 @@ const savedTaskBudgetHtml = savedUpdatesContext.renderSavedUpdates([
 ], [{ itemType: 'PB_DETAIL', itemId: 'DT-2', taskName: 'Task', budgetType: 'TASK_LINKED', budgetItemCode: 'BI1' }]);
 assert.match(savedTaskBudgetHtml, /500\.000 đ/);
 
+const savedMultiTaskBudgetHtml = savedUpdatesContext.renderSavedUpdates([
+  { itemType: 'MASTER', itemId: 'D5-036', thisWeekResult: 'Done', progressEnd: 10, taskStatus: 'Doing', updatedBy: 'u', updatedAt: 't' }
+], [{ itemType: 'MASTER', itemId: 'D5-036', taskName: 'Task', taskLinkedBudgetItems: [{ actualThisWeek: 400000 }, { actualThisWeek: 600000 }] }]);
+assert.match(savedMultiTaskBudgetHtml, /1\.000\.000/);
+
 const weeklyForm = latestFunction('renderWeeklySelectedForm', 'bindWeeklyTaskUpdateControls');
 assert.match(weeklyForm, /THÔNG TIN CÔNG VIỆC/);
 assert.match(weeklyForm, /KẾT QUẢ THỰC HIỆN TRONG TUẦN/);
@@ -84,6 +89,11 @@ assert.match(weeklyForm, /renderWeeklyActualDateLifecycle/);
 assert.match(weeklyForm, /weekly-form-close/);
 assert.match(weeklyForm, /Cong_viec/);
 assert.equal((weeklyForm.match(/saveWeeklyTaskUpdateButton/g) || []).length, 1);
+
+const taskBudget = latestFunction('renderWeeklyBudgetBlock', 'renderStandaloneBudgetWeeklyBlock');
+assert.match(taskBudget, /data-task-budget-item-code/);
+assert.match(taskBudget, /TASK_LINKED/);
+assert.match(taskBudget, /getTaskLinkedBudgetItems/);
 
 const standaloneBudget = latestFunction('renderStandaloneBudgetWeeklyBlock', 'normalizeWeeklyBudgetAmount');
 assert.match(standaloneBudget, /data-weekly-budget-amount/);
@@ -99,6 +109,8 @@ const budgetPayloadContext = {
   },
   getBudgetFlowType: (item) => item.flowType
 };
+budgetPayloadContext.qltdWeeklyTaskView.budgetDrafts['TL-1'] = { amount: '1.000.000', note: 'Chi mong', dirty: true };
+budgetPayloadContext.getTaskLinkedBudgetItems = (item) => item?.taskLinkedBudgetItems || [];
 vm.createContext(budgetPayloadContext);
 vm.runInContext(`${budgetPayloadSource}\nthis.normalizeAmount = normalizeWeeklyBudgetAmount; this.buildBudgetUpdates = buildWeeklyBudgetUpdates;`, budgetPayloadContext);
 assert.equal(budgetPayloadContext.normalizeAmount('500.000').value, 500000);
@@ -106,7 +118,13 @@ assert.equal(budgetPayloadContext.normalizeAmount('-1').error, 'Số tiền ngâ
 const builtBudget = budgetPayloadContext.buildBudgetUpdates('P1', 'PTDA', 'WEEK-1');
 assert.equal(builtBudget.updates.length, 1);
 assert.deepEqual({ ...builtBudget.updates[0] }, { budgetItemCode: 'NS-1', allocationCode: 'ALLOC-1', budgetType: 'DEPT_STANDALONE', flowType: 'CHI', projectCode: 'P1', deptCode: 'PTDA', periodType: 'WEEK', periodCode: 'WEEK-1', actualAmount: 500000, note: 'Chi tuần', masterTaskCode: '', pbTaskCode: '' });
+const builtTaskLinkedBudget = budgetPayloadContext.buildBudgetUpdates('P1', 'BQLDA', 'WEEK-1', {
+  masterTaskCode: 'D5-036',
+  taskLinkedBudgetItems: [{ budgetItemCode: 'TL-1', allocationCode: 'ALLOC-TL', budgetType: 'TASK_LINKED', flowType: 'CHI', masterTaskCode: 'D5-036', pbTaskCode: '' }]
+});
+assert.deepEqual({ ...builtTaskLinkedBudget.updates[0] }, { budgetItemCode: 'TL-1', allocationCode: 'ALLOC-TL', budgetType: 'TASK_LINKED', flowType: 'CHI', projectCode: 'P1', deptCode: 'BQLDA', periodType: 'WEEK', periodCode: 'WEEK-1', actualAmount: 1000000, note: 'Chi mong', masterTaskCode: 'D5-036', pbTaskCode: '' });
 budgetPayloadContext.qltdWeeklyTaskView.budgetDrafts['NS-1'].dirty = false;
+budgetPayloadContext.qltdWeeklyTaskView.budgetDrafts['TL-1'].dirty = false;
 assert.equal(budgetPayloadContext.buildBudgetUpdates('P1', 'PTDA', 'WEEK-1').updates.length, 0);
 
 const loader = latestFunction('loadWeeklyTaskData(', 'loadWeeklyTaskDataForCurrent');

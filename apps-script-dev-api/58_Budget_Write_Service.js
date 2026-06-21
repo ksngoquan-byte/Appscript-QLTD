@@ -330,6 +330,13 @@ function qltdBudgetValidateAllocationWriteControls_(payload, action, meta) {
       error: qltdBudgetWriteError_(action, 'BUDGET_ITEM_TYPE_MISMATCH', 'Khoan ngan sach khong khop Loai ngan sach.', meta, itemsResult.warnings)
     };
   }
+  if (budgetType === QLTD_BUDGET_TYPE.TASK_LINKED &&
+    qltdBudgetNormalizeCode_(item.masterTaskCode) !== qltdBudgetNormalizeCode_(payload.masterTaskCode)) {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, 'TASK_LINKED_MASTER_MISMATCH', 'Khoan ngan sach TASK_LINKED khong khop MasterTaskCode.', meta, itemsResult.warnings)
+    };
+  }
 
   const allocationCode = String(item.allocationCode || '').trim();
   if (!allocationCode) {

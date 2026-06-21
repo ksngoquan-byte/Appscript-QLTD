@@ -528,24 +528,39 @@ function qltdWeeklyTaskUpdatesReadBudgetContext_(scope) {
   if (typeof qltdBudgetReadBudgetItems_ !== 'function') return empty;
   const result = qltdBudgetReadBudgetItems_();
   const warnings = result.warnings || [];
+  const allocationsResult = typeof qltdBudgetReadAllocations_ === 'function' ? qltdBudgetReadAllocations_() : { allocations: [], warnings: [] };
+  const allocationsByCode = {};
+  (allocationsResult.allocations || []).forEach(function(allocation) {
+    allocationsByCode[qltdBudgetNormalizeCode_(allocation.allocationCode)] = allocation;
+  });
   const actuals = qltdWeeklyTaskUpdatesReadBudgetActualIndex_(scope);
   const projectCode = qltdBudgetNormalizeCode_(scope.projectCode);
   const deptCode = qltdBudgetNormalizeCode_(scope.deptCode);
   (result.items || []).forEach(function(item) {
     if (item.status !== 'ACTIVE') return;
-    if (item.projectCode !== projectCode) return;
+    if (qltdBudgetNormalizeCode_(item.projectCode) !== projectCode) return;
     if (qltdBudgetNormalizeCode_(item.deptCode) !== deptCode) return;
     const flowType = qltdWeeklyTaskUpdatesResolveCashFlowType_(item);
+    const allocation = allocationsByCode[qltdBudgetNormalizeCode_(item.allocationCode)] || null;
+    if (item.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED && !allocation) return;
+    if (allocation && (
+      allocation.status !== 'CONFIRMED' ||
+      qltdBudgetNormalizeCode_(allocation.projectCode) !== projectCode ||
+      qltdBudgetNormalizeCode_(allocation.deptCode) !== deptCode ||
+      allocation.flowType !== flowType
+    )) return;
     const itemKey = qltdWeeklyTaskUpdatesBudgetItemKey_(item.projectCode, item.budgetItemCode, item.allocationCode, flowType);
     const weekActual = actuals.byItemWeek[itemKey] || { amount: 0, note: '' };
     const cumulative = Number(actuals.byItem[itemKey] || 0);
+    const approvedBudget = Number(item.approvedBudget || 0);
     const dto = {
       budgetItemCode: item.budgetItemCode,
       budgetItemName: item.budgetItemName,
       budgetType: item.budgetType,
       budgetGroup: item.budgetGroup,
       budgetStage: item.budgetStage,
-      approvedBudget: Number(item.approvedBudget || 0),
+      approvedBudget: approvedBudget,
+      allocatedAmount: allocation ? Number(allocation.allocatedAmount || 0) : '',
       allocationCode: item.allocationCode || '',
       flowType: flowType,
       budgetFlowType: flowType,
@@ -553,34 +568,48 @@ function qltdWeeklyTaskUpdatesReadBudgetContext_(scope) {
       pbTaskCode: item.pbTaskCode || '',
       actualThisWeek: Number(weekActual.amount || 0),
       actualCumulative: cumulative,
-      remainingBudget: Math.max(0, Number(item.approvedBudget || 0) - cumulative),
+      cumulativeActual: cumulative,
+      remainingBudget: Math.max(0, approvedBudget - cumulative),
+      remaining: Math.max(0, approvedBudget - cumulative),
       budgetNote: weekActual.note || ''
     };
     if (item.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED && item.masterTaskCode) {
-      empty.taskLinkedByMaster[qltdWeeklyTaskUpdatesNormalizeTaskCode_(item.masterTaskCode)] = dto;
+      const key = qltdWeeklyTaskUpdatesNormalizeTaskCode_(item.masterTaskCode);
+      if (!empty.taskLinkedByMaster[key]) empty.taskLinkedByMaster[key] = [];
+      empty.taskLinkedByMaster[key].push(dto);
     } else if (item.budgetType === QLTD_BUDGET_TYPE.DEPT_STANDALONE) {
       empty.standaloneItems.push(dto);
     }
   });
-  empty.warnings = warnings.concat(actuals.warnings || []);
+  empty.warnings = warnings.concat(allocationsResult.warnings || []).concat(actuals.warnings || []);
   return empty;
 }
 
 function qltdWeeklyTaskUpdatesAttachBudgetContext_(target, budgetContext, masterTaskCode) {
-  const item = budgetContext && budgetContext.taskLinkedByMaster &&
+  const items = budgetContext && budgetContext.taskLinkedByMaster &&
     budgetContext.taskLinkedByMaster[qltdWeeklyTaskUpdatesNormalizeTaskCode_(masterTaskCode)];
-  if (!item) return target;
+  if (!items || !items.length) return target;
+  const item = items[0];
+  const approvedTotal = items.reduce(function(total, candidate) { return total + Number(candidate.approvedBudget || 0); }, 0);
+  const actualThisWeekTotal = items.reduce(function(total, candidate) { return total + Number(candidate.actualThisWeek || 0); }, 0);
+  const cumulativeTotal = items.reduce(function(total, candidate) { return total + Number(candidate.actualCumulative || candidate.cumulativeActual || 0); }, 0);
+  target.taskLinkedBudgetItems = items.slice();
+  target.taskLinkedBudgetThisWeek = actualThisWeekTotal;
+  target.taskLinkedBudgetCumulative = cumulativeTotal;
   target.budgetItemCode = item.budgetItemCode;
   target.budgetItemName = item.budgetItemName;
   target.budgetType = item.budgetType;
   target.budgetGroup = item.budgetGroup;
   target.budgetStage = item.budgetStage;
   target.budgetFlowType = item.budgetFlowType;
-  if (!Number(target.budgetPlan || 0) && Number(item.approvedBudget || 0)) target.budgetPlan = Number(item.approvedBudget || 0);
+  if (approvedTotal) target.budgetPlan = approvedTotal;
+  if (cumulativeTotal) target.budgetActual = cumulativeTotal;
   return target;
 }
 
 function qltdWeeklyTaskUpdatesResolveCashFlowType_(source) {
+  const direct = String(source && (source.budgetFlowType || source.cashFlowType || source.flowType) || '').trim().toUpperCase();
+  if (direct === 'THU' || direct === 'CHI') return direct;
   const text = [
     source && source.budgetFlowType,
     source && source.cashFlowType,
@@ -1155,7 +1184,10 @@ function qltdWeeklyTaskUpdatesBuildItem_(type, id, source, weekStart, weekEnd, s
     wbs: source.wbs || '', taskName: source.taskName || '', planStart: planStart, planFinish: planFinish,
     actualStart: actualStart, actualFinish: actualFinish, progress: officialComplete ? Math.max(progress, 100) : progress, status: officialComplete ? 'Hoàn thành' : (source.status || ''),
     owner: source.owner || source.ownerText || '', plannedBudget: Number(source.budgetPlan || source.plannedBudget || 0),
-    actualBudget: Number(source.budgetActual || source.actualBudget || 0), hasBudget: Number(source.budgetPlan || source.plannedBudget || 0) > 0 || Number(source.budgetActual || source.actualBudget || 0) > 0,
+    actualBudget: Number(source.budgetActual || source.actualBudget || 0), hasBudget: (source.taskLinkedBudgetItems || []).length > 0 || Number(source.budgetPlan || source.plannedBudget || 0) > 0 || Number(source.budgetActual || source.actualBudget || 0) > 0,
+    taskLinkedBudgetItems: (source.taskLinkedBudgetItems || []).slice(),
+    taskLinkedBudgetThisWeek: Number(source.taskLinkedBudgetThisWeek || 0),
+    taskLinkedBudgetCumulative: Number(source.taskLinkedBudgetCumulative || 0),
     budgetItemCode: source.budgetItemCode || '',
     budgetItemName: source.budgetItemName || '',
     budgetType: source.budgetType || '',

@@ -1822,6 +1822,10 @@ function renderWeeklySavedUpdates(updates, items) {
 }
 
 function renderWeeklySavedBudgetCell(update, item) {
+  const taskLinkedItems = Array.isArray(item?.taskLinkedBudgetItems) ? item.taskLinkedBudgetItems : [];
+  if (taskLinkedItems.length) {
+    return formatWeeklyCurrency(taskLinkedItems.reduce((total, budgetItem) => total + Number(budgetItem.actualThisWeek || 0), 0));
+  }
   const hasTaskLinkedBudget = String(item?.budgetType || '').trim().toUpperCase() === 'TASK_LINKED' && String(item?.budgetItemCode || '').trim();
   if (!hasTaskLinkedBudget) return '—';
   return formatWeeklyCurrency(update?.budgetThisWeek || 0);
@@ -2249,13 +2253,43 @@ function renderBudgetFlowBadge(item) {
 }
 
 function renderWeeklyBudgetBlock(selected, saved) {
-  if (!selected.hasBudget && !selected.approvedBudget) return '';
-  const labels = getBudgetFlowLabels(selected);
-  const plan = Number(selected.plannedBudget || selected.approvedBudget || 0);
-  const cumulative = Number(saved?.budgetCumulative || selected.actualBudget || 0);
-  const remaining = Math.max(0, plan - cumulative);
-  const delta = Number(saved?.budgetThisWeek || 0);
-  return `<section class="weekly-form-section weekly-budget-section" data-budget-plan="${escapeHtml(plan)}"><div class="weekly-form-section-title"><span>NGÂN SÁCH CÔNG VIỆC</span>${renderBudgetFlowBadge(selected)}</div>${labels.flow ? '' : '<p class="weekly-update-note is-warning">Khoản ngân sách chưa có loại dòng tiền THU/CHI trong dữ liệu hiện có. Không đổi schema ngân sách ở bước này.</p>'}<div class="weekly-budget-grid"><div><span>${escapeHtml(labels.plan)}</span><strong>${formatWeeklyCurrency(plan)}</strong></div><div class="weekly-update-field"><label for="weeklyTaskBudget">${escapeHtml(labels.actual)}</label><input id="weeklyTaskBudget" type="number" inputmode="decimal" min="0" step="1000" value="${escapeHtml(saved?.budgetThisWeek || '')}"></div><div><span>${escapeHtml(labels.cumulative)}</span><strong>${formatWeeklyCurrency(cumulative)}</strong></div><div><span>${escapeHtml(labels.remaining)}</span><strong>${formatWeeklyCurrency(remaining)}</strong></div></div>${delta > plan && plan > 0 ? '<p class="budget-warning-badge">Cảnh báo: thực tế tuần vượt kế hoạch.</p>' : ''}<p id="weeklyBudgetLiveWarning" class="weekly-update-note is-warning" hidden></p><div class="weekly-update-field"><label for="weeklyTaskBudgetNote">${escapeHtml(labels.note)}</label><textarea id="weeklyTaskBudgetNote">${escapeHtml(saved?.budgetNote || '')}</textarea></div></section>`;
+  const items = getTaskLinkedBudgetItems(selected);
+  if (!items.length) {
+    return '<section class="weekly-form-section weekly-budget-section"><div class="weekly-form-section-title"><span>NGÂN SÁCH GẮN CÔNG VIỆC</span></div><p class="weekly-update-note">Chưa có khoản ngân sách gắn công việc</p></section>';
+  }
+  const drafts = qltdWeeklyTaskView.budgetDrafts || {};
+  return `<section class="weekly-form-section weekly-budget-section"><div class="weekly-form-section-title"><span>NGÂN SÁCH GẮN CÔNG VIỆC</span></div><div class="weekly-standalone-budget-grid">${items.map((item) => {
+    const labels = getBudgetFlowLabels(item);
+    const code = String(item.budgetItemCode || '').trim();
+    const draft = drafts[code] || {};
+    const actualLabel = labels.flow === 'CHI' ? 'Chi thực hiện tuần này' : labels.flow === 'THU' ? 'Thu thực hiện tuần này' : 'Thực hiện tuần này';
+    const noteLabel = labels.flow === 'CHI' ? 'Ghi chú chi' : labels.flow === 'THU' ? 'Ghi chú thu' : 'Ghi chú ngân sách';
+    const plan = Number(item.approvedBudget || item.allocatedAmount || 0);
+    const cumulative = Number(item.actualCumulative || item.cumulativeActual || 0);
+    const remaining = Number(item.remainingBudget ?? item.remaining ?? Math.max(0, plan - cumulative));
+    return `<article data-task-budget-item-code="${escapeHtml(code)}">${renderBudgetFlowBadge(item)}<strong>${escapeHtml(item.budgetItemName || code)}</strong><span>Khoản: ${escapeHtml(item.budgetItemName || code)}</span><span>Trần được giao: ${formatWeeklyCurrency(plan)}</span><span>${escapeHtml(actualLabel)}: ${formatWeeklyCurrency(item.actualThisWeek || 0)}</span><span>${escapeHtml(labels.cumulative)}: ${formatWeeklyCurrency(cumulative)}</span><span>${escapeHtml(labels.remaining)}: ${formatWeeklyCurrency(remaining)}</span><div class="weekly-update-field"><label>${escapeHtml(actualLabel)}</label><input type="text" inputmode="decimal" autocomplete="off" data-weekly-budget-amount="${escapeHtml(code)}" value="${escapeHtml(draft.amount || '')}"></div><div class="weekly-update-field"><label>${escapeHtml(noteLabel)}</label><textarea data-weekly-budget-note="${escapeHtml(code)}">${escapeHtml(draft.note || '')}</textarea></div><small>${escapeHtml(item.budgetGroup || item.budgetStage || '')}</small></article>`;
+  }).join('')}</div></section>`;
+}
+
+function getTaskLinkedBudgetItems(selected) {
+  if (Array.isArray(selected?.taskLinkedBudgetItems) && selected.taskLinkedBudgetItems.length) return selected.taskLinkedBudgetItems;
+  if (String(selected?.budgetType || '').trim().toUpperCase() !== 'TASK_LINKED' || !selected?.budgetItemCode) return [];
+  return [{
+    budgetItemCode: selected.budgetItemCode,
+    budgetItemName: selected.budgetItemName,
+    budgetType: selected.budgetType,
+    budgetGroup: selected.budgetGroup,
+    budgetStage: selected.budgetStage,
+    approvedBudget: selected.plannedBudget,
+    allocationCode: selected.allocationCode || '',
+    flowType: selected.budgetFlowType || '',
+    budgetFlowType: selected.budgetFlowType || '',
+    masterTaskCode: selected.masterTaskCode || '',
+    pbTaskCode: selected.pbTaskCode || '',
+    actualThisWeek: selected.taskLinkedBudgetThisWeek || 0,
+    actualCumulative: selected.taskLinkedBudgetCumulative || selected.actualBudget || 0,
+    remainingBudget: Math.max(0, Number(selected.plannedBudget || 0) - Number(selected.actualBudget || 0))
+  }];
 }
 
 function renderStandaloneBudgetWeeklyBlock(items) {
@@ -2284,20 +2318,20 @@ function normalizeWeeklyBudgetAmount(value) {
   return { value: amount, empty: false, error: '' };
 }
 
-function buildWeeklyBudgetUpdates(projectCode, deptCode, weekCode) {
+function buildWeeklyBudgetUpdates(projectCode, deptCode, weekCode, selectedItem = null) {
   const drafts = qltdWeeklyTaskView.budgetDrafts || {};
   const updates = [];
-  for (const item of qltdWeeklyTaskView.standaloneBudgetItems || []) {
+  const appendBudgetUpdate = (item, budgetType, masterTaskCode, pbTaskCode) => {
     const code = String(item.budgetItemCode || '').trim();
     const draft = drafts[code];
-    if (!draft?.dirty) continue;
+    if (!draft?.dirty) return '';
     const amount = normalizeWeeklyBudgetAmount(draft.amount);
-    if (amount.error) return { updates: [], error: `${item.budgetItemName || code}: ${amount.error}` };
-    if (amount.empty || amount.value === 0) continue;
+    if (amount.error) return `${item.budgetItemName || code}: ${amount.error}`;
+    if (amount.empty || amount.value === 0) return '';
     updates.push({
       budgetItemCode: code,
       allocationCode: item.allocationCode || '',
-      budgetType: 'DEPT_STANDALONE',
+      budgetType,
       flowType: getBudgetFlowType(item),
       projectCode,
       deptCode,
@@ -2305,9 +2339,18 @@ function buildWeeklyBudgetUpdates(projectCode, deptCode, weekCode) {
       periodCode: weekCode,
       actualAmount: amount.value,
       note: String(draft.note || '').trim(),
-      masterTaskCode: '',
-      pbTaskCode: ''
+      masterTaskCode: masterTaskCode || '',
+      pbTaskCode: pbTaskCode || ''
     });
+    return '';
+  };
+  for (const item of getTaskLinkedBudgetItems(selectedItem)) {
+    const error = appendBudgetUpdate(item, 'TASK_LINKED', item.masterTaskCode || selectedItem?.masterTaskCode || selectedItem?.itemId || '', item.pbTaskCode || '');
+    if (error) return { updates: [], error };
+  }
+  for (const item of qltdWeeklyTaskView.standaloneBudgetItems || []) {
+    const error = appendBudgetUpdate(item, 'DEPT_STANDALONE', '', '');
+    if (error) return { updates: [], error };
   }
   return { updates, error: '' };
 }
@@ -2384,7 +2427,7 @@ function renderWeeklySelectedForm(selected, saved) {
   const currentStatusDisplay = selected.officialComplete ? 'Hoàn thành — 100%' : `${effectiveState.status} — ${effectiveState.progress}%`;
   const ownerDisplay = getWeeklyPersonDisplay(selected.owner);
   return `<section class="weekly-inline-form"><div class="weekly-form-topbar"><div><div class="weekly-update-title">${escapeHtml(selected.wbs ? `${selected.wbs} · ${selected.taskName}` : selected.taskName)}</div><div class="weekly-update-meta">${escapeHtml(selected.itemType)} · ${renderMasterPlanPeriod(selected)}</div></div><button type="button" class="weekly-form-close" data-weekly-close-form aria-label="Đóng">×</button></div>
-    <section class="weekly-form-section weekly-task-info"><div class="weekly-form-section-title"><span>THÔNG TIN CÔNG VIỆC</span>${renderBudgetFlowBadge(selected)}</div><div class="weekly-info-grid"><div><span>Loại</span><strong>${escapeHtml(selected.itemType)}</strong></div><div title="${escapeHtml(selected.owner || '')}"><span>Chủ trì</span><strong>${escapeHtml(ownerDisplay)}</strong></div><div><span>Kế hoạch</span><strong>${escapeHtml(formatIsoDateVi(selected.planStart) || '—')} – ${escapeHtml(formatIsoDateVi(selected.planFinish) || '—')}</strong></div><div><span>Trạng thái hiện tại</span><strong>${escapeHtml(currentStatusDisplay)}</strong></div><div><span>Ngân sách kế hoạch</span><strong>${selected.hasBudget ? formatWeeklyCurrency(selected.plannedBudget) : '—'}</strong></div></div>${completionHint}</section>
+    <section class="weekly-form-section weekly-task-info"><div class="weekly-form-section-title"><span>THÔNG TIN CÔNG VIỆC</span>${renderBudgetFlowBadge(selected)}</div><div class="weekly-info-grid"><div><span>Loại</span><strong>${escapeHtml(selected.itemType)}</strong></div><div title="${escapeHtml(selected.owner || '')}"><span>Chủ trì</span><strong>${escapeHtml(ownerDisplay)}</strong></div><div><span>Kế hoạch</span><strong>${escapeHtml(formatIsoDateVi(selected.planStart) || '—')} – ${escapeHtml(formatIsoDateVi(selected.planFinish) || '—')}</strong></div><div><span>Trạng thái hiện tại</span><strong>${escapeHtml(currentStatusDisplay)}</strong></div><div><span>Ngân sách gắn công việc</span><strong>${getTaskLinkedBudgetItems(selected).length ? formatWeeklyCurrency(selected.plannedBudget) : 'Chưa có khoản'}</strong></div></div>${completionHint}</section>
     <section class="weekly-form-section weekly-result-section"><div class="weekly-form-section-title"><span>KẾT QUẢ THỰC HIỆN TRONG TUẦN</span></div><div class="weekly-update-field"><label for="weeklyTaskResult">Kết quả thực hiện trong tuần</label><textarea id="weeklyTaskResult" placeholder="Nêu kết quả đã hoàn thành, sản phẩm đầu ra, mốc đã chốt...">${escapeHtml(saved?.thisWeekResult || '')}</textarea></div></section>
     <section class="weekly-form-section"><div class="weekly-form-section-title"><span>TÌNH TRẠNG CÔNG VIỆC</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskProgress">Mức hoàn thành đến hết tuần (%)</label><input id="weeklyTaskProgress" type="number" min="0" max="100" step="1" value="${escapeHtml(progressValue)}"></div><div class="weekly-update-field"><label for="weeklyTaskStatus">Trạng thái công việc</label>${renderWeeklyStatusSelect(statusValue)}</div>${renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusValue)}</div></section>
     <section class="weekly-form-section weekly-issue-section"><div class="weekly-form-section-title"><span>VƯỚNG MẮC VÀ XỬ LÝ</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskIssue">Vướng mắc/Rủi ro</label><textarea id="weeklyTaskIssue" placeholder="Nêu vướng mắc, nguyên nhân, tác động nếu có...">${escapeHtml(saved?.issue || '')}</textarea></div><div class="weekly-update-field"><label for="weeklyTaskRecommendation">Giải pháp/Đề xuất</label><textarea id="weeklyTaskRecommendation" placeholder="Nêu hướng xử lý, người/phòng cần phối hợp, đề xuất quyết định...">${escapeHtml(saved?.recommendation || '')}</textarea></div></div></section>
@@ -2633,7 +2676,7 @@ async function saveWeeklyTaskUpdate() {
   if (validation.error) { if (status) status.textContent = validation.error; return; }
   const projectCode = payload.projectCode;
   const deptCode = dept.deptCode || dept.sheetName || '';
-  const budgetPayload = buildWeeklyBudgetUpdates(projectCode, deptCode, qltdSelectedWeekId);
+  const budgetPayload = buildWeeklyBudgetUpdates(projectCode, deptCode, qltdSelectedWeekId, item);
   if (budgetPayload.error) { if (status) status.textContent = budgetPayload.error; return; }
   const progressEnd = validation.progressEnd; let confirmProgressDecrease = false;
   if (progressEnd < Number(item.progress || 0)) { confirmProgressDecrease = window.confirm(`Tiến độ mới ${progressEnd}% thấp hơn tiến độ hiện tại ${item.progress}%. Bạn có xác nhận?`); if (!confirmProgressDecrease) return; }
