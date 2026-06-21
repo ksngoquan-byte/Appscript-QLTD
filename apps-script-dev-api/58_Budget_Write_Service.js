@@ -22,13 +22,9 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
   const admin = qltdBudgetValidateWriteUser_(guard.email, action, meta);
   if (admin.error) return admin.error;
 
-  const standaloneItemResult = qltdBudgetValidateStandaloneWriteItem_(payload, action, meta);
-  if (standaloneItemResult.error) return standaloneItemResult.error;
-  if (standaloneItemResult.item) {
-    payload.budgetItemName = standaloneItemResult.item.budgetItemName;
-    payload.budgetGroup = standaloneItemResult.item.budgetGroup;
-    payload.budgetStage = standaloneItemResult.item.budgetStage;
-  }
+  const allocationWrite = qltdBudgetValidateAllocationWriteControls_(payload, action, meta);
+  if (allocationWrite.error) return allocationWrite.error;
+  qltdBudgetApplyBudgetItemPayloadDefaults_(payload, allocationWrite.context);
 
   const dryRunAction = operation === 'PLAN' ? 'budget_submitPlanDryRun' : 'budget_submitActualDryRun';
   const resolveResult = qltdBudgetBuildDryRunPreview_(payload, operation, dryRunAction);
@@ -37,8 +33,11 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
   }
 
   const resolved = qltdBudgetBuildResolvedWriteContext_(resolveResult.data || {});
+  resolved.operation = operation;
   const resolvedGuard = qltdBudgetValidateResolvedWriteContext_(resolved, action, meta);
   if (resolvedGuard.error) return resolvedGuard.error;
+  qltdBudgetApplyAllocationContextToResolved_(resolved, allocationWrite.context, guard.email);
+  const writeWarnings = (resolveResult.warnings || []).concat(allocationWrite.context.warnings || []);
 
   const lock = LockService.getScriptLock();
   let locked = false;
@@ -52,7 +51,7 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
 
     const duplicate = qltdBudgetFindCentralRawByReportId_(reportId);
     if (duplicate.found) {
-      return qltdBudgetBuildDuplicateResponse_(duplicate, operation, resolved.budgetType, requestId, reportId, action, resolveResult.warnings || [], meta);
+      return qltdBudgetBuildDuplicateResponse_(duplicate, operation, resolved.budgetType, requestId, reportId, action, writeWarnings, meta);
     }
 
     centralWrite = qltdBudgetAppendCentralRawPending_(reportId, operation, resolved);
@@ -70,7 +69,7 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
         pbTarget: pbResult.pbTarget,
         syncStatus: 'SYNCED',
         duplicate: false
-      }, (resolveResult.warnings || []).concat([qltdBudgetWarning_('CACHE_REBUILD_PENDING', 'Chua rebuild CENTRAL_NS_Tong_hop/CENTRAL_NS_Dashboard.', {
+      }, writeWarnings.concat([qltdBudgetWarning_('CACHE_REBUILD_PENDING', 'Chua rebuild CENTRAL_NS_Tong_hop/CENTRAL_NS_Dashboard.', {
         rebuildAction: 'budget_rebuildAggregates'
       })]), [], meta);
     }
@@ -87,7 +86,7 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
       target: 'CENTRAL_ONLY',
       syncStatus: 'SYNCED',
       duplicate: false
-    }, (resolveResult.warnings || []).concat([qltdBudgetWarning_('CACHE_REBUILD_PENDING', 'Chua rebuild CENTRAL_NS_Tong_hop/CENTRAL_NS_Dashboard.', {
+    }, writeWarnings.concat([qltdBudgetWarning_('CACHE_REBUILD_PENDING', 'Chua rebuild CENTRAL_NS_Tong_hop/CENTRAL_NS_Dashboard.', {
       rebuildAction: 'budget_rebuildAggregates'
     })]), [], meta);
   } catch (error) {
@@ -117,7 +116,7 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
       pbUpdated: false,
       duplicate: false
     }, errorDetails) : null);
-    return qltdBudgetWriteResponse_(false, qltdBudgetWriteApiStatusForError_(error), action, errorData, [], [Object.assign({
+    return qltdBudgetWriteResponse_(false, qltdBudgetWriteApiStatusForError_(error), action, errorData, writeWarnings, [Object.assign({
       code: error && error.code || 'WRITE_ERROR',
       message: message
     }, errorDetails)], meta);
@@ -151,6 +150,7 @@ function qltdBudgetValidateResolvedWriteContext_(resolved, action, meta) {
   });
 
   if (resolved.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED) {
+    if (!resolved.budgetItemCode) missingFields.push('budgetItemCode');
     if (!resolved.masterTaskCode) missingFields.push('masterTaskCode');
     const pbPreview = resolved.pbPreview || {};
     ['targetSpreadsheetId', 'targetSheet', 'targetRowNumber', 'targetColumnLetter'].forEach(function(field) {
@@ -259,42 +259,116 @@ function qltdBudgetValidateWriteUser_(email, action, meta) {
   };
 }
 
-function qltdBudgetValidateStandaloneWriteItem_(payload, action, meta) {
+function qltdBudgetValidateAllocationWriteControls_(payload, action, meta) {
   const budgetType = qltdBudgetNormalizeBudgetType_(payload.budgetType).value;
-  if (budgetType !== QLTD_BUDGET_TYPE.DEPT_STANDALONE) {
+  const normalizedProjectCode = qltdBudgetNormalizeCode_(payload.projectCode);
+  const normalizedDeptCode = qltdBudgetNormalizeCode_(payload.deptCode);
+  const budgetItemCode = String(payload.budgetItemCode || '').trim();
+  if ((budgetType === QLTD_BUDGET_TYPE.TASK_LINKED || budgetType === QLTD_BUDGET_TYPE.DEPT_STANDALONE) && !budgetItemCode) {
     return {
-      item: null,
-      error: null
+      context: null,
+      error: qltdBudgetWriteError_(action, 'BUDGET_ITEM_CODE_REQUIRED', 'Thieu budgetItemCode cho write flow ngan sach MVP.', meta)
     };
   }
 
   const itemsResult = qltdBudgetReadBudgetItems_();
-  const item = qltdBudgetFindStandaloneWriteItem_(itemsResult.items, payload.projectCode, payload.deptCode, payload.budgetItemCode);
+  const item = qltdBudgetFindWriteBudgetItem_(itemsResult.items, normalizedProjectCode, normalizedDeptCode, budgetItemCode);
   if (!item) {
     return {
-      item: null,
-      error: qltdBudgetWriteError_(action, 'BUDGET_ITEM_NOT_FOUND', 'Khong tim thay khoan ngan sach doc lap active trong CENTRAL_NS_Items.', meta, itemsResult.warnings)
+      context: null,
+      error: qltdBudgetWriteError_(action, 'BUDGET_ITEM_NOT_FOUND', 'Khong tim thay khoan ngan sach active trong CENTRAL_NS_Items.', meta, itemsResult.warnings)
     };
   }
   if (item.status !== 'ACTIVE') {
     return {
-      item: null,
+      context: null,
       error: qltdBudgetWriteError_(action, 'BUDGET_ITEM_INACTIVE', 'Khoan ngan sach khong active.', meta, itemsResult.warnings)
     };
   }
-  if (item.budgetType !== QLTD_BUDGET_TYPE.DEPT_STANDALONE) {
+  if (item.budgetType !== budgetType) {
     return {
-      item: null,
-      error: qltdBudgetWriteError_(action, 'BUDGET_ITEM_TYPE_MISMATCH', 'Khoan ngan sach khong phai DEPT_STANDALONE.', meta, itemsResult.warnings)
+      context: null,
+      error: qltdBudgetWriteError_(action, 'BUDGET_ITEM_TYPE_MISMATCH', 'Khoan ngan sach khong khop Loai ngan sach.', meta, itemsResult.warnings)
+    };
+  }
+
+  const allocationCode = String(item.allocationCode || '').trim();
+  if (!allocationCode) {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, 'ALLOCATION_CODE_REQUIRED', 'Khoan ngan sach active thieu Ma phan bo.', meta, itemsResult.warnings)
+    };
+  }
+  const requestedAllocationCode = String(payload.allocationCode || '').trim();
+  if (requestedAllocationCode && qltdBudgetNormalizeCode_(requestedAllocationCode) !== qltdBudgetNormalizeCode_(allocationCode)) {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, 'ALLOCATION_CODE_MISMATCH', 'allocationCode request khong khop CENTRAL_NS_Items.', meta, itemsResult.warnings)
+    };
+  }
+
+  const requestedFlow = String(payload.flowType || '').trim();
+  const expectedFlow = requestedFlow ? qltdBudgetNormalizeFlowType_(requestedFlow) : { value: item.flowType, error: null };
+  if (expectedFlow.error || !expectedFlow.value || item.flowType !== expectedFlow.value) {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, 'ALLOCATION_FLOW_MISMATCH', 'Huong dong tien khong khop khoan ngan sach.', meta, itemsResult.warnings)
+    };
+  }
+
+  const allocationsResult = qltdBudgetReadAllocations_();
+  const warnings = (itemsResult.warnings || []).concat(allocationsResult.warnings || []);
+  const allocation = qltdBudgetFindWriteAllocation_(allocationsResult.allocations, allocationCode);
+  if (!allocation) {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, 'ALLOCATION_NOT_FOUND', 'Khong tim thay allocationCode trong CENTRAL_NS_Allocations.', meta, warnings)
+    };
+  }
+  if (allocation.status !== 'CONFIRMED') {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, 'ALLOCATION_NOT_CONFIRMED', 'Allocation chua o trang thai CONFIRMED/Da chot.', meta, warnings)
+    };
+  }
+  if (allocation.projectCode !== normalizedProjectCode || item.projectCode !== normalizedProjectCode) {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, 'ALLOCATION_PROJECT_MISMATCH', 'Allocation khong khop projectCode.', meta, warnings)
+    };
+  }
+  if (qltdBudgetNormalizeCode_(allocation.deptCode) !== normalizedDeptCode || qltdBudgetNormalizeCode_(item.deptCode) !== normalizedDeptCode) {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, 'ALLOCATION_DEPT_MISMATCH', 'Allocation khong khop deptCode.', meta, warnings)
+    };
+  }
+  if (allocation.flowType !== expectedFlow.value || item.flowType !== allocation.flowType) {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, 'ALLOCATION_FLOW_MISMATCH', 'Allocation khong khop huong dong tien.', meta, warnings)
+    };
+  }
+
+  const limit = qltdBudgetValidateAllocationBudgetItemLimit_(itemsResult.items, allocation);
+  if (limit.error) {
+    return {
+      context: null,
+      error: qltdBudgetWriteError_(action, limit.error.code, limit.error.message, Object.assign({}, meta || {}, limit.meta || {}), warnings)
     };
   }
   return {
-    item: item,
+    context: {
+      item: item,
+      allocation: allocation,
+      flowType: expectedFlow.value,
+      warnings: warnings
+    },
     error: null
   };
 }
 
-function qltdBudgetFindStandaloneWriteItem_(items, projectCode, deptCode, budgetItemCode) {
+function qltdBudgetFindWriteBudgetItem_(items, projectCode, deptCode, budgetItemCode) {
   const code = qltdBudgetNormalizeCode_(budgetItemCode);
   const normalizedProjectCode = qltdBudgetNormalizeCode_(projectCode);
   const normalizedDeptCode = qltdBudgetNormalizeCode_(deptCode);
@@ -304,13 +378,75 @@ function qltdBudgetFindStandaloneWriteItem_(items, projectCode, deptCode, budget
     if (
       qltdBudgetNormalizeCode_(item.budgetItemCode) === code &&
       item.projectCode === normalizedProjectCode &&
-      qltdBudgetNormalizeCode_(item.deptCode) === normalizedDeptCode &&
-      item.budgetType === QLTD_BUDGET_TYPE.DEPT_STANDALONE
+      qltdBudgetNormalizeCode_(item.deptCode) === normalizedDeptCode
     ) {
       return item;
     }
   }
   return null;
+}
+
+function qltdBudgetFindWriteAllocation_(allocations, allocationCode) {
+  const code = qltdBudgetNormalizeCode_(allocationCode);
+  for (let index = 0; index < (allocations || []).length; index += 1) {
+    const item = allocations[index];
+    if (qltdBudgetNormalizeCode_(item.allocationCode) === code) return item;
+  }
+  return null;
+}
+
+function qltdBudgetValidateAllocationBudgetItemLimit_(items, allocation) {
+  const allocationCode = qltdBudgetNormalizeCode_(allocation && allocation.allocationCode);
+  let total = 0;
+  (items || []).forEach(function(item) {
+    if (item.status !== 'ACTIVE') return;
+    if (qltdBudgetNormalizeCode_(item.allocationCode) !== allocationCode) return;
+    total += Number(item.approvedBudget || 0);
+  });
+  const limit = Number(allocation && allocation.allocatedAmount || 0);
+  if (total > limit) {
+    return {
+      error: {
+        code: 'ALLOCATION_LIMIT_EXCEEDED',
+        message: 'Tong Budget Item active vuot Gia tri giao cua allocation.'
+      },
+      meta: {
+        allocationCode: allocation && allocation.allocationCode || '',
+        allocationLimit: limit,
+        activeBudgetItemTotal: total
+      }
+    };
+  }
+  return { error: null };
+}
+
+function qltdBudgetApplyBudgetItemPayloadDefaults_(payload, context) {
+  const item = context && context.item || {};
+  payload.budgetItemName = payload.budgetItemName || item.budgetItemName || '';
+  payload.budgetGroup = payload.budgetGroup || item.budgetGroup || '';
+  payload.budgetStage = payload.budgetStage || item.budgetStage || '';
+  payload.allocationCode = item.allocationCode || '';
+  payload.pbTaskCode = payload.pbTaskCode || item.pbTaskCode || '';
+  payload.flowType = context && context.flowType || item.flowType || '';
+}
+
+function qltdBudgetApplyAllocationContextToResolved_(resolved, context, confirmedBy) {
+  const item = context && context.item || {};
+  const allocation = context && context.allocation || {};
+  const preview = resolved.centralRawPreview || {};
+  const confirmedAt = qltdBudgetNowIso_();
+  resolved.allocationCode = allocation.allocationCode || item.allocationCode || '';
+  resolved.pbTaskCode = item.pbTaskCode || '';
+  resolved.flowType = context && context.flowType || item.flowType || allocation.flowType || '';
+  resolved.confirmedBy = qltdDevApiNormalizeEmail_(confirmedBy || resolved.email) || '';
+  resolved.confirmedAt = confirmedAt;
+  preview['Ma phan bo'] = resolved.allocationCode;
+  preview['Ma cong viec chi tiet PB'] = resolved.pbTaskCode;
+  preview['Huong dong tien'] = resolved.flowType;
+  preview['Loai ban ghi'] = resolved.operation || '';
+  preview['Nguoi xac nhan'] = resolved.confirmedBy;
+  preview['Thoi diem xac nhan'] = confirmedAt;
+  resolved.centralRawPreview = preview;
 }
 
 function qltdBudgetBuildReportId_(operation, requestId) {
@@ -351,10 +487,12 @@ function qltdBudgetAppendCentralRawPending_(reportId, operation, resolved) {
   const rowObject = Object.assign({}, resolved.centralRawPreview || {});
   rowObject['Report ID'] = reportId;
   rowObject['Loai ky'] = qltdBudgetGetPeriodSheetLabel_(resolved.periodType);
-  rowObject['Trang thai xac nhan'] = qltdBudgetGetConfirmStatusSheetLabel_('SUBMITTED');
+  rowObject['Trang thai xac nhan'] = qltdBudgetGetConfirmStatusSheetLabel_('CONFIRMED');
   rowObject['Sync status'] = 'PENDING';
   rowObject['Sync at'] = '';
   rowObject['Sync error'] = '';
+  rowObject['Nguoi xac nhan'] = resolved.confirmedBy || resolved.email || '';
+  rowObject['Thoi diem xac nhan'] = resolved.confirmedAt || qltdBudgetNowIso_();
   if (resolved.budgetType === QLTD_BUDGET_TYPE.DEPT_STANDALONE) {
     rowObject['Nguon file PB'] = QLTD_BUDGET_WRITE_CENTRAL_ONLY_SOURCE;
   }

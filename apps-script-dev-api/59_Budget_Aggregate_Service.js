@@ -244,7 +244,10 @@ function qltdBudgetParseAggregateRawRow_(item, headerMap, timeZone) {
     budgetType: String(qltdBudgetGetCell_(row, headerMap, 'Loai ngan sach', '') || '').trim().toUpperCase(),
     budgetGroup: String(qltdBudgetGetCell_(row, headerMap, 'Nhom ngan sach', '') || '').trim(),
     budgetStage: String(qltdBudgetGetCell_(row, headerMap, 'Giai doan ngan sach', '') || '').trim(),
-    requiresMaster: qltdBudgetNormalizeAggregateBoolean_(requiresMasterRaw)
+    requiresMaster: qltdBudgetNormalizeAggregateBoolean_(requiresMasterRaw),
+    allocationCode: String(qltdBudgetGetCell_(row, headerMap, 'Ma phan bo', '') || '').trim(),
+    pbTaskCode: String(qltdBudgetGetCell_(row, headerMap, 'Ma cong viec chi tiet PB', '') || '').trim(),
+    flowType: qltdBudgetNormalizeFlowType_(qltdBudgetGetCell_(row, headerMap, 'Huong dong tien', '')).value || ''
   };
   const dates = [qltdBudgetGetCell_(row, headerMap, 'Thoi diem gui', ''), qltdBudgetGetCell_(row, headerMap, 'Sync at', '')]
     .map(qltdBudgetAggregateDateMs_).filter(function(ms) { return ms !== null; });
@@ -253,7 +256,9 @@ function qltdBudgetParseAggregateRawRow_(item, headerMap, timeZone) {
 
   if (!value.reportId) return qltdBudgetInvalidAggregateRow_('REPORT_ID_REQUIRED', 'Report ID trong.');
   if (value.syncStatus !== 'SYNCED') return qltdBudgetInvalidAggregateRow_('RAW_NOT_SYNCED', 'Dong Raw chua SYNCED.');
-  if (qltdBudgetNormalizeKey_(value.confirmStatus) === 'huy') return qltdBudgetInvalidAggregateRow_('RAW_CANCELLED', 'Dong Raw da Huy.');
+  if (qltdBudgetNormalizeKey_(value.confirmStatus) !== 'daxacnhan') {
+    return qltdBudgetInvalidAggregateRow_('RAW_NOT_CONFIRMED', 'Dong Raw chua o trang thai Da xac nhan.');
+  }
   if (!value.projectCode) return qltdBudgetInvalidAggregateRow_('PROJECT_CODE_REQUIRED', 'Ma du an trong.');
   if (!value.periodCode) return qltdBudgetInvalidAggregateRow_('PERIOD_CODE_REQUIRED', 'Ma ky trong.');
   const periodKey = qltdBudgetNormalizeKey_(value.periodType);
@@ -261,11 +266,14 @@ function qltdBudgetParseAggregateRawRow_(item, headerMap, timeZone) {
   if (value.budgetType !== QLTD_BUDGET_TYPE.TASK_LINKED && value.budgetType !== QLTD_BUDGET_TYPE.DEPT_STANDALONE) {
     return qltdBudgetInvalidAggregateRow_('BUDGET_TYPE_INVALID', 'Loai ngan sach khong hop le.');
   }
-  if (value.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED && (!value.masterTaskCode || value.requiresMaster !== 'TRUE')) {
-    return qltdBudgetInvalidAggregateRow_('TASK_LINKED_CONTEXT_INVALID', 'TASK_LINKED thieu ma Master hoac flag TRUE.');
+  if (value.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED && (!value.budgetItemCode || !value.masterTaskCode || value.requiresMaster !== 'TRUE')) {
+    return qltdBudgetInvalidAggregateRow_('TASK_LINKED_CONTEXT_INVALID', 'TASK_LINKED thieu budgetItemCode, ma Master hoac flag TRUE.');
   }
   if (value.budgetType === QLTD_BUDGET_TYPE.DEPT_STANDALONE && (!value.budgetItemCode || value.masterTaskCode || value.requiresMaster !== 'FALSE')) {
     return qltdBudgetInvalidAggregateRow_('STANDALONE_CONTEXT_INVALID', 'DEPT_STANDALONE context khong hop le.');
+  }
+  if (!value.allocationCode || !value.flowType) {
+    return qltdBudgetInvalidAggregateRow_('RAW_ALLOCATION_CONTEXT_INCOMPLETE', 'Dong Raw thieu allocationCode hoac flowType; bo qua legacy row.');
   }
   return { value: value, error: null };
 }
@@ -328,8 +336,9 @@ function qltdBudgetInvalidAggregateRow_(code, message) {
 }
 
 function qltdBudgetAggregateGroupKey_(row) {
-  const entity = row.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED ? row.masterTaskCode : row.budgetItemCode;
-  return [row.projectCode, qltdBudgetNormalizeKey_(row.periodType).toUpperCase(), qltdBudgetNormalizeCode_(row.periodCode), qltdBudgetNormalizeCode_(row.deptCode), row.budgetType, qltdBudgetNormalizeCode_(entity)].join('|');
+  return [row.projectCode, qltdBudgetNormalizeKey_(row.periodType).toUpperCase(), qltdBudgetNormalizeCode_(row.periodCode),
+    qltdBudgetNormalizeCode_(row.deptCode), row.budgetType, qltdBudgetNormalizeCode_(row.budgetItemCode),
+    qltdBudgetNormalizeCode_(row.allocationCode), row.flowType].join('|');
 }
 
 function qltdBudgetNewAggregateGroup_(row, groupKey) {
@@ -345,8 +354,8 @@ function qltdBudgetNewAggregateGroup_(row, groupKey) {
 }
 
 function qltdBudgetAggregateEntityKey_(row) {
-  const entity = row.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED ? row.masterTaskCode : row.budgetItemCode;
-  return [row.projectCode, qltdBudgetNormalizeCode_(row.deptCode), row.budgetType, qltdBudgetNormalizeCode_(entity)].join('|');
+  return [row.projectCode, qltdBudgetNormalizeCode_(row.deptCode), row.budgetType,
+    qltdBudgetNormalizeCode_(row.budgetItemCode), qltdBudgetNormalizeCode_(row.allocationCode), row.flowType].join('|');
 }
 
 function qltdBudgetBuildApprovedBudgetIndex_(items, departments) {
@@ -360,7 +369,9 @@ function qltdBudgetBuildApprovedBudgetIndex_(items, departments) {
     if (!item.projectCode) missing.push('projectCode');
     if (!deptCode) missing.push('deptCode');
     if (!item.budgetType) missing.push('budgetType');
-    if (!entityCode) missing.push(item.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED ? 'masterTaskCode' : 'budgetItemCode');
+    if (!entityCode) missing.push('budgetItemCode');
+    if (!item.allocationCode) missing.push('allocationCode');
+    if (!item.flowType) missing.push('flowType');
     if (missing.length) {
       warnings.push(qltdBudgetWarning_('APPROVED_BUDGET_KEY_INCOMPLETE', 'Dong CENTRAL_NS_Items thieu thanh phan key ngan sach duyet.', {
         rowNumber: item.rowNumber,
@@ -375,7 +386,7 @@ function qltdBudgetBuildApprovedBudgetIndex_(items, departments) {
       return;
     }
 
-    const key = qltdBudgetApprovedBudgetKeyFromParts_(item.projectCode, deptCode, item.budgetType, entityCode);
+    const key = qltdBudgetApprovedBudgetKeyFromParts_(item.projectCode, deptCode, item.budgetType, entityCode, item.allocationCode, item.flowType);
     if (index[key]) {
       warnings.push(qltdBudgetWarning_('APPROVED_BUDGET_KEY_DUPLICATE', 'Key ngan sach duyet bi trung trong CENTRAL_NS_Items; khong ghi de am tham.', {
         key: key,
@@ -408,17 +419,21 @@ function qltdBudgetApprovedBudgetKey_(group) {
     group.projectCode,
     group.deptCode,
     group.budgetType,
-    group.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED ? group.masterTaskCode : group.budgetItemCode
+    group.budgetItemCode,
+    group.allocationCode,
+    group.flowType
   );
 }
 
-function qltdBudgetApprovedBudgetKeyFromParts_(projectCode, deptCode, budgetType, entityCode) {
-  return [qltdBudgetNormalizeCode_(projectCode), qltdBudgetNormalizeCode_(deptCode), String(budgetType || '').trim().toUpperCase(), qltdBudgetNormalizeCode_(entityCode)].join('|');
+function qltdBudgetApprovedBudgetKeyFromParts_(projectCode, deptCode, budgetType, entityCode, allocationCode, flowType) {
+  return [qltdBudgetNormalizeCode_(projectCode), qltdBudgetNormalizeCode_(deptCode), String(budgetType || '').trim().toUpperCase(),
+    qltdBudgetNormalizeCode_(entityCode), qltdBudgetNormalizeCode_(allocationCode), String(flowType || '').trim().toUpperCase()].join('|');
 }
 
 function qltdBudgetApprovedBudgetEntityCode_(item) {
-  if (item.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED) return qltdBudgetNormalizeCode_(item.masterTaskCode);
-  if (item.budgetType === QLTD_BUDGET_TYPE.DEPT_STANDALONE) return qltdBudgetNormalizeCode_(item.budgetItemCode);
+  if (item.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED || item.budgetType === QLTD_BUDGET_TYPE.DEPT_STANDALONE) {
+    return qltdBudgetNormalizeCode_(item.budgetItemCode);
+  }
   return '';
 }
 
@@ -481,8 +496,9 @@ function qltdBudgetAggregateWarningLabel_(group) {
 function qltdBudgetBuildDashboardRows_(summary, departments, warnings) {
   const groups = {};
   summary.forEach(function(row) {
-    const entity = row.budgetType === QLTD_BUDGET_TYPE.TASK_LINKED ? row.masterTaskCode : row.budgetItemCode;
-    const key = [row.projectCode, qltdBudgetNormalizeKey_(row.periodType), qltdBudgetNormalizeCode_(row.periodCode), qltdBudgetNormalizeCode_(row.deptCode), row.budgetType, qltdBudgetNormalizeKey_(row.budgetGroup), qltdBudgetNormalizeCode_(entity)].join('|');
+    const key = [row.projectCode, qltdBudgetNormalizeKey_(row.periodType), qltdBudgetNormalizeCode_(row.periodCode),
+      qltdBudgetNormalizeCode_(row.deptCode), row.budgetType, qltdBudgetNormalizeKey_(row.budgetGroup),
+      qltdBudgetNormalizeCode_(row.budgetItemCode), qltdBudgetNormalizeCode_(row.allocationCode), row.flowType].join('|');
     if (!groups[key]) groups[key] = { rows: [], first: row };
     groups[key].rows.push(row);
   });
@@ -521,6 +537,8 @@ function qltdBudgetBuildDashboardRows_(summary, departments, warnings) {
       projectCode: first.projectCode, projectName: first.projectName, periodType: first.periodType,
       periodCode: first.periodCode, deptCode: deptCode, deptName: first.deptName,
       budgetType: first.budgetType, budgetGroup: first.budgetGroup, budgetItemCode: first.budgetItemCode,
+      allocationCode: first.allocationCode, flowType: first.flowType, masterTaskCode: first.masterTaskCode,
+      pbTaskCode: first.pbTaskCode,
       updatedAt: updatedAtMs ? new Date(updatedAtMs) : ''
     };
     [
@@ -552,13 +570,13 @@ function qltdBudgetSummaryToRow_(row) {
     standalone ? '' : row.wbs, standalone ? row.budgetItemName : row.taskName, row.deptName, row.totalBudget,
     row.plan, row.actual, row.cumulative, row.remaining, row.usageRate, row.warning, row.updatedAt,
     row.budgetItemCode, row.budgetItemName, row.budgetType, row.budgetGroup, row.budgetStage, standalone ? 'FALSE' : 'TRUE',
-    '', '', '', '', '', ''];
+    row.allocationCode, row.pbTaskCode, row.flowType, '', '', ''];
 }
 
 function qltdBudgetDashboardToRow_(row) {
   return [row.metricGroup, row.metricName, row.projectCode, row.projectName, row.periodType, row.periodCode,
     row.value, row.unit, row.updatedAt, row.note, row.deptCode, row.deptName, row.budgetType, row.budgetGroup, row.budgetItemCode,
-    '', '', '', ''];
+    row.flowType, row.allocationCode, row.masterTaskCode, row.pbTaskCode];
 }
 
 function qltdBudgetAggregateDateMs_(value) {
@@ -569,8 +587,8 @@ function qltdBudgetAggregateDateMs_(value) {
 }
 
 function qltdBudgetCompareAggregateRows_(left, right) {
-  return [left.projectCode, left.periodType, left.periodCode, left.deptName, left.budgetType, left.masterTaskCode || left.budgetItemCode].join('|')
-    .localeCompare([right.projectCode, right.periodType, right.periodCode, right.deptName, right.budgetType, right.masterTaskCode || right.budgetItemCode].join('|'));
+  return [left.projectCode, left.periodType, left.periodCode, left.deptName, left.budgetType, left.budgetItemCode, left.allocationCode, left.flowType].join('|')
+    .localeCompare([right.projectCode, right.periodType, right.periodCode, right.deptName, right.budgetType, right.budgetItemCode, right.allocationCode, right.flowType].join('|'));
 }
 
 function qltdBudgetReplaceAggregateSheets_(summarySheet, summaryRows, summaryWidth, dashboardSheet, dashboardRows, dashboardWidth) {
