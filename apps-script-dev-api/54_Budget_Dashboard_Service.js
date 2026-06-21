@@ -122,6 +122,104 @@ function qltdBudgetGetLiveDashboard_(params) {
     .concat(rawResult.warnings || []), meta);
 }
 
+function qltdBudgetGetTaskBudgetMap_(params) {
+  const action = 'budget_getTaskBudgetMap';
+  const email = qltdDevApiNormalizeEmail_(params && params.email);
+  const projectCode = qltdBudgetNormalizeCode_(params && params.projectCode);
+  const meta = {
+    action: action,
+    email: email || 'anonymous',
+    projectCode: projectCode
+  };
+
+  if (!email) return qltdBudgetError_(action, 'EMAIL_REQUIRED', 'email la bat buoc.', meta);
+  const user = qltdUsersGetByEmail_(email);
+  if (!qltdCanUseGeneralFeature_(user)) {
+    return qltdBudgetError_(action, 'ACCESS_DENIED', 'Chi user ACTIVE duoc xem Gantt ngan sach.', meta);
+  }
+  if (!projectCode) return qltdBudgetError_(action, 'PROJECT_CODE_REQUIRED', 'Thieu projectCode.', meta);
+
+  const projectsResult = qltdBudgetReadProjects_();
+  if (projectsResult.error) return projectsResult.error;
+  const project = qltdBudgetFindProjectByCode_(projectsResult.projects, projectCode);
+  if (!project || project.status !== 'ACTIVE') {
+    return qltdBudgetError_(action, 'PROJECT_NOT_FOUND', 'Khong tim thay du an ACTIVE.', meta, projectsResult.warnings);
+  }
+
+  const itemsResult = qltdBudgetReadBudgetItems_();
+  const allocationsResult = qltdBudgetReadAllocations_();
+  const allocationIndex = qltdBudgetTaskBudgetConfirmedAllocationIndex_(allocationsResult.allocations || [], projectCode);
+  const byMasterTaskCode = {};
+
+  (itemsResult.items || []).forEach(function(item) {
+    if (!qltdBudgetTaskBudgetItemMatches_(item, projectCode, allocationIndex)) return;
+    const masterTaskCode = qltdBudgetNormalizeCode_(item.masterTaskCode);
+    if (!byMasterTaskCode[masterTaskCode]) {
+      byMasterTaskCode[masterTaskCode] = {
+        masterTaskCode: masterTaskCode,
+        directChiPlan: 0,
+        plannedRevenue: 0,
+        chiItemCount: 0,
+        thuItemCount: 0
+      };
+    }
+
+    const amount = Number(item.approvedBudget || 0);
+    if (item.flowType === 'CHI') {
+      byMasterTaskCode[masterTaskCode].directChiPlan += amount;
+      byMasterTaskCode[masterTaskCode].chiItemCount += 1;
+    } else if (item.flowType === 'THU') {
+      byMasterTaskCode[masterTaskCode].plannedRevenue += amount;
+      byMasterTaskCode[masterTaskCode].thuItemCount += 1;
+    }
+  });
+
+  return qltdBudgetOk_(action, {
+    projectCode: projectCode,
+    byMasterTaskCode: byMasterTaskCode,
+    count: Object.keys(byMasterTaskCode).length,
+    updatedAt: qltdBudgetNowIso_(),
+    sourceSheets: [
+      QLTD_BUDGET_SHEET.CENTRAL_ITEMS,
+      QLTD_BUDGET_SHEET.CENTRAL_ALLOCATIONS
+    ],
+    formulas: {
+      directChiPlan: 'sum approvedBudget where Status=ACTIVE, BudgetType=TASK_LINKED, FlowType=CHI, allocation CONFIRMED, same ProjectCode, same MasterTaskCode',
+      plannedRevenue: 'sum approvedBudget where Status=ACTIVE, BudgetType=TASK_LINKED, FlowType=THU, allocation CONFIRMED, same ProjectCode, same MasterTaskCode',
+      rollup: 'direct-only; no parent/child roll-up'
+    }
+  }, (projectsResult.warnings || [])
+    .concat(itemsResult.warnings || [])
+    .concat(allocationsResult.warnings || []), meta);
+}
+
+function qltdBudgetTaskBudgetConfirmedAllocationIndex_(allocations, projectCode) {
+  const index = {};
+  (allocations || []).forEach(function(allocation) {
+    const allocationCode = qltdBudgetNormalizeCode_(allocation && allocation.allocationCode);
+    if (!allocationCode) return;
+    if (allocation.status !== 'CONFIRMED') return;
+    if (allocation.projectCode !== projectCode) return;
+    index[allocationCode] = allocation;
+  });
+  return index;
+}
+
+function qltdBudgetTaskBudgetItemMatches_(item, projectCode, allocationIndex) {
+  if (!item || item.status !== 'ACTIVE') return false;
+  if (item.projectCode !== projectCode) return false;
+  if (item.budgetType !== QLTD_BUDGET_TYPE.TASK_LINKED) return false;
+  if (!qltdBudgetNormalizeCode_(item.masterTaskCode)) return false;
+  if (item.flowType !== 'CHI' && item.flowType !== 'THU') return false;
+
+  const allocation = allocationIndex[qltdBudgetNormalizeCode_(item.allocationCode)];
+  if (!allocation) return false;
+  if (allocation.projectCode !== item.projectCode) return false;
+  if (qltdBudgetNormalizeCode_(allocation.deptCode) !== qltdBudgetNormalizeCode_(item.deptCode)) return false;
+  if (allocation.flowType !== item.flowType) return false;
+  return true;
+}
+
 function qltdBudgetLiveDashboardReadRaw_() {
   const warnings = [];
   const sheet = qltdBudgetGetReadonlySheet_(QLTD_BUDGET_SHEET.CENTRAL_RAW);

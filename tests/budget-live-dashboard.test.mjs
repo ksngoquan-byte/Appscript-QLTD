@@ -158,13 +158,27 @@ function buildCentral() {
       ['ITEM-CHI', 'P1', 'Project 1', 'D1', 'Dept One', 'Chi 1', 'DEPT_STANDALONE', '', '', '', 500, 'ACTIVE', '', 'A-CHI', '', 'CHI'],
       ['ITEM-ZERO', 'P1', 'Project 1', 'D1', 'Dept One', 'Chi zero', 'DEPT_STANDALONE', '', '', '', 200, 'ACTIVE', '', 'A-ZERO', '', 'CHI'],
       ['ITEM-BAD', 'P1', 'Project 1', 'D1', 'Dept One', 'Missing allocation', 'DEPT_STANDALONE', '', '', '', 100, 'ACTIVE', '', 'A-MISSING', '', 'CHI'],
-      ['ITEM-INACTIVE', 'P1', 'Project 1', 'D1', 'Dept One', 'Inactive', 'DEPT_STANDALONE', '', '', '', 999, 'INACTIVE', '', 'A-INACTIVE', '', 'CHI']
+      ['ITEM-INACTIVE', 'P1', 'Project 1', 'D1', 'Dept One', 'Inactive', 'DEPT_STANDALONE', '', '', '', 999, 'INACTIVE', '', 'A-INACTIVE', '', 'CHI'],
+      ['TL-CHI-037', 'P1', 'Project 1', 'D1', 'Dept One', 'Direct chi CV-037', 'TASK_LINKED', 'CV-037', '', '', 37084432112, 'ACTIVE', '', 'A-TL-CHI-037', '', 'CHI'],
+      ['TL-CHI-037B', 'P1', 'Project 1', 'D1', 'Dept One', 'Direct chi CV-037 extra', 'TASK_LINKED', 'CV-037', '', '', 1888, 'ACTIVE', '', 'A-TL-CHI-037B', '', 'CHI'],
+      ['TL-THU-092', 'P1', 'Project 1', 'D1', 'Dept One', 'Revenue CV-092', 'TASK_LINKED', 'CV-092', '', '', 11480000000, 'ACTIVE', '', 'A-TL-THU-092', '', 'THU'],
+      ['TL-DRAFT', 'P1', 'Project 1', 'D1', 'Dept One', 'Draft allocation ignored', 'TASK_LINKED', 'CV-037', '', '', 0, 'ACTIVE', '', 'A-TL-DRAFT', '', 'CHI'],
+      ['TL-BLANK', 'P1', 'Project 1', 'D1', 'Dept One', 'Blank master ignored', 'TASK_LINKED', '', '', '', 0, 'ACTIVE', '', 'A-TL-BLANK', '', 'CHI'],
+      ['TL-INACTIVE', 'P1', 'Project 1', 'D1', 'Dept One', 'Inactive ignored', 'TASK_LINKED', 'CV-037', '', '', 0, 'INACTIVE', '', 'A-TL-INACTIVE', '', 'CHI'],
+      ['DS-WITH-MASTER', 'P1', 'Project 1', 'D1', 'Dept One', 'Standalone ignored by task budget map', 'DEPT_STANDALONE', 'CV-037', '', '', 0, 'ACTIVE', '', 'A-DS-MASTER', '', 'CHI']
     ])),
     new MockSheet('CENTRAL_NS_Allocations', rowsWithHeader(4, ALLOCATION_HEADERS, [
       ['A-THU', 'P1', 'NON_TASK', 'SRC-THU', 'D1', 'Dept One', 'THU', 1000, 'Da chot', ''],
       ['A-CHI', 'P1', 'NON_TASK', 'SRC-CHI', 'D1', 'Dept One', 'CHI', 500, 'Da chot', ''],
       ['A-ZERO', 'P1', 'NON_TASK', 'SRC-ZERO', 'D1', 'Dept One', 'CHI', 200, 'Da chot', ''],
-      ['A-INACTIVE', 'P1', 'NON_TASK', 'SRC-INACTIVE', 'D1', 'Dept One', 'CHI', 999, 'Da chot', '']
+      ['A-INACTIVE', 'P1', 'NON_TASK', 'SRC-INACTIVE', 'D1', 'Dept One', 'CHI', 999, 'Da chot', ''],
+      ['A-TL-CHI-037', 'P1', 'TASK_DIRECT', 'TL-CHI-037', 'D1', 'Dept One', 'CHI', 37084432112, 'Da chot', ''],
+      ['A-TL-CHI-037B', 'P1', 'TASK_DIRECT', 'TL-CHI-037B', 'D1', 'Dept One', 'CHI', 1888, 'Da chot', ''],
+      ['A-TL-THU-092', 'P1', 'TASK_DIRECT', 'TL-THU-092', 'D1', 'Dept One', 'THU', 11480000000, 'Da chot', ''],
+      ['A-TL-DRAFT', 'P1', 'TASK_DIRECT', 'TL-DRAFT', 'D1', 'Dept One', 'CHI', 0, 'Nhap', ''],
+      ['A-TL-BLANK', 'P1', 'TASK_DIRECT', 'TL-BLANK', 'D1', 'Dept One', 'CHI', 0, 'Da chot', ''],
+      ['A-TL-INACTIVE', 'P1', 'TASK_DIRECT', 'TL-INACTIVE', 'D1', 'Dept One', 'CHI', 0, 'Da chot', ''],
+      ['A-DS-MASTER', 'P1', 'NON_TASK', 'DS-WITH-MASTER', 'D1', 'Dept One', 'CHI', 0, 'Da chot', '']
     ])),
     new MockSheet('CENTRAL_NS_Raw', rowsWithHeader(4, RAW_HEADERS, [
       rawRow(),
@@ -213,11 +227,11 @@ const result = context.qltdBudgetGetLiveDashboard_({ email: 'viewer@example.com'
 assert.equal(result.success, true);
 assert.equal(result.data.project.projectCode, 'P1');
 assert.equal(result.data.department.deptCode, 'D1');
-assert.equal(result.data.thu.planAmount, 1000);
+assert.equal(result.data.thu.planAmount, 11480001000);
 assert.equal(result.data.thu.actualAmount, 300);
-assert.equal(result.data.chi.planAmount, 700);
+assert.equal(result.data.chi.planAmount, 37084434700);
 assert.equal(result.data.chi.actualAmount, 450);
-assert.equal(result.data.balance.plannedBalance, 300);
+assert.equal(result.data.balance.plannedBalance, -25604433700);
 assert.equal(result.data.balance.actualBalance, -150);
 assert.equal(result.data.formulas.sourceRule.includes('CENTRAL_NS_Raw'), true);
 assert.equal(result.data.formulas.sourceRule.includes('Report ID'), true);
@@ -238,6 +252,20 @@ assert.equal(result.data.alerts.some(alert => alert.code === 'RAW_NOT_SYNCED'), 
 assert.equal(result.data.alerts.some(alert => alert.code === 'RAW_WITHOUT_ACTIVE_ITEM'), true);
 assert.equal(result.data.alertsSummary.data >= 4, true);
 assert.equal(result.data.alertsSummary.business >= 2, true);
+
+const taskBudget = context.qltdBudgetGetTaskBudgetMap_({ email: 'viewer@example.com', projectCode: 'P1' });
+assert.equal(taskBudget.success, true);
+assert.deepEqual(Object.keys(taskBudget.data.byMasterTaskCode).sort(), ['CV-037', 'CV-092']);
+assert.equal(taskBudget.data.byMasterTaskCode['CV-037'].directChiPlan, 37084434000);
+assert.equal(taskBudget.data.byMasterTaskCode['CV-037'].plannedRevenue, 0);
+assert.equal(taskBudget.data.byMasterTaskCode['CV-037'].chiItemCount, 2);
+assert.equal(taskBudget.data.byMasterTaskCode['CV-092'].plannedRevenue, 11480000000);
+assert.equal(taskBudget.data.byMasterTaskCode['CV-092'].directChiPlan, 0);
+assert.equal(taskBudget.data.byMasterTaskCode['CV-092'].thuItemCount, 1);
+assert.equal(taskBudget.data.formulas.rollup, 'direct-only; no parent/child roll-up');
+assert.ok(taskBudget.data.sourceSheets.includes('CENTRAL_NS_Items'));
+assert.ok(taskBudget.data.sourceSheets.includes('CENTRAL_NS_Allocations'));
+assert.ok(!taskBudget.data.sourceSheets.includes('CENTRAL_NS_Raw'));
 
 const inactive = context.qltdBudgetGetLiveDashboard_({ email: 'inactive@example.com', projectCode: 'P1' });
 assert.equal(inactive.success, false);

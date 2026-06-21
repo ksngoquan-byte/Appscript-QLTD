@@ -70,6 +70,10 @@ let qltdGanttPayload = null;
 let qltdGanttZoom = 'month';
 let qltdGanttShowLinks = true;
 let qltdGanttShowDates = true;
+let qltdGanttViewMode = 'progress';
+let qltdGanttBudgetRequestSeq = 0;
+const qltdGanttBudgetCache = new Map();
+const qltdGanttBudgetLoadingProjects = new Set();
 let qltdActiveView = 'dashboard';
 let qltdDhtmlxLoadPromise = null;
 let qltdExcelJsLoadPromise = null;
@@ -630,6 +634,27 @@ function ensureWeb07InlineStyles() {
       color: #ffffff;
     }
 
+    .gantt-mode-tabs {
+      display: inline-flex;
+      border: 1px solid #d7e0ea;
+      border-radius: 8px;
+      background: #f8fafc;
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .gantt-mode-tabs button {
+      border: 0;
+      background: transparent;
+      height: 30px;
+    }
+
+    .gantt-mode-tabs button.active {
+      background: #ffffff;
+      color: #102033;
+      box-shadow: 0 4px 12px rgba(16, 32, 51, .08);
+    }
+
     .web07-link-legend {
       color: #475569;
       font-size: 12px;
@@ -727,6 +752,30 @@ function ensureWeb07InlineStyles() {
 
     #web07GanttContainer .gantt_task_progress {
       background: rgba(255, 255, 255, .28);
+    }
+
+    .gantt-budget-money {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      width: 100%;
+      min-width: 0;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .gantt-budget-money.is-chi {
+      color: #c2410c;
+    }
+
+    .gantt-budget-money.is-thu {
+      color: #0f766e;
+    }
+
+    .gantt-budget-empty {
+      color: #94a3b8;
+      font-weight: 700;
     }
 
     .web07-alert-row {
@@ -4644,6 +4693,75 @@ function renderWarnings(warnings) {
   `;
 }
 
+function normalizeBudgetMasterTaskCode(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function getGanttTaskBudgetCode(task) {
+  return normalizeBudgetMasterTaskCode(task && (task.code || task.masterTaskCode || task.masterCode || ''));
+}
+
+function getGanttBudgetMapForProject(projectCode) {
+  const cached = qltdGanttBudgetCache.get(String(projectCode || '')) || {};
+  return cached.byMasterTaskCode || {};
+}
+
+function attachGanttBudgetToTasks(tasks, byMasterTaskCode = {}) {
+  return (tasks || []).map((task) => {
+    const code = getGanttTaskBudgetCode(task);
+    const budget = byMasterTaskCode[code] || {};
+    const directChiPlan = Number(budget.directChiPlan || 0);
+    const plannedRevenue = Number(budget.plannedRevenue || 0);
+    return Object.assign({}, task, {
+      directChiPlan,
+      plannedRevenue,
+      chiItemCount: Number(budget.chiItemCount || 0),
+      thuItemCount: Number(budget.thuItemCount || 0),
+      hasDirectBudget: directChiPlan > 0 || plannedRevenue > 0
+    });
+  });
+}
+
+function formatGanttBudgetCell(value, tone) {
+  const amount = Number(value || 0);
+  if (!amount) return '<span class="gantt-budget-empty">—</span>';
+  return `<span class="gantt-budget-money is-${escapeHtml(tone)}" title="${escapeHtml(formatWeeklyCurrency(amount))}">${escapeHtml(formatCompactBudgetAmount(amount))}</span>`;
+}
+
+function ensureGanttBudgetMapForProject(projectCode) {
+  const code = String(projectCode || '');
+  if (!code || qltdGanttViewMode !== 'budget') return;
+  if (qltdGanttBudgetCache.has(code) || qltdGanttBudgetLoadingProjects.has(code)) return;
+
+  qltdGanttBudgetLoadingProjects.add(code);
+  const seq = ++qltdGanttBudgetRequestSeq;
+  fetchBackendJson('budget_getTaskBudgetMap', {
+    email: currentUserProfile?.email || '',
+    projectCode: code
+  }).then((result) => {
+    if (seq !== qltdGanttBudgetRequestSeq) return;
+    if (!result.success) throw new Error(result.message || result.errors?.[0]?.message || result.errors?.[0]?.code || 'Không tải được ngân sách Gantt.');
+    const data = result.data || result;
+    qltdGanttBudgetCache.set(code, {
+      byMasterTaskCode: data.byMasterTaskCode || {},
+      updatedAt: data.updatedAt || ''
+    });
+    if (qltdActiveView === 'gantt' && qltdGanttPayload?.projectCode === code && qltdGanttViewMode === 'budget') {
+      renderGanttPanel(qltdGanttPayload);
+    }
+  }).catch((error) => {
+    if (seq === qltdGanttBudgetRequestSeq) {
+      console.warn('Cannot load Gantt budget map', error);
+      qltdGanttBudgetCache.set(code, { byMasterTaskCode: {}, error: error.message || String(error) });
+      if (qltdActiveView === 'gantt' && qltdGanttPayload?.projectCode === code && qltdGanttViewMode === 'budget') {
+        renderGanttPanel(qltdGanttPayload);
+      }
+    }
+  }).finally(() => {
+    qltdGanttBudgetLoadingProjects.delete(code);
+  });
+}
+
 function renderGanttPanel(payload) {
   const panel = document.getElementById('web07GanttPanel');
   if (!panel) return;
@@ -4677,6 +4795,10 @@ function renderGanttPanel(payload) {
       </div>
 
       <div class="web07-toolbar">
+        <nav class="gantt-mode-tabs" aria-label="Chế độ Gantt">
+          <button type="button" data-gantt-view-mode="progress" class="${qltdGanttViewMode === 'progress' ? 'active' : ''}">Gantt tiến độ</button>
+          <button type="button" data-gantt-view-mode="budget" class="${qltdGanttViewMode === 'budget' ? 'active' : ''}">Gantt ngân sách</button>
+        </nav>
         <input id="ganttSearchInput" type="search" placeholder="Tìm công việc/WBS">
         <select id="ganttOwnerFilter">
           <option value="">Tất cả</option>
@@ -4759,6 +4881,16 @@ function bindGanttToolbar(payload) {
     if (el) el.onchange = applyGanttFilters;
   });
 
+  document.querySelectorAll('[data-gantt-view-mode]').forEach((button) => {
+    button.onclick = () => {
+      const nextMode = button.dataset.ganttViewMode === 'budget' ? 'budget' : 'progress';
+      if (nextMode === qltdGanttViewMode) return;
+      qltdGanttViewMode = nextMode;
+      if (nextMode === 'budget') ensureGanttBudgetMapForProject(payload.projectCode || getStoredProjectCode());
+      renderGanttPanel(payload);
+    };
+  });
+
   const linksToggle = document.getElementById('ganttLinksToggle');
   if (linksToggle) {
     linksToggle.onclick = () => {
@@ -4826,6 +4958,10 @@ function applyGanttFilters() {
   const progressFilter = document.getElementById('ganttProgressFilter')?.value || 'all';
   const depthFilter = document.getElementById('ganttDepthFilter')?.value || 'all';
   const allTasks = qltdGanttPayload.data || [];
+  if (qltdGanttViewMode === 'budget') ensureGanttBudgetMapForProject(qltdGanttPayload.projectCode || getStoredProjectCode());
+  const byMasterTaskCode = qltdGanttViewMode === 'budget'
+    ? getGanttBudgetMapForProject(qltdGanttPayload.projectCode || getStoredProjectCode())
+    : {};
   const tasks = allTasks.filter((task) => {
     const matchSearch = !search || normalizeSearchText(`${task.wbs || ''} ${task.id || ''} ${task.code || ''} ${task.text || ''}`).includes(search);
     const taskOwner = task.owner || '__blank__';
@@ -4846,7 +4982,10 @@ function applyGanttFilters() {
     return visibleIds[parent] ? task : { ...task, parent: '0' };
   });
 
-  initDhtmlxGantt(safeTasks, links);
+  initDhtmlxGantt(
+    qltdGanttViewMode === 'budget' ? attachGanttBudgetToTasks(safeTasks, byMasterTaskCode) : safeTasks,
+    links
+  );
 }
 
 function shouldShowByDepth(task, depthFilter) {
@@ -5344,7 +5483,8 @@ function qltdWeb07BuildGanttPrintRoot(ctx) {
   const title = document.createElement('h1');
   title.className = 'qltd-gantt-print-title';
   const projectName = qltdGanttPayload && (qltdGanttPayload.projectName || qltdGanttPayload.projectCode);
-  title.textContent = projectName ? `Gantt - ${projectName}` : 'Gantt tiến độ';
+  const modeLabel = qltdGanttViewMode === 'budget' ? 'Gantt ngân sách' : 'Gantt tiến độ';
+  title.textContent = projectName ? `${modeLabel} - ${projectName}` : modeLabel;
   root.appendChild(title);
 
   const ganttClone = ctx.container.cloneNode(true);
@@ -5408,7 +5548,7 @@ function qltdWeb07BuildGanttDataRows(gantt) {
 
   return qltdWeb07GetVisibleGanttTasks(gantt).map((task) => {
     const linkInfo = linkTextByTarget[String(task.id)] || {};
-    return {
+    const row = {
       wbs: task.wbs || task.id || '',
       text: task.text || '',
       owner: task.owner || '',
@@ -5420,7 +5560,36 @@ function qltdWeb07BuildGanttDataRows(gantt) {
       status: task.status || '',
       note: task.updateNote || task.note || ''
     };
+    if (qltdGanttViewMode === 'budget') {
+      row.directChiPlan = task.directChiPlan ? Number(task.directChiPlan || 0) : '';
+      row.plannedRevenue = task.plannedRevenue ? Number(task.plannedRevenue || 0) : '';
+    }
+    return row;
   });
+}
+
+function qltdWeb07BuildGanttDataColumns() {
+  const columns = [
+    { header: 'WBS', key: 'wbs', width: 16 },
+    { header: 'Công việc', key: 'text', width: 48 },
+    { header: 'Chủ trì', key: 'owner', width: 20 },
+    { header: 'Số ngày', key: 'duration', width: 12 },
+    { header: 'BĐ', key: 'start', width: 14 },
+    { header: 'KT', key: 'end', width: 14 },
+    { header: 'Tiền nhiệm', key: 'predecessors', width: 26 },
+    { header: 'Loại liên kết', key: 'relation', width: 16 },
+    { header: 'Trạng thái', key: 'status', width: 18 },
+    { header: 'Ghi chú', key: 'note', width: 36 }
+  ];
+  if (qltdGanttViewMode === 'budget') {
+    columns.splice(
+      3,
+      0,
+      { header: 'Trần chi phí trực tiếp', key: 'directChiPlan', width: 22 },
+      { header: 'Dự thu kế hoạch', key: 'plannedRevenue', width: 20 }
+    );
+  }
+  return columns;
 }
 
 function qltdWeb07SafeFilename(value) {
@@ -5542,18 +5711,7 @@ async function qltdWeb07ExportGanttExcel() {
       views: [{ state: 'frozen', ySplit: 1 }]
     });
 
-    dataSheet.columns = [
-      { header: 'WBS', key: 'wbs', width: 16 },
-      { header: 'Công việc', key: 'text', width: 48 },
-      { header: 'Chủ trì', key: 'owner', width: 20 },
-      { header: 'Số ngày', key: 'duration', width: 12 },
-      { header: 'BĐ', key: 'start', width: 14 },
-      { header: 'KT', key: 'end', width: 14 },
-      { header: 'Tiền nhiệm', key: 'predecessors', width: 26 },
-      { header: 'Loại liên kết', key: 'relation', width: 16 },
-      { header: 'Trạng thái', key: 'status', width: 18 },
-      { header: 'Ghi chú', key: 'note', width: 36 }
-    ];
+    dataSheet.columns = qltdWeb07BuildGanttDataColumns();
     dataSheet.addRows(qltdWeb07BuildGanttDataRows(ctx.gantt));
     dataSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
     dataSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
@@ -5639,6 +5797,89 @@ function qltdWeb07BindExcelButton() {
   button.onclick = qltdWeb07ExportGanttExcel;
 }
 
+function qltdBuildGanttColumns() {
+  if (qltdGanttViewMode === 'budget') {
+    return [
+      { name: 'wbs', label: 'WBS', width: 72, align: 'left' },
+      { name: 'text', label: 'Công việc', tree: true, width: 286, resize: true },
+      { name: 'owner', label: 'Chủ trì', width: 112, align: 'center' },
+      {
+        name: 'directChiPlan',
+        label: 'Trần chi phí trực tiếp',
+        width: 148,
+        align: 'right',
+        template: (task) => formatGanttBudgetCell(task.directChiPlan, 'chi')
+      },
+      {
+        name: 'plannedRevenue',
+        label: 'Dự thu kế hoạch',
+        width: 128,
+        align: 'right',
+        template: (task) => formatGanttBudgetCell(task.plannedRevenue, 'thu')
+      },
+      {
+        name: 'start_plan',
+        label: 'BĐ',
+        width: 76,
+        align: 'center',
+        template: (task) => qltdWeb07FormatDdMmYy(task.start_date || task.baselineStart || '')
+      },
+      {
+        name: 'end_plan',
+        label: 'KT',
+        width: 76,
+        align: 'center',
+        template: (task) => qltdWeb07FormatDdMmYy(task.end_date || task.baselineEnd || '')
+      }
+    ];
+  }
+
+  const columns = [
+    { name: 'wbs', label: 'WBS', width: 72, align: 'left' },
+    { name: 'text', label: 'Công việc', tree: true, width: 300, resize: true },
+    { name: 'owner', label: 'Chủ trì', width: 120, align: 'center' },
+    {
+      name: 'duration',
+      label: 'Số ngày',
+      width: 74,
+      align: 'center',
+      template: (task) => escapeHtml(String(qltdWeb07GetTaskDuration(task)))
+    },
+    {
+      name: 'start_plan',
+      label: 'BĐ',
+      width: 86,
+      align: 'center',
+      template: (task) => qltdWeb07FormatDdMmYy(task.start_date || task.baselineStart || '')
+    },
+    {
+      name: 'end_plan',
+      label: 'KT',
+      width: 86,
+      align: 'center',
+      template: (task) => qltdWeb07FormatDdMmYy(task.end_date || task.baselineEnd || '')
+    }
+  ];
+  if (qltdMainMilestoneSelectMode) {
+    columns.unshift({
+      name: 'mainMilestone',
+      label: 'Mốc',
+      width: 44,
+      align: 'center',
+      resize: false,
+      template: (task) => {
+        const selected = isMainMilestoneSelectedTask(task);
+        const canEditMilestone = canSelectMainMilestone();
+        const title = canEditMilestone
+          ? (selected ? 'Bỏ chọn mốc chính' : 'Chọn mốc chính')
+          : 'Mốc chính do PMO thiết lập';
+        return `<span class="main-milestone-cell ${selected ? 'is-selected' : ''} ${canEditMilestone ? '' : 'is-readonly'}" title="${escapeHtml(title)}">${selected ? '&#9733;' : '&#9734;'}</span>`;
+      }
+    });
+  }
+  return columns;
+}
+
 async function initDhtmlxGantt(tasks, links) {
   const container = document.getElementById('web07GanttContainer');
   if (!container) return;
@@ -5698,58 +5939,14 @@ async function initDhtmlxGantt(tasks, links) {
   gantt.config.open_tree_initially = true;
   gantt.config.show_links = qltdGanttShowLinks;
   gantt.config.grid_resize = true;
-  gantt.config.grid_width = qltdMainMilestoneSelectMode ? 596 : 552;
+  gantt.config.grid_width = qltdGanttViewMode === 'budget' ? 898 : (qltdMainMilestoneSelectMode ? 596 : 552);
   gantt.config.row_height = 32;
   gantt.config.bar_height = 16;
   gantt.config.fit_tasks = true;
   gantt.config.show_errors = false;
   gantt.config.date_format = '%Y-%m-%d';
 
-  const columns = [
-    { name: 'wbs', label: 'WBS', width: 72, align: 'left' },
-    { name: 'text', label: 'Công việc', tree: true, width: 300, resize: true },
-    { name: 'owner', label: 'Chủ trì', width: 120, align: 'center' },
-    {
-      name: 'duration',
-      label: 'Số ngày',
-      width: 74,
-      align: 'center',
-      template: (task) => escapeHtml(String(qltdWeb07GetTaskDuration(task)))
-    },
-    {
-      name: 'start_plan',
-      label: 'BĐ',
-      width: 86,
-      align: 'center',
-      template: (task) => qltdWeb07FormatDdMmYy(task.start_date || task.baselineStart || '')
-    },
-    {
-      name: 'end_plan',
-      label: 'KT',
-      width: 86,
-      align: 'center',
-      template: (task) => qltdWeb07FormatDdMmYy(task.end_date || task.baselineEnd || '')
-    }
-  ];
-  if (qltdMainMilestoneSelectMode) {
-    columns.unshift({
-      name: 'mainMilestone',
-      label: 'Mốc',
-      width: 44,
-      align: 'center',
-      resize: false,
-      template: (task) => {
-        const selected = isMainMilestoneSelectedTask(task);
-        const canEditMilestone = canSelectMainMilestone();
-        const title = canEditMilestone
-          ? (selected ? 'Bỏ chọn mốc chính' : 'Chọn mốc chính')
-          : 'Mốc chính do PMO thiết lập';
-        return `<span class="main-milestone-cell ${selected ? 'is-selected' : ''} ${canEditMilestone ? '' : 'is-readonly'}" title="${escapeHtml(title)}">${selected ? '&#9733;' : '&#9734;'}</span>`;
-      }
-    });
-  }
-
-  gantt.config.columns = columns;
+  gantt.config.columns = qltdBuildGanttColumns();
 
   setGanttZoom(gantt, qltdGanttZoom);
 
