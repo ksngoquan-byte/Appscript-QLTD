@@ -1,9 +1,14 @@
 const cache = new Map();
 const pending = new Map();
+const milestoneByProject = new Map();
 const mutationWords = ['sync','save','update','create','delete','approve','reset','write','submit','confirm','cancel'];
 
 function actionOf(url) {
   try { return new URL(url).searchParams.get('action') || ''; } catch { return ''; }
+}
+
+function actionKey(url) {
+  return String(actionOf(url)).trim().toLowerCase();
 }
 
 function isApi(url) {
@@ -15,14 +20,89 @@ function isMutation(action) {
   return mutationWords.some((word) => value.includes(word));
 }
 
+function canonicalUrl(url) {
+  const parsed = new URL(url);
+  const entries = Array.from(parsed.searchParams.entries())
+    .filter(([key, value]) => key === 'action' || String(value || '').trim() !== '')
+    .sort(([aKey, aValue], [bKey, bValue]) => {
+      const byKey = aKey.localeCompare(bKey);
+      return byKey || String(aValue).localeCompare(String(bValue));
+    });
+  parsed.search = '';
+  entries.forEach(([key, value]) => parsed.searchParams.append(key, value));
+  return parsed.toString();
+}
+
+function cacheKey(method, url) {
+  return `${method}:${canonicalUrl(url)}`;
+}
+
 function ttlFor(action) {
-  if (action === 'listProjects') return 60000;
-  if (String(action).toLowerCase() === 'budget_getlivedashboard') return 120000;
+  const value = String(action).toLowerCase();
+  if (value === 'listprojects') return 60000;
+  if (value === 'budget_getlivedashboard') return 120000;
+  if (value === 'getmainmilestones') return 120000;
   return 15000;
 }
 
 function copy(entry) {
   return new Response(entry.body, { status: entry.status, headers: entry.headers });
+}
+
+function jsonResponse(payload, status = 200, headers = [['content-type', 'application/json']]) {
+  return new Response(JSON.stringify(payload), { status, headers });
+}
+
+function putCache(method, url, payload, ttlMs, status = 200, headers = [['content-type', 'application/json']]) {
+  cache.set(cacheKey(method, url), {
+    body: typeof payload === 'string' ? payload : JSON.stringify(payload),
+    status,
+    headers,
+    expiresAt: Date.now() + ttlMs
+  });
+}
+
+function seedProjectsFromBootstrap(url, bootstrap) {
+  if (!bootstrap || bootstrap.success === false || !Array.isArray(bootstrap.projects)) return;
+  const base = new URL(url);
+  const email = base.searchParams.get('email') || '';
+  const payload = {
+    success: true,
+    projects: bootstrap.projects,
+    apiStatus: bootstrap.apiStatus || 'CONNECTED',
+    source: bootstrap.source || 'users_and_projects_sheets'
+  };
+
+  const withEmail = new URL(url);
+  withEmail.searchParams.set('action', 'listProjects');
+  withEmail.searchParams.set('email', email);
+  putCache('GET', withEmail.toString(), payload, 60000);
+
+  const withoutEmail = new URL(url);
+  withoutEmail.searchParams.set('action', 'listProjects');
+  withoutEmail.searchParams.delete('email');
+  putCache('GET', withoutEmail.toString(), payload, 60000);
+}
+
+async function fetchProfileThroughBootstrap(originalFetch, input, init, url) {
+  const bootstrapUrl = new URL(url);
+  bootstrapUrl.searchParams.set('action', 'bootstrap');
+  const bootstrapResponse = await originalFetch(bootstrapUrl.toString(), init);
+  if (!bootstrapResponse.ok) return originalFetch(input, init);
+
+  let bootstrap;
+  try {
+    bootstrap = await bootstrapResponse.clone().json();
+  } catch (_error) {
+    return originalFetch(input, init);
+  }
+
+  if (!bootstrap || bootstrap.success === false || !bootstrap.profile) {
+    return jsonResponse(bootstrap || { success: false, message: 'BOOTSTRAP_INVALID' }, bootstrapResponse.status, Array.from(bootstrapResponse.headers.entries()));
+  }
+
+  seedProjectsFromBootstrap(url, bootstrap);
+  return jsonResponse(bootstrap.profile, bootstrapResponse.status, Array.from(bootstrapResponse.headers.entries()));
 }
 
 function seedDepartmentDashboards(url, body, status, headers) {
@@ -36,20 +116,32 @@ function seedDepartmentDashboards(url, body, status, headers) {
       const nextUrl = new URL(url);
       nextUrl.searchParams.set('deptCode', deptCode);
       nextUrl.searchParams.set('view', 'department');
-      nextUrl.searchParams.set('force', '');
+      nextUrl.searchParams.delete('force');
       const envelope = payload.data
         ? { ...payload, data: departmentData }
         : { ...payload, ...departmentData };
-      const key = `GET:${nextUrl.toString()}`;
-      cache.set(key, {
-        body: JSON.stringify(envelope),
-        status,
-        headers,
-        expiresAt: Date.now() + 120000
-      });
+      putCache('GET', nextUrl.toString(), envelope, 120000, status, headers);
     });
   } catch (_error) {
-    // Ignore optional cache seeding and keep normal response flow.
+    // Optional cache seeding must not affect the live response.
+  }
+}
+
+function seedMilestonesFromGantt(url, body) {
+  try {
+    const payload = JSON.parse(body);
+    if (!payload || payload.success === false) return;
+    const projectCode = String(payload.projectCode || new URL(url).searchParams.get('projectCode') || '').trim();
+    if (!projectCode) return;
+    milestoneByProject.set(projectCode, {
+      success: true,
+      ids: Array.isArray(payload.mainMilestoneIds) ? payload.mainMilestoneIds : [],
+      codes: Array.isArray(payload.mainMilestoneCodes) ? payload.mainMilestoneCodes : [],
+      source: payload.mainMilestoneSource || 'GOOGLE_SHEET',
+      projectCode
+    });
+  } catch (_error) {
+    // Optional cache seeding must not affect the Gantt response.
   }
 }
 
@@ -64,19 +156,30 @@ export function installApiReadCache(target = window) {
     if (!isApi(url)) return originalFetch(input, init);
 
     const action = actionOf(url);
-    if (action === 'health') {
-      return new Response(JSON.stringify({ success: true, service: 'QLTD_DEV_API', status: 'OK', clientBypass: true }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' }
-      });
+    const normalizedAction = actionKey(url);
+
+    if (normalizedAction === 'health') {
+      return jsonResponse({ success: true, service: 'QLTD_DEV_API', status: 'OK', clientBypass: true });
+    }
+
+    if (method === 'GET' && normalizedAction === 'profile') {
+      return fetchProfileThroughBootstrap(originalFetch, input, init, url);
+    }
+
+    if (method === 'GET' && normalizedAction === 'getmainmilestones') {
+      const projectCode = String(new URL(url).searchParams.get('projectCode') || '').trim();
+      if (projectCode && milestoneByProject.has(projectCode)) {
+        return jsonResponse(milestoneByProject.get(projectCode));
+      }
     }
 
     if (method !== 'GET' || isMutation(action)) {
       cache.clear();
+      milestoneByProject.clear();
       return originalFetch(input, init);
     }
 
-    const key = `${method}:${url}`;
+    const key = cacheKey(method, url);
     const hit = cache.get(key);
     if (hit && hit.expiresAt > Date.now()) return copy(hit);
     if (pending.has(key)) return (await pending.get(key)).clone();
@@ -91,8 +194,11 @@ export function installApiReadCache(target = window) {
           headers,
           expiresAt: Date.now() + ttlFor(action)
         });
-        if (String(action).toLowerCase() === 'budget_getlivedashboard') {
+        if (normalizedAction === 'budget_getlivedashboard') {
           seedDepartmentDashboards(url, body, response.status, headers);
+        }
+        if (normalizedAction === 'ganttdata') {
+          seedMilestonesFromGantt(url, body);
         }
       }
       return response;
