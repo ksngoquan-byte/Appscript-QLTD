@@ -1,0 +1,352 @@
+/* ENTIZ_LOGIN_V1 - Chỉ thay đổi giao diện trước đăng nhập, không đổi logic xác thực. */
+.auth-view--entiz {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  max-width: none;
+  min-height: 100vh;
+  min-height: 100svh;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
+  overflow: hidden;
+  color: #fff;
+  background: #132642;
+}
+
+.auth-view--entiz::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(90deg, rgba(8, 25, 49, .92) 0%, rgba(16, 39, 70, .80) 42%, rgba(16, 38, 66, .52) 72%, rgba(9, 25, 48, .74) 100%),
+    linear-gradient(180deg, rgba(7, 20, 40, .42) 0%, rgba(7, 20, 40, .08) 44%, rgba(7, 20, 40, .76) 100%),
+    url("https://entizgroup.com/upload/tf-tienich01tif-1920x.jpg") center 48% / cover no-repeat;
+  transform: scale(1.015);
+}
+
+.auth-view--entiz::after {
+  content: "";
+  position: absolute;
+  inset: auto -10% -42% 42%;
+  z-index: -1;
+  height: 70%;
+  background: radial-gradient(circle, rgba(241, 117, 35, .34) 0%, rgba(241, 117, 35, 0) 68%);
+  pointer-events: none;
+}
+
+.entiz-login-topbar,
+.entiz-login-content,
+.entiz-login-footer {
+  width: min(1320px, calc(100% - 64px));
+  margin: 0 auto;
+}
+
+.entiz-login-topbar {
+  min-height: 94px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .18);
+}
+
+.entiz-login-home {
+  display: inline-flex;
+  align-items: center;
+  min-height: 52px;
+  color: #fff;
+  text-decoration: none;
+}
+
+.entiz-login-logo {
+  display: block;
+  width: 150px;
+  height: auto;
+  filter: brightness(0) invert(1);
+}
+
+.entiz-login-environment {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 255, 255, .34);
+  border-radius: 999px;
+  background: rgba(8, 25, 49, .28);
+  color: rgba(255, 255, 255, .92);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+}
+
+.entiz-login-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
+  align-items: center;
+  gap: clamp(48px, 8vw, 128px);
+  padding: clamp(44px, 7vh, 92px) 0;
+}
+
+.entiz-login-hero {
+  max-width: 760px;
+  text-shadow: 0 4px 24px rgba(2, 12, 27, .34);
+}
+
+.entiz-login-kicker {
+  margin: 0 0 18px;
+  color: #f5a15d;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .20em;
+  text-transform: uppercase;
+}
+
+.entiz-login-hero h1 {
+  max-width: 760px;
+  margin: 0;
+  color: #fff;
+  font-size: clamp(48px, 6vw, 82px);
+  font-weight: 800;
+  line-height: .98;
+  letter-spacing: -.035em;
+}
+
+.entiz-login-description {
+  max-width: 670px;
+  margin: 24px 0 0;
+  color: rgba(255, 255, 255, .86);
+  font-size: clamp(16px, 1.5vw, 20px);
+  line-height: 1.65;
+}
+
+.entiz-login-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.entiz-login-capabilities span {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 999px;
+  background: rgba(8, 25, 49, .30);
+  color: rgba(255, 255, 255, .94);
+  font-size: 13px;
+  font-weight: 700;
+  backdrop-filter: blur(8px);
+}
+
+.entiz-login-card.login-card {
+  gap: 20px;
+  padding: 34px;
+  border: 1px solid rgba(255, 255, 255, .62);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 28px 80px rgba(4, 17, 34, .34);
+  backdrop-filter: blur(18px);
+}
+
+.entiz-card-logo {
+  width: 132px;
+  height: auto;
+}
+
+.entiz-login-card .login-heading {
+  gap: 8px;
+}
+
+.entiz-login-card .login-heading p {
+  margin: 0;
+  color: #ef7c2c;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.entiz-login-card .login-heading h2 {
+  color: #17213a;
+  font-size: 34px;
+  letter-spacing: -.02em;
+}
+
+.entiz-login-card .login-heading span {
+  color: #687386;
+  line-height: 1.5;
+}
+
+.entiz-login-card .google-button {
+  min-height: 50px;
+  border-radius: 10px;
+  background: #24326e;
+  box-shadow: 0 10px 24px rgba(36, 50, 110, .22);
+  transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+}
+
+.entiz-login-card .google-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #1c285d;
+  box-shadow: 0 14px 28px rgba(36, 50, 110, .28);
+}
+
+.entiz-login-card .google-button:focus-visible,
+.entiz-login-home:focus-visible,
+.entiz-login-footer a:focus-visible {
+  outline: 3px solid rgba(245, 161, 93, .72);
+  outline-offset: 3px;
+}
+
+.entiz-login-card .google-badge {
+  color: #24326e;
+}
+
+.entiz-login-card .status-text {
+  min-height: 20px;
+  color: #687386;
+  font-size: 13px;
+}
+
+.entiz-login-card .status-text[data-type="success"] {
+  color: #0f766e;
+}
+
+.entiz-login-access-note {
+  margin: -6px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid #e5e9f0;
+  color: #7a8494;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.entiz-login-footer {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.7fr) minmax(180px, .7fr) minmax(240px, 1fr);
+  gap: 30px;
+  padding: 22px 0 26px;
+  border-top: 1px solid rgba(255, 255, 255, .18);
+  color: rgba(255, 255, 255, .76);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.entiz-login-footer strong,
+.entiz-login-footer span,
+.entiz-login-footer a {
+  display: block;
+}
+
+.entiz-login-footer strong {
+  margin-bottom: 4px;
+  color: #fff;
+  font-size: 12px;
+}
+
+.entiz-login-footer a {
+  color: rgba(255, 255, 255, .86);
+  text-decoration: none;
+}
+
+.entiz-login-footer a:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .entiz-login-topbar,
+  .entiz-login-content,
+  .entiz-login-footer {
+    width: min(100% - 36px, 680px);
+  }
+
+  .entiz-login-content {
+    grid-template-columns: 1fr;
+    gap: 34px;
+    padding: 42px 0;
+  }
+
+  .entiz-login-hero {
+    text-align: center;
+  }
+
+  .entiz-login-description {
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .entiz-login-capabilities {
+    justify-content: center;
+  }
+
+  .entiz-login-card.login-card {
+    width: min(100%, 460px);
+    justify-self: center;
+  }
+
+  .entiz-login-footer {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .entiz-login-footer > div:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .entiz-login-topbar {
+    min-height: 76px;
+  }
+
+  .entiz-login-logo {
+    width: 122px;
+  }
+
+  .entiz-login-environment {
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 10px;
+  }
+
+  .entiz-login-content {
+    padding: 34px 0;
+  }
+
+  .entiz-login-hero h1 {
+    font-size: clamp(39px, 13vw, 54px);
+  }
+
+  .entiz-login-description {
+    font-size: 15px;
+  }
+
+  .entiz-login-card.login-card {
+    padding: 26px 22px;
+    border-radius: 14px;
+  }
+
+  .entiz-login-card .login-heading h2 {
+    font-size: 30px;
+  }
+
+  .entiz-login-footer {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .entiz-login-footer > div:first-child {
+    grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entiz-login-card .google-button {
+    transition: none;
+  }
+}

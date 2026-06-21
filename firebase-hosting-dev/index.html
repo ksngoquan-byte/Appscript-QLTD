@@ -7,38 +7,74 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com">
     <link rel="preconnect" href="https://cdn.dhtmlx.com">
+    <link rel="preconnect" href="https://entizgroup.com" crossorigin>
     <link rel="dns-prefetch" href="https://firebase.googleapis.com">
+    <link rel="dns-prefetch" href="https://entizgroup.com">
     <link rel="stylesheet" href="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.css">
     <link rel="stylesheet" href="./styles.css">
     <link rel="stylesheet" href="./dashboard_executive_v1.css">
     <link rel="stylesheet" href="./dashboard_executive_v3.css">
+    <link rel="stylesheet" href="./login-entiz.css?v=ENTIZ_LOGIN_V1">
   </head>
   <body>
     <main class="page">
-      <section id="loginView" class="auth-view">
-        <div class="brand-panel" aria-hidden="true">
-          <div class="brand-mark">QE</div>
+      <section id="loginView" class="auth-view auth-view--entiz" aria-labelledby="loginTitle">
+        <header class="entiz-login-topbar">
+          <a class="entiz-login-home" href="https://entizgroup.com" target="_blank" rel="noopener noreferrer" aria-label="Mở trang chủ Entiz Group">
+            <img class="entiz-login-logo" src="./assets/entiz-logo.svg" alt="Entiz - Think Beyond">
+          </a>
+          <span class="entiz-login-environment">QLTD • DEV</span>
+        </header>
+
+        <div class="entiz-login-content">
+          <div class="entiz-login-hero">
+            <p class="entiz-login-kicker">Entiz Group</p>
+            <h1>Hệ thống quản lý<br>tiến độ dự án</h1>
+            <p class="entiz-login-description">
+              Quản trị tập trung tiến độ, công việc, báo cáo và ngân sách dự án trên một nền tảng thống nhất.
+            </p>
+            <div class="entiz-login-capabilities" aria-label="Các phân hệ chính">
+              <span>Tiến độ &amp; Gantt</span>
+              <span>Báo cáo tuần</span>
+              <span>Ngân sách dự án</span>
+            </div>
+          </div>
+
+          <div class="login-card entiz-login-card">
+            <img class="entiz-card-logo" src="./assets/entiz-logo.svg" alt="">
+            <div class="login-heading">
+              <p>Đăng nhập hệ thống</p>
+              <h2 id="loginTitle">QLTD Entiz</h2>
+              <span>Sử dụng tài khoản Google đã được cấp quyền.</span>
+            </div>
+
+            <button id="signInButton" class="google-button" type="button">
+              <span class="google-badge" aria-hidden="true">G</span>
+              Đăng nhập bằng Google
+            </button>
+
+            <p id="loginStatus" class="status-text" role="status">Đang khởi tạo...</p>
+            <p class="entiz-login-access-note">
+              Hệ thống nội bộ ENTIZ. Mọi phiên truy cập được kiểm soát theo tài khoản và vai trò người dùng.
+            </p>
+          </div>
+        </div>
+
+        <footer class="entiz-login-footer">
           <div>
-            <p>Entiz DEV</p>
-            <h1>QLTD Entiz</h1>
-            <span>Cổng quản lý tiến độ dự án</span>
+            <strong>Trụ sở chính</strong>
+            <span>Số 16A Lê Hoàn, phường Trường Vinh, tỉnh Nghệ An</span>
           </div>
-        </div>
-
-        <div class="login-card">
-          <div class="login-heading">
-            <p>Đăng nhập</p>
-            <h2>QLTD Entiz</h2>
-            <span>Cổng quản lý tiến độ dự án</span>
+          <div>
+            <strong>Hotline</strong>
+            <a href="tel:0365995176">0365.995.176</a>
           </div>
-
-          <button id="signInButton" class="google-button" type="button">
-            <span class="google-badge">G</span>
-            Đăng nhập bằng Google
-          </button>
-
-          <p id="loginStatus" class="status-text" role="status">Đang khởi tạo...</p>
-        </div>
+          <div>
+            <strong>Liên hệ</strong>
+            <a href="mailto:chamsockhachhang@entizgroup.com">chamsockhachhang@entizgroup.com</a>
+            <a href="https://entizgroup.com" target="_blank" rel="noopener noreferrer">entizgroup.com</a>
+          </div>
+        </footer>
       </section>
 
       <section id="deniedView" class="auth-view hidden">
