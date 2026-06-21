@@ -10,6 +10,35 @@
       "*.log",
       "node_modules/**",
       ".git/**"
+    ],
+    "headers": [
+      {
+        "source": "**/*.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "**/*.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=3600, s-maxage=86400"
+          }
+        ]
+      },
+      {
+        "source": "**/*.css",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=3600, s-maxage=86400"
+          }
+        ]
+      }
     ]
   }
 }
