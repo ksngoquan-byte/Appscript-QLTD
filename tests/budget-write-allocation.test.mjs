@@ -299,9 +299,47 @@ function expectWriteError(options, code, payloadOverrides = {}) {
   assert.equal(context.qltdBudgetGetCell_(rawRow, headerMap, 'Ma khoan ngan sach', ''), 'BI1');
   assert.equal(context.qltdBudgetGetCell_(rawRow, headerMap, 'Ma phan bo', ''), 'A1');
   assert.equal(context.qltdBudgetGetCell_(rawRow, headerMap, 'Huong dong tien', ''), 'CHI');
+  assert.equal(context.qltdBudgetGetCell_(rawRow, headerMap, 'Loai ban ghi', ''), 'PLAN_MONTH');
   assert.equal(context.qltdBudgetGetCell_(rawRow, headerMap, 'Trang thai xac nhan', ''), CONFIRMED_LABEL);
   assert.equal(context.qltdBudgetGetCell_(rawRow, headerMap, 'Nguoi xac nhan', ''), 'admin@example.com');
   assert.notEqual(context.qltdBudgetGetCell_(rawRow, headerMap, 'Thoi diem xac nhan', ''), '');
+}
+
+function submitAndReadRecordType(operation, payloadOverrides) {
+  const { context, central } = buildContext();
+  const payload = basePayload(payloadOverrides);
+  const result = operation === 'ACTUAL'
+    ? context.qltdBudgetSubmitActual_(payload)
+    : context.qltdBudgetSubmitPlan_(payload);
+  assert.equal(result.success, true);
+  const raw = central.getSheetByName('CENTRAL_NS_Raw');
+  const headerMap = context.qltdBudgetBuildHeaderMap_(RAW_HEADERS);
+  return context.qltdBudgetGetCell_(raw.rows[4], headerMap, 'Loai ban ghi', '');
+}
+
+{
+  const recordTypes = [
+    submitAndReadRecordType('PLAN', { requestId: 'REQRECORD01', periodType: 'MONTH', periodCode: '2026-06' }),
+    submitAndReadRecordType('PLAN', { requestId: 'REQRECORD02', periodType: 'WEEK', periodCode: '2026-W25' }),
+    submitAndReadRecordType('ACTUAL', { requestId: 'REQRECORD03', periodType: 'MONTH', periodCode: '2026-06' }),
+    submitAndReadRecordType('ACTUAL', { requestId: 'REQRECORD04', periodType: 'WEEK', periodCode: '2026-W25' })
+  ];
+  assert.deepEqual(recordTypes, ['PLAN_MONTH', 'PLAN_WEEK', 'PERFORMANCE_ACTUAL', 'PERFORMANCE_ACTUAL']);
+  assert.equal(recordTypes.includes('PLAN'), false);
+  assert.equal(recordTypes.includes('ACTUAL'), false);
+}
+
+{
+  const { context, central, deptSheet } = buildContext();
+  const result = context.qltdBudgetSubmitPlan_(basePayload({
+    requestId: 'REQRECORD05',
+    periodType: 'QUARTER',
+    periodCode: '2026-Q2'
+  }));
+  assert.equal(result.success, false);
+  assert.equal(result.errors[0].code, 'BUDGET_RECORD_TYPE_INVALID');
+  assert.equal(central.getSheetByName('CENTRAL_NS_Raw').getLastRow(), 4);
+  assert.equal(deptSheet.getCell(5, 3), 0);
 }
 
 expectWriteError({ allocations: [] }, 'ALLOCATION_NOT_FOUND');

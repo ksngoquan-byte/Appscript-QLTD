@@ -36,7 +36,14 @@ function qltdBudgetSubmitWrite_(payload, operation, action) {
   resolved.operation = operation;
   const resolvedGuard = qltdBudgetValidateResolvedWriteContext_(resolved, action, meta);
   if (resolvedGuard.error) return resolvedGuard.error;
-  qltdBudgetApplyAllocationContextToResolved_(resolved, allocationWrite.context, guard.email);
+  const recordType = qltdBudgetResolveRecordType_(resolved.operation, resolved.periodType);
+  if (recordType.error) {
+    return qltdBudgetWriteError_(action, recordType.error.code, recordType.error.message, Object.assign({}, meta, {
+      operation: resolved.operation,
+      periodType: resolved.periodType
+    }));
+  }
+  qltdBudgetApplyAllocationContextToResolved_(resolved, allocationWrite.context, guard.email, recordType.value);
   const writeWarnings = (resolveResult.warnings || []).concat(allocationWrite.context.warnings || []);
 
   const lock = LockService.getScriptLock();
@@ -430,7 +437,28 @@ function qltdBudgetApplyBudgetItemPayloadDefaults_(payload, context) {
   payload.flowType = context && context.flowType || item.flowType || '';
 }
 
-function qltdBudgetApplyAllocationContextToResolved_(resolved, context, confirmedBy) {
+function qltdBudgetResolveRecordType_(operation, periodType) {
+  const normalizedOperation = String(operation || '').trim().toUpperCase();
+  const normalizedPeriodType = String(periodType || '').trim().toUpperCase();
+  if (normalizedOperation === 'PLAN' && normalizedPeriodType === 'MONTH') {
+    return { value: 'PLAN_MONTH', error: null };
+  }
+  if (normalizedOperation === 'PLAN' && normalizedPeriodType === 'WEEK') {
+    return { value: 'PLAN_WEEK', error: null };
+  }
+  if (normalizedOperation === 'ACTUAL') {
+    return { value: 'PERFORMANCE_ACTUAL', error: null };
+  }
+  return {
+    value: '',
+    error: {
+      code: 'BUDGET_RECORD_TYPE_INVALID',
+      message: 'Khong map duoc Loai ban ghi tu operation va periodType.'
+    }
+  };
+}
+
+function qltdBudgetApplyAllocationContextToResolved_(resolved, context, confirmedBy, recordType) {
   const item = context && context.item || {};
   const allocation = context && context.allocation || {};
   const preview = resolved.centralRawPreview || {};
@@ -443,7 +471,7 @@ function qltdBudgetApplyAllocationContextToResolved_(resolved, context, confirme
   preview['Ma phan bo'] = resolved.allocationCode;
   preview['Ma cong viec chi tiet PB'] = resolved.pbTaskCode;
   preview['Huong dong tien'] = resolved.flowType;
-  preview['Loai ban ghi'] = resolved.operation || '';
+  preview['Loai ban ghi'] = recordType;
   preview['Nguoi xac nhan'] = resolved.confirmedBy;
   preview['Thoi diem xac nhan'] = confirmedAt;
   resolved.centralRawPreview = preview;
