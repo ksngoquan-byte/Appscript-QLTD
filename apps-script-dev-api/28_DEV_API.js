@@ -41,6 +41,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdBudgetGetTaskBudgetMap_(params));
   }
 
+  if (action === 'budget_syncapprovedtaskbudgets') {
+    return qltdDevApiJson_(qltdBudgetSyncApprovedTaskBudgets_(params));
+  }
+
   if (action === 'budget_getsummary') {
     return qltdDevApiJson_(qltdBudgetGetSummary_(params));
   }
@@ -212,6 +216,10 @@ function qltdDevApiHandlePost_(e) {
 
   if (action === 'budget_upsertallocation') {
     return qltdDevApiJson_(qltdBudgetUpsertAllocation_(payload));
+  }
+
+  if (action === 'budget_syncapprovedtaskbudgets') {
+    return qltdDevApiJson_(qltdBudgetSyncApprovedTaskBudgets_(payload));
   }
 
   if (action === 'work_assigntask') {
