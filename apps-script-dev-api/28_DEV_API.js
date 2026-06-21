@@ -41,6 +41,14 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdBudgetGetBudgetItems_(params));
   }
 
+  if (action === 'budget_getallocations') {
+    return qltdDevApiJson_(qltdBudgetGetAllocations_(params));
+  }
+
+  if (action === 'budget_checkallocation') {
+    return qltdDevApiJson_(qltdBudgetCheckAllocation_(params));
+  }
+
   if (action === 'budget_checktwolayerschema') {
     return qltdDevApiJson_(qltdBudgetCheckTwoLayerSchema_(params));
   }
@@ -188,6 +196,14 @@ function qltdDevApiHandlePost_(e) {
 
   if (action === 'budget_rebuildaggregates') {
     return qltdDevApiJson_(qltdBudgetRebuildAggregates_(payload));
+  }
+
+  if (action === 'budget_checkallocation') {
+    return qltdDevApiJson_(qltdBudgetCheckAllocation_(payload));
+  }
+
+  if (action === 'budget_upsertallocation') {
+    return qltdDevApiJson_(qltdBudgetUpsertAllocation_(payload));
   }
 
   if (action === 'work_assigntask') {

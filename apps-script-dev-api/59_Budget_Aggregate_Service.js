@@ -551,12 +551,14 @@ function qltdBudgetSummaryToRow_(row) {
   return [row.projectCode, row.projectName, row.periodType, row.periodCode, standalone ? '' : row.masterTaskCode,
     standalone ? '' : row.wbs, standalone ? row.budgetItemName : row.taskName, row.deptName, row.totalBudget,
     row.plan, row.actual, row.cumulative, row.remaining, row.usageRate, row.warning, row.updatedAt,
-    row.budgetItemCode, row.budgetItemName, row.budgetType, row.budgetGroup, row.budgetStage, standalone ? 'FALSE' : 'TRUE'];
+    row.budgetItemCode, row.budgetItemName, row.budgetType, row.budgetGroup, row.budgetStage, standalone ? 'FALSE' : 'TRUE',
+    '', '', '', '', '', ''];
 }
 
 function qltdBudgetDashboardToRow_(row) {
   return [row.metricGroup, row.metricName, row.projectCode, row.projectName, row.periodType, row.periodCode,
-    row.value, row.unit, row.updatedAt, row.note, row.deptCode, row.deptName, row.budgetType, row.budgetGroup, row.budgetItemCode];
+    row.value, row.unit, row.updatedAt, row.note, row.deptCode, row.deptName, row.budgetType, row.budgetGroup, row.budgetItemCode,
+    '', '', '', ''];
 }
 
 function qltdBudgetAggregateDateMs_(value) {

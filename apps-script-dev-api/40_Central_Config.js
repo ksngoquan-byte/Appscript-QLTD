@@ -4,6 +4,7 @@ const QLTD_BUDGET_ITEMS_SOURCE = 'budget_items_v1';
 const QLTD_BUDGET_SCHEMA_SOURCE = 'budget_schema_v1';
 const QLTD_BUDGET_WRITE_SOURCE = 'budget_write_v1';
 const QLTD_BUDGET_REBUILD_SOURCE = 'budget_rebuild_v1';
+const QLTD_BUDGET_ALLOCATION_SOURCE = 'budget_allocation_v1';
 const QLTD_BUDGET_WRITE_ENABLED = true;
 const QLTD_BUDGET_WRITE_ADMIN_ONLY = true;
 const QLTD_BUDGET_WRITE_CONFIRM_TOKEN = 'YES_WRITE_BUDGET';
@@ -71,6 +72,7 @@ const QLTD_BUDGET_SHEET = {
   USERS: 'Users',
   CENTRAL_RAW: 'CENTRAL_NS_Raw',
   CENTRAL_ITEMS: 'CENTRAL_NS_Items',
+  CENTRAL_ALLOCATIONS: 'CENTRAL_NS_Allocations',
   CENTRAL_DASHBOARD: 'CENTRAL_NS_Dashboard',
   CENTRAL_SUMMARY: 'CENTRAL_NS_Tong_hop',
   SYS_SYNC_LOG: 'SYS_Sync_Log'
@@ -134,7 +136,15 @@ const QLTD_BUDGET_CENTRAL_RAW_HEADERS = [
   'Loai ngan sach',
   'Nhom ngan sach',
   'Giai doan ngan sach',
-  'Yeu cau ma cong viec Master'
+  'Yeu cau ma cong viec Master',
+  'Ma phan bo',
+  'Ma cong viec chi tiet PB',
+  'Huong dong tien',
+  'Loai ban ghi',
+  'Ma ky cha',
+  'Gia tri thuc thu/chi ky nay',
+  'Nguoi xac nhan',
+  'Thoi diem xac nhan'
 ];
 
 const QLTD_BUDGET_CENTRAL_RAW_TWO_LAYER_HEADERS = [
@@ -159,13 +169,16 @@ const QLTD_BUDGET_CENTRAL_SUMMARY_HEADERS = [
   'Cong viec', 'Phong/Ban', 'Ngan sach tong the', 'Ke hoach ky', 'Thuc hien ky',
   'Thuc hien luy ke', 'Con lai', 'Ty le su dung', 'Canh bao', 'Cap nhat cuoi',
   'Ma khoan ngan sach', 'Ten khoan ngan sach', 'Loai ngan sach', 'Nhom ngan sach',
-  'Giai doan ngan sach', 'Yeu cau ma cong viec Master'
+  'Giai doan ngan sach', 'Yeu cau ma cong viec Master', 'Ma phan bo',
+  'Ma cong viec chi tiet PB', 'Huong dong tien', 'Thuc thu/chi ky',
+  'Thuc thu/chi luy ke', 'Chua thu/chua chi'
 ];
 
 const QLTD_BUDGET_CENTRAL_DASHBOARD_HEADERS = [
   'Nhom chi tieu', 'Chi tieu', 'Ma du an', 'Ten du an', 'Loai ky', 'Ma ky',
   'Gia tri', 'Don vi', 'Cap nhat cuoi', 'Ghi chu', 'Ma phong/ban', 'Phong/Ban',
-  'Loai ngan sach', 'Nhom ngan sach', 'Ma khoan ngan sach'
+  'Loai ngan sach', 'Nhom ngan sach', 'Ma khoan ngan sach', 'Huong dong tien',
+  'Ma phan bo', 'Ma cong viec Master', 'Ma cong viec chi tiet PB'
 ];
 
 const QLTD_BUDGET_ITEMS_HEADERS = [
@@ -180,6 +193,22 @@ const QLTD_BUDGET_ITEMS_HEADERS = [
   'Nhom ngan sach',
   'Giai doan ngan sach',
   'Ngan sach duoc duyet',
+  'Trang thai',
+  'Ghi chu',
+  'Ma phan bo',
+  'Ma cong viec chi tiet PB',
+  'Huong dong tien'
+];
+
+const QLTD_BUDGET_ALLOCATIONS_HEADERS = [
+  'Ma phan bo',
+  'Ma du an',
+  'Loai nguon ngan sach',
+  'Ma nguon ngan sach',
+  'Ma phong/ban',
+  'Ten phong/ban',
+  'Huong dong tien',
+  'Gia tri giao',
   'Trang thai',
   'Ghi chu'
 ];
@@ -219,6 +248,13 @@ const QLTD_BUDGET_SHEET_SCHEMAS = {
     title: 'DANH MUC KHOAN NGAN SACH',
     description: 'Danh muc khoan ngan sach dung cho ngan sach gan tien do va ngan sach doc lap phong/ban.',
     requiredHeaders: QLTD_BUDGET_ITEMS_HEADERS
+  },
+  CENTRAL_NS_Allocations: {
+    sheetName: 'CENTRAL_NS_Allocations',
+    headerRow: 4,
+    title: 'PHAN BO NGAN SACH TRUNG TAM',
+    description: 'Danh sach phan bo nguon ngan sach Master ve phong/ban.',
+    requiredHeaders: QLTD_BUDGET_ALLOCATIONS_HEADERS
   }
 };
 

@@ -94,6 +94,23 @@ function qltdBudgetNormalizeAmount_(value) {
   };
 }
 
+function qltdBudgetNormalizeSourceAmount_(value) {
+  const amount = qltdBudgetNormalizeAmount_(value);
+  if (amount.error) {
+    return {
+      value: null,
+      error: {
+        code: 'ALLOCATION_SOURCE_AMOUNT_INVALID',
+        message: 'Gia tri nguon ngan sach khong hop le.'
+      }
+    };
+  }
+  return {
+    value: amount.value,
+    error: null
+  };
+}
+
 function qltdBudgetNormalizePeriodType_(value) {
   const normalized = qltdBudgetNormalizeKey_(value);
   const map = {
@@ -146,4 +163,113 @@ function qltdBudgetNormalizeBudgetType_(value) {
     value: map[normalized],
     error: null
   };
+}
+
+function qltdBudgetNormalizeAllocationSourceType_(value) {
+  const normalized = qltdBudgetNormalizeKey_(value);
+  const map = {
+    taskdirect: 'TASK_DIRECT',
+    task: 'TASK_DIRECT',
+    congviec: 'TASK_DIRECT',
+    chitietcongviec: 'TASK_DIRECT',
+    nontask: 'NON_TASK',
+    khonggancongviec: 'NON_TASK',
+    nguonkhonggancongviec: 'NON_TASK'
+  };
+
+  if (!normalized || !map[normalized]) {
+    return {
+      value: '',
+      error: {
+        code: 'ALLOCATION_SOURCE_TYPE_INVALID',
+        message: 'Loai nguon ngan sach khong hop le.'
+      }
+    };
+  }
+
+  return {
+    value: map[normalized],
+    error: null
+  };
+}
+
+function qltdBudgetNormalizeFlowType_(value) {
+  const normalized = qltdBudgetNormalizeKey_(value);
+  const map = {
+    thu: 'THU',
+    chi: 'CHI'
+  };
+
+  if (!normalized || !map[normalized]) {
+    return {
+      value: '',
+      error: {
+        code: 'ALLOCATION_FLOW_MISMATCH',
+        message: 'Huong dong tien khong hop le.'
+      }
+    };
+  }
+
+  return {
+    value: map[normalized],
+    error: null
+  };
+}
+
+function qltdBudgetNormalizeAllocationStatus_(value) {
+  const normalized = qltdBudgetNormalizeKey_(value || 'Nháp');
+  const map = {
+    draft: 'DRAFT',
+    nhap: 'DRAFT',
+    confirmed: 'CONFIRMED',
+    dachot: 'CONFIRMED',
+    daxacnhan: 'CONFIRMED',
+    cancelled: 'CANCELLED',
+    canceled: 'CANCELLED',
+    huy: 'CANCELLED'
+  };
+
+  if (!normalized || !map[normalized]) {
+    return {
+      value: '',
+      error: {
+        code: 'ALLOCATION_STATUS_INVALID',
+        message: 'Trang thai phan bo khong hop le.'
+      }
+    };
+  }
+
+  return {
+    value: map[normalized],
+    error: null
+  };
+}
+
+function qltdBudgetGetAllocationStatusSheetLabel_(status) {
+  const normalized = qltdBudgetNormalizeAllocationStatus_(status).value || String(status || '').trim().toUpperCase();
+  const map = {
+    DRAFT: 'Nháp',
+    CONFIRMED: 'Đã chốt',
+    CANCELLED: 'Hủy'
+  };
+  return map[normalized] || '';
+}
+
+function qltdBudgetNormalizeMasterBudgetStatus_(value) {
+  const normalized = qltdBudgetNormalizeKey_(value);
+  const map = {
+    nhap: 'DRAFT',
+    draft: 'DRAFT',
+    dachot: 'CONFIRMED',
+    confirmed: 'CONFIRMED',
+    khoa: 'LOCKED',
+    locked: 'LOCKED'
+  };
+
+  return map[normalized] || '';
+}
+
+function qltdBudgetIsMasterBudgetSourceReady_(status) {
+  const normalized = qltdBudgetNormalizeMasterBudgetStatus_(status);
+  return normalized === 'CONFIRMED' || normalized === 'LOCKED';
 }

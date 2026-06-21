@@ -49,6 +49,7 @@ function qltdBudgetCheckTwoLayerSchema_(params) {
     centralRaw: result.centralRaw,
     centralSummary: result.centralSummary,
     centralDashboard: result.centralDashboard,
+    centralAllocations: result.centralAllocations,
     syncLog: result.syncLog,
     sheets: result.sheets,
     canApplySetup: result.canApplySetup,
@@ -71,6 +72,7 @@ function qltdBudgetSetupTwoLayerSchemaDryRun_(params) {
     centralRaw: result.centralRaw,
     centralSummary: result.centralSummary,
     centralDashboard: result.centralDashboard,
+    centralAllocations: result.centralAllocations,
     syncLog: result.syncLog,
     sheets: result.sheets
   }, result.warnings, [], meta);
@@ -82,14 +84,16 @@ function qltdBudgetInspectTwoLayerSchema_() {
   const rawInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.CENTRAL_RAW, warnings);
   const summaryInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.CENTRAL_SUMMARY, warnings);
   const dashboardInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.CENTRAL_DASHBOARD, warnings);
+  const allocationsInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.CENTRAL_ALLOCATIONS, warnings);
   const syncLogInfo = qltdBudgetInspectSheetHeaders_(QLTD_BUDGET_SHEET.SYS_SYNC_LOG, warnings);
-  const sheets = [itemsInfo, rawInfo, summaryInfo, dashboardInfo, syncLogInfo];
+  const sheets = [itemsInfo, rawInfo, summaryInfo, dashboardInfo, allocationsInfo, syncLogInfo];
 
   return {
     itemsSheet: itemsInfo,
     centralRaw: rawInfo,
     centralSummary: summaryInfo,
     centralDashboard: dashboardInfo,
+    centralAllocations: allocationsInfo,
     syncLog: syncLogInfo,
     sheets: sheets,
     canApplySetup: sheets.every(function(info) {
@@ -229,32 +233,51 @@ function qltdBudgetReadBudgetItems_() {
     }));
   }
 
+  const items = parsed.rows.map(function(item) {
+    const row = item.raw;
+    const budgetType = qltdBudgetNormalizeBudgetType_(qltdBudgetGetCell_(row, parsed.headerMap, 'Loai ngan sach', '')).value || '';
+    const approvedBudgetRaw = qltdBudgetGetCell_(row, parsed.headerMap, 'Ngan sach duoc duyet', '');
+    return {
+      budgetItemCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma khoan ngan sach', '') || '').trim(),
+      projectCode: qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma du an', '')),
+      projectName: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ten du an', '') || '').trim(),
+      deptCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma phong/ban', '') || '').trim(),
+      deptName: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ten phong/ban', '') || '').trim(),
+      budgetItemName: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ten khoan ngan sach', '') || '').trim(),
+      budgetType: budgetType,
+      masterTaskCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma cong viec Master', '') || '').trim(),
+      budgetGroup: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Nhom ngan sach', '') || '').trim(),
+      budgetStage: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Giai doan ngan sach', '') || '').trim(),
+      approvedBudget: qltdBudgetToNumber_(approvedBudgetRaw),
+      hasApprovedBudget: String(approvedBudgetRaw === null || approvedBudgetRaw === undefined ? '' : approvedBudgetRaw).replace(/[,\s]/g, '').trim() !== '' &&
+        !isNaN(Number(String(approvedBudgetRaw).replace(/[,\s]/g, ''))),
+      status: qltdBudgetNormalizeStatus_(qltdBudgetGetCell_(row, parsed.headerMap, 'Trang thai', 'ACTIVE')),
+      allocationCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma phan bo', '') || '').trim(),
+      pbTaskCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma cong viec chi tiet PB', '') || '').trim(),
+      flowType: qltdBudgetNormalizeFlowType_(qltdBudgetGetCell_(row, parsed.headerMap, 'Huong dong tien', '')).value || '',
+      note: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ghi chu', '') || '').trim(),
+      rowNumber: item.rowNumber
+    };
+  }).filter(function(item) {
+    return !!item.budgetItemCode;
+  });
+
+  items.forEach(function(item) {
+    if (item.status !== 'ACTIVE') return;
+    const missing = [];
+    if (!item.allocationCode) missing.push('allocationCode');
+    if (!item.flowType) missing.push('flowType');
+    if (missing.length) {
+      warnings.push(qltdBudgetWarning_('BUDGET_ITEM_ALLOCATION_FIELDS_MISSING', 'Khoan ngan sach active thieu truong allocation/flow moi.', {
+        rowNumber: item.rowNumber,
+        budgetItemCode: item.budgetItemCode,
+        missingFields: missing
+      }));
+    }
+  });
+
   return {
-    items: parsed.rows.map(function(item) {
-      const row = item.raw;
-      const budgetType = qltdBudgetNormalizeBudgetType_(qltdBudgetGetCell_(row, parsed.headerMap, 'Loai ngan sach', '')).value || '';
-      const approvedBudgetRaw = qltdBudgetGetCell_(row, parsed.headerMap, 'Ngan sach duoc duyet', '');
-      return {
-        budgetItemCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma khoan ngan sach', '') || '').trim(),
-        projectCode: qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma du an', '')),
-        projectName: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ten du an', '') || '').trim(),
-        deptCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma phong/ban', '') || '').trim(),
-        deptName: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ten phong/ban', '') || '').trim(),
-        budgetItemName: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ten khoan ngan sach', '') || '').trim(),
-        budgetType: budgetType,
-        masterTaskCode: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ma cong viec Master', '') || '').trim(),
-        budgetGroup: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Nhom ngan sach', '') || '').trim(),
-        budgetStage: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Giai doan ngan sach', '') || '').trim(),
-        approvedBudget: qltdBudgetToNumber_(approvedBudgetRaw),
-        hasApprovedBudget: String(approvedBudgetRaw === null || approvedBudgetRaw === undefined ? '' : approvedBudgetRaw).replace(/[,\s]/g, '').trim() !== '' &&
-          !isNaN(Number(String(approvedBudgetRaw).replace(/[,\s]/g, ''))),
-        status: qltdBudgetNormalizeStatus_(qltdBudgetGetCell_(row, parsed.headerMap, 'Trang thai', 'ACTIVE')),
-        note: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Ghi chu', '') || '').trim(),
-        rowNumber: item.rowNumber
-      };
-    }).filter(function(item) {
-      return !!item.budgetItemCode;
-    }),
+    items: items,
     warnings: warnings
   };
 }
