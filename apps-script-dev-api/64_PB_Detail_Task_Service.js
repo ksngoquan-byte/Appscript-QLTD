@@ -175,8 +175,8 @@ function qltdPbDetailWriteWithLock_(action, payload, handler) {
 
   const context = qltdPbDetailResolveContext_(action, payload || {}, meta);
   if (context.error) return context.error;
-  if (!qltdWorkCanManageDept_(auth.user, context.deptCode)) {
-    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'PERMISSION_DENIED', 'User cannot manage this dept.', context.meta, context.warnings);
+  if (!qltdWorkCanWriteDeptData_(auth.user, context.deptCode)) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'PERMISSION_DENIED', 'User cannot write detail tasks in this dept.', context.meta, context.warnings);
   }
 
   const lock = LockService.getScriptLock();

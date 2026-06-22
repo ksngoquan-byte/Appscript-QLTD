@@ -1,0 +1,399 @@
+body.qltd-registration-open {
+  overflow: hidden;
+}
+
+.qltd-registration-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(7, 20, 31, 0.78);
+  backdrop-filter: blur(8px);
+}
+
+.qltd-registration-card {
+  width: min(960px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.34);
+  color: #172033;
+}
+
+.qltd-registration-card--compact {
+  width: min(480px, 100%);
+  padding: 36px;
+  text-align: center;
+}
+
+.qltd-registration-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 30px 34px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.qltd-registration-brand {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 11px;
+  border-radius: 6px;
+  background: #0f766e;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.qltd-registration-header h1,
+.qltd-registration-card--compact h1 {
+  margin: 14px 0 8px;
+  color: #0f172a;
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+.qltd-registration-header p,
+.qltd-registration-card--compact p {
+  max-width: 680px;
+  margin: 0;
+  color: #64748b;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.qltd-registration-signout,
+.qltd-registration-secondary {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
+.qltd-registration-state-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin: 18px auto 0;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 30px;
+  font-weight: 900;
+}
+
+.qltd-registration-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 24px 34px 0;
+  padding: 14px 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.qltd-registration-avatar {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e2e8f0;
+}
+
+.qltd-registration-identity div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.qltd-registration-identity strong,
+.qltd-registration-identity span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qltd-registration-identity div span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.qltd-registration-identity > span {
+  margin-left: auto;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+#qltdSelfRegistrationForm {
+  padding: 24px 34px 30px;
+}
+
+.qltd-registration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.qltd-registration-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.qltd-registration-field > span,
+.qltd-registration-role-fieldset legend {
+  color: #334155;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.qltd-registration-field b,
+.qltd-registration-role-fieldset b {
+  color: #dc2626;
+}
+
+.qltd-registration-field input,
+.qltd-registration-field select {
+  width: 100%;
+  min-height: 46px;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.qltd-registration-field input:focus,
+.qltd-registration-field select:focus {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.13);
+}
+
+.qltd-registration-field input[readonly] {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.qltd-registration-field small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.qltd-registration-role-fieldset {
+  margin: 22px 0;
+  padding: 0;
+  border: 0;
+}
+
+.qltd-registration-role-fieldset legend {
+  margin-bottom: 10px;
+}
+
+.qltd-registration-role-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.qltd-registration-role-card {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  min-height: 118px;
+  padding: 16px;
+  border: 1px solid #dbe3ed;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.qltd-registration-role-card:hover {
+  transform: translateY(-1px);
+  border-color: #5eead4;
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.09);
+}
+
+.qltd-registration-role-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.qltd-registration-role-card:has(input:checked) {
+  border-color: #0f766e;
+  background: #f0fdfa;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.12);
+}
+
+.qltd-registration-role-check {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #94a3b8;
+  border-radius: 50%;
+}
+
+.qltd-registration-role-card:has(input:checked) .qltd-registration-role-check {
+  border: 5px solid #0f766e;
+  background: #ffffff;
+}
+
+.qltd-registration-role-card strong {
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.qltd-registration-role-card small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.qltd-registration-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 13px 14px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #7c2d12;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.qltd-registration-confirm input {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  accent-color: #0f766e;
+}
+
+.qltd-registration-message {
+  min-height: 22px;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.qltd-registration-message[data-type="error"] {
+  color: #b91c1c;
+}
+
+.qltd-registration-message[data-type="success"] {
+  color: #047857;
+}
+
+.qltd-registration-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 8px;
+  padding-top: 18px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.qltd-registration-actions > span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.qltd-registration-primary {
+  min-height: 46px;
+  border: 0;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  padding: 11px 20px;
+  box-shadow: 0 10px 22px rgba(15, 118, 110, 0.22);
+}
+
+.qltd-registration-primary:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.qltd-dept-scope-notice {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 760px) {
+  .qltd-registration-overlay {
+    padding: 10px;
+  }
+
+  .qltd-registration-card {
+    max-height: calc(100vh - 20px);
+  }
+
+  .qltd-registration-header {
+    padding: 22px 20px 18px;
+  }
+
+  .qltd-registration-identity {
+    margin: 18px 20px 0;
+  }
+
+  #qltdSelfRegistrationForm {
+    padding: 20px;
+  }
+
+  .qltd-registration-grid,
+  .qltd-registration-role-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .qltd-registration-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .qltd-registration-primary {
+    width: 100%;
+  }
+
+  .qltd-registration-identity > span {
+    display: none;
+  }
+}

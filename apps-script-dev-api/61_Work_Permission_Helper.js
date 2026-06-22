@@ -131,6 +131,15 @@ function qltdWorkCanReadDept_(user, deptCode) {
   return false;
 }
 
+function qltdWorkCanWriteDeptData_(user, deptCode) {
+  const role = qltdWorkNormalizeRole_(user && user.role);
+  if (qltdWorkIsAdminScope_(user)) return true;
+  if (role === 'EDITOR' || role === 'REPORTER') {
+    return qltdWorkSameDept_(user, deptCode);
+  }
+  return false;
+}
+
 function qltdWorkCanWriteTask_(user, deptCode) {
   return qltdWorkCanManageDept_(user, deptCode);
 }
