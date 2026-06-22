@@ -74,6 +74,18 @@ assert.equal((appSource.match(/onAuthStateChanged\(auth/g) || []).length, 1, 'ap
 assert.doesNotMatch(registrationSource, /onAuthStateChanged/, 'registration module must consume the shared auth event');
 assert.match(appSource, /auth\.languageCode\s*=\s*['"]vi['"]/, 'Firebase Auth language must be Vietnamese');
 assert.match(registrationSource, /let registrationInFlight = false;/, 'registration submit must have an in-flight guard');
+assert.match(registrationSource, /user\.getIdToken\(true\)/, 'self-registration submit must force-refresh an ID token from the authenticated user');
+assert.match(
+  registrationSource,
+  /action:\s*['"]user_register['"][\s\S]*?email:\s*user\.email\s*\|\|\s*['"][\s\S]*?idToken,/,
+  'user_register payload must include the Firebase ID token'
+);
+assert.match(
+  registrationSource,
+  /Không thể xác minh phiên đăng nhập Google\. Vui lòng đăng xuất và đăng nhập lại\./,
+  'token failures must show a clear Vietnamese message'
+);
+assert.doesNotMatch(registrationSource, /console\.(log|warn|error)\([^)]*idToken/i, 'registration code must not log token values');
 assert.match(indexSource, /<html lang="vi">/);
 assert.match(indexSource, /<meta charset="utf-8">/);
 for (const phrase of ['Hoàn tất thông tin tài khoản', 'Đăng xuất', 'Đã xác thực Google', 'Họ và tên', 'Hoàn tất đăng ký']) {

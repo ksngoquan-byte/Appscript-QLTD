@@ -237,9 +237,24 @@ function renderRegistration(user, options) {
     submitButton.textContent = 'Đang tạo tài khoản...';
 
     try {
+      let idToken = '';
+      try {
+        if (!user || typeof user.getIdToken !== 'function') {
+          throw new Error('MISSING_AUTH_USER');
+        }
+        idToken = await user.getIdToken(true);
+      } catch (tokenError) {
+        console.warn('[QLTD] Cannot read Firebase ID token for registration', { code: tokenError?.code || '' });
+        throw new Error('Không thể xác minh phiên đăng nhập Google. Vui lòng đăng xuất và đăng nhập lại.');
+      }
+      if (!idToken) {
+        throw new Error('Không thể xác minh phiên đăng nhập Google. Vui lòng đăng xuất và đăng nhập lại.');
+      }
+
       const result = await postJson({
         action: 'user_register',
         email: user.email || '',
+        idToken,
         displayName: form.elements.displayName.value,
         jobGroup: form.elements.jobGroup.value,
         deptCode: deptSelect.disabled ? '' : deptSelect.value,
