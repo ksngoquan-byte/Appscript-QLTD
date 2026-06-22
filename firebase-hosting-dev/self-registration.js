@@ -1,7 +1,6 @@
 import { getApps } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js';
 import {
   getAuth,
-  onAuthStateChanged,
   signOut
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js';
 
@@ -103,7 +102,7 @@ function renderBlockingState({ title, message, allowSignOut = true }) {
       <div class="qltd-registration-state-icon">!</div>
       <h1 id="qltdRegistrationTitle">${escapeHtml(title)}</h1>
       <p>${escapeHtml(message)}</p>
-      ${allowSignOut ? '<button type="button" class="qltd-registration-secondary" data-action="signout">Dang xuat</button>' : ''}
+      ${allowSignOut ? '<button type="button" class="qltd-registration-secondary" data-action="signout">Đăng xuất</button>' : ''}
     </section>
   `;
   document.body.appendChild(overlay);
@@ -125,25 +124,25 @@ function renderRegistration(user, options) {
       <header class="qltd-registration-header">
         <div>
           <span class="qltd-registration-brand">QLTD ENTIZ</span>
-          <h1 id="qltdRegistrationTitle">Hoan tat thong tin tai khoan</h1>
-          <p>Thong tin nay duoc dung de cap quyen va xac dinh pham vi phong/ban. Ban chi khai bao mot lan.</p>
+          <h1 id="qltdRegistrationTitle">Hoàn tất thông tin tài khoản</h1>
+          <p>Thông tin này được dùng để cấp quyền và xác định phạm vi phòng/ban. Bạn chỉ khai báo một lần.</p>
         </div>
-        <button type="button" class="qltd-registration-signout" data-action="signout">Dang xuat</button>
+        <button type="button" class="qltd-registration-signout" data-action="signout">Đăng xuất</button>
       </header>
 
       <div class="qltd-registration-identity">
         <img src="${escapeAttribute(user.photoURL || '')}" alt="" class="qltd-registration-avatar">
         <div>
-          <strong>${escapeHtml(user.displayName || 'Nguoi dung QLTD')}</strong>
+          <strong>${escapeHtml(user.displayName || 'Người dùng QLTD')}</strong>
           <span>${escapeHtml(user.email || '')}</span>
         </div>
-        <span>Da xac thuc Google</span>
+        <span>Đã xác thực Google</span>
       </div>
 
       <form id="qltdSelfRegistrationForm" novalidate>
         <div class="qltd-registration-grid">
           <label class="qltd-registration-field">
-            <span>Ho va ten <b>*</b></span>
+            <span>Họ và tên <b>*</b></span>
             <input name="displayName" type="text" maxlength="120" required value="${escapeAttribute(user.displayName || '')}" autocomplete="name">
           </label>
 
@@ -154,7 +153,7 @@ function renderRegistration(user, options) {
         </div>
 
         <fieldset class="qltd-registration-role-fieldset">
-          <legend>Chon nhom chuc vu <b>*</b></legend>
+          <legend>Chọn nhóm chức vụ <b>*</b></legend>
           <div class="qltd-registration-role-grid">
             ${jobGroups.map((item) => `
               <label class="qltd-registration-role-card">
@@ -169,30 +168,30 @@ function renderRegistration(user, options) {
 
         <div class="qltd-registration-grid">
           <label class="qltd-registration-field" data-field="department">
-            <span>Phong/ban <b>*</b></span>
+            <span>Phòng/ban <b>*</b></span>
             <select name="deptCode" required>
-              <option value="">-- Chon phong/ban --</option>
+              <option value="">-- Chọn phòng/ban --</option>
               ${departments.map((item) => `<option value="${escapeAttribute(item.code)}">${escapeHtml(item.name)}</option>`).join('')}
             </select>
-            <small>Quyen lap cong viec va bao cao se gioi han trong phong/ban nay.</small>
+            <small>Quyền lập công việc và báo cáo sẽ giới hạn trong phòng/ban này.</small>
           </label>
 
           <label class="qltd-registration-field">
-            <span>Chuc danh cu the <b>*</b></span>
-            <input name="jobTitle" type="text" maxlength="160" required placeholder="Vi du: Truong phong Thiet ke; Chuyen vien Ke hoach">
+            <span>Chức danh cụ thể <b>*</b></span>
+            <input name="jobTitle" type="text" maxlength="160" required placeholder="Ví dụ: Trưởng phòng Thiết kế; Chuyên viên Kế hoạch">
           </label>
         </div>
 
         <label class="qltd-registration-confirm">
           <input type="checkbox" name="confirmed" required>
-          <span>Toi xac nhan thong tin chuc vu va phong/ban khai bao la chinh xac.</span>
+          <span>Tôi xác nhận thông tin chức vụ và phòng/ban khai báo là chính xác.</span>
         </label>
 
         <div id="qltdRegistrationMessage" class="qltd-registration-message" role="status"></div>
 
         <footer class="qltd-registration-actions">
-          <span>Admin co the dieu chinh quyen sau trong sheet <b>Users</b>.</span>
-          <button type="submit" class="qltd-registration-primary">Hoan tat dang ky</button>
+          <span>Quản trị viên có thể điều chỉnh quyền sau trong sheet <b>Users</b>.</span>
+          <button type="submit" class="qltd-registration-primary">Hoàn tất đăng ký</button>
         </footer>
       </form>
     </section>
@@ -206,6 +205,7 @@ function renderRegistration(user, options) {
   const deptSelect = form.elements.deptCode;
   const message = overlay.querySelector('#qltdRegistrationMessage');
   const submitButton = form.querySelector('button[type="submit"]');
+  let registrationInFlight = false;
 
   const syncDepartmentRequirement = () => {
     const selectedCode = form.elements.jobGroup.value;
@@ -226,13 +226,15 @@ function renderRegistration(user, options) {
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (registrationInFlight) return;
     message.textContent = '';
     message.dataset.type = '';
 
     if (!form.reportValidity()) return;
 
+    registrationInFlight = true;
     submitButton.disabled = true;
-    submitButton.textContent = 'Dang tao tai khoan...';
+    submitButton.textContent = 'Đang tạo tài khoản...';
 
     try {
       const result = await postJson({
@@ -245,17 +247,18 @@ function renderRegistration(user, options) {
       });
 
       if (!result.success) {
-        throw new Error(result.errorMessage || result.message || 'Dang ky khong thanh cong.');
+        throw new Error(result.errorMessage || result.message || 'Đăng ký không thành công.');
       }
 
-      message.textContent = 'Dang ky thanh cong. He thong dang tai quyen cua ban...';
+      message.textContent = 'Đăng ký thành công. Hệ thống đang tải quyền của bạn...';
       message.dataset.type = 'success';
       setTimeout(() => window.location.reload(), 650);
     } catch (error) {
-      message.textContent = error.message || 'Khong the hoan tat dang ky.';
+      message.textContent = error.message || 'Không thể hoàn tất đăng ký.';
       message.dataset.type = 'error';
+      registrationInFlight = false;
       submitButton.disabled = false;
-      submitButton.textContent = 'Hoan tat dang ky';
+      submitButton.textContent = 'Hoàn tất đăng ký';
     }
   });
 }
@@ -292,7 +295,7 @@ function applyDepartmentScope(profile) {
       const notice = document.createElement('span');
       notice.id = SCOPE_NOTICE_ID;
       notice.className = 'qltd-dept-scope-notice';
-      notice.textContent = `Pham vi thao tac: ${profile.deptName || profile.deptCode}`;
+      notice.textContent = `Phạm vi thao tác: ${profile.deptName || profile.deptCode}`;
       panel.appendChild(notice);
     }
   };
@@ -346,22 +349,22 @@ async function handleAuthenticatedUser(user) {
 
     if (profile.message === 'USER_NOT_FOUND') {
       const options = await getJson('registration_options');
-      if (!options.success) throw new Error(options.errorMessage || options.message || 'Khong tai duoc danh muc dang ky.');
+      if (!options.success) throw new Error(options.errorMessage || options.message || 'Không tải được danh mục đăng ký.');
       renderRegistration(user, options);
       return;
     }
 
     if (profile.message === 'USER_INACTIVE') {
-      renderBlockingState({ title: 'Tai khoan dang bi khoa', message: 'Vui long lien he quan tri he thong de duoc kiem tra quyen truy cap.' });
+      renderBlockingState({ title: 'Tài khoản đang bị khóa', message: 'Vui lòng liên hệ quản trị hệ thống để được kiểm tra quyền truy cập.' });
       return;
     }
 
-    renderBlockingState({ title: 'Chua xac dinh duoc quyen', message: 'Thong tin vai tro tren he thong chua hop le. Vui long lien he quan tri.' });
+    renderBlockingState({ title: 'Chưa xác định được quyền', message: 'Thông tin vai trò trên hệ thống chưa hợp lệ. Vui lòng liên hệ quản trị.' });
   } catch (error) {
     console.error('[QLTD] Registration bootstrap failed', error);
     renderBlockingState({
-      title: 'Khong tai duoc thong tin quyen',
-      message: 'He thong chua ket noi duoc nguon phan quyen. Vui long tai lai trang hoac lien he quan tri.'
+      title: 'Không tải được thông tin quyền',
+      message: 'Hệ thống chưa kết nối được nguồn phân quyền. Vui lòng tải lại trang hoặc liên hệ quản trị.'
     });
   }
 }
@@ -389,7 +392,15 @@ function bootSelfRegistration() {
 
   auth = getAuth(apps[0]);
   installAuthenticatedPostBridge();
-  onAuthStateChanged(auth, handleAuthenticatedUser);
+  if (!window.__QLTD_SELF_REGISTRATION_AUTH_BOUND__) {
+    window.__QLTD_SELF_REGISTRATION_AUTH_BOUND__ = true;
+    window.addEventListener('qltd:auth-state-changed', (event) => {
+      handleAuthenticatedUser(event.detail?.user || null);
+    });
+  }
+  if (window.__QLTD_AUTH_STATE_READY__) {
+    handleAuthenticatedUser(window.__QLTD_CURRENT_AUTH_USER__ || null);
+  }
 }
 
 bootSelfRegistration();

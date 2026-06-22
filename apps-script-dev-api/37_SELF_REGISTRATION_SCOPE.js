@@ -1,49 +1,49 @@
 const QLTD_SELF_REGISTRATION_SOURCE = 'SELF_REGISTRATION_V1';
 const QLTD_FIREBASE_WEB_API_KEY_PROPERTY = 'QLTD_FIREBASE_WEB_API_KEY';
 const QLTD_SELF_REGISTRATION_EXECUTIVE_DEPT_CODE = 'EXECUTIVE';
-const QLTD_SELF_REGISTRATION_EXECUTIVE_DEPT_NAME = 'Ban lanh dao';
+const QLTD_SELF_REGISTRATION_EXECUTIVE_DEPT_NAME = 'Ban lãnh đạo';
 
 const QLTD_SELF_REGISTRATION_JOB_GROUPS = [
   {
     code: 'EXECUTIVE',
-    label: 'Ban lanh dao',
-    description: 'Toan quyen nghiep vu tren cac du an va phong/ban.',
+    label: 'Ban lãnh đạo',
+    description: 'Toàn quyền nghiệp vụ trên các dự án và phòng/ban.',
     role: 'PMO',
     requiresDept: false
   },
   {
     code: 'DEPT_MANAGER',
-    label: 'Truong/Pho phong, ban',
-    description: 'Lap, cap nhat va ra soat du lieu trong phong/ban cua minh.',
+    label: 'Trưởng/Phó phòng, ban',
+    description: 'Lập, cập nhật và rà soát dữ liệu trong phòng/ban của mình.',
     role: 'EDITOR',
     requiresDept: true
   },
   {
     code: 'SPECIALIST',
-    label: 'Chuyen vien/Nhan vien',
-    description: 'Lap cong viec chi tiet va bao cao tuan trong phong/ban cua minh.',
+    label: 'Chuyên viên/Nhân viên',
+    description: 'Lập công việc chi tiết và báo cáo tuần trong phòng/ban của mình.',
     role: 'REPORTER',
     requiresDept: true
   }
 ];
 
 const QLTD_SELF_REGISTRATION_DEPT_FALLBACKS = [
-  { code: 'TROLY', name: 'Tro ly - Thu ky' },
-  { code: 'PTDA', name: 'Phat trien du an' },
-  { code: 'GPMB', name: 'Giai phong mat bang' },
-  { code: 'THIETKE', name: 'Quan ly thiet ke' },
-  { code: 'TIEUCHUAN', name: 'Tieu chuan' },
+  { code: 'TROLY', name: 'Trợ lý - Thư ký' },
+  { code: 'PTDA', name: 'Phát triển dự án' },
+  { code: 'GPMB', name: 'Giải phóng mặt bằng' },
+  { code: 'THIETKE', name: 'Quản lý thiết kế' },
+  { code: 'TIEUCHUAN', name: 'Tiêu chuẩn' },
   { code: 'BIM', name: 'BIM' },
-  { code: 'KTXD', name: 'Ky thuat xay dung' },
-  { code: 'BQLDA', name: 'Ban Quan ly du an' },
-  { code: 'DAUTHAU', name: 'Dau thau' },
-  { code: 'KEHOACH', name: 'Ke hoach' },
-  { code: 'TAICHINH', name: 'Tai chinh' },
-  { code: 'KETOAN', name: 'Ke toan' },
+  { code: 'KTXD', name: 'Kỹ thuật xây dựng' },
+  { code: 'BQLDA', name: 'Ban Quản lý dự án' },
+  { code: 'DAUTHAU', name: 'Đấu thầu' },
+  { code: 'KEHOACH', name: 'Kế hoạch' },
+  { code: 'TAICHINH', name: 'Tài chính' },
+  { code: 'KETOAN', name: 'Kế toán' },
   { code: 'KINHDOANH', name: 'Kinh doanh' },
   { code: 'MKT', name: 'Marketing' },
-  { code: 'PHAPCHE', name: 'Phap che' },
-  { code: 'VANHANH', name: 'Van hanh' }
+  { code: 'PHAPCHE', name: 'Pháp chế' },
+  { code: 'VANHANH', name: 'Vận hành' }
 ];
 
 const QLTD_DEPT_SCOPE_ACTION_RULES = {
@@ -86,13 +86,13 @@ function qltdSelfRegistrationRegister_(payload) {
   });
 
   if (!displayName) {
-    return qltdSelfRegistrationError_('DISPLAY_NAME_REQUIRED', 'Vui long nhap ho va ten.');
+    return qltdSelfRegistrationError_('DISPLAY_NAME_REQUIRED', 'Vui lòng nhập họ và tên.');
   }
   if (!jobGroup) {
-    return qltdSelfRegistrationError_('JOB_GROUP_INVALID', 'Nhom chuc vu khong hop le.');
+    return qltdSelfRegistrationError_('JOB_GROUP_INVALID', 'Nhóm chức vụ không hợp lệ.');
   }
   if (!jobTitle) {
-    return qltdSelfRegistrationError_('JOB_TITLE_REQUIRED', 'Vui long nhap chuc danh cu the.');
+    return qltdSelfRegistrationError_('JOB_TITLE_REQUIRED', 'Vui lòng nhập chức danh cụ thể.');
   }
 
   let deptCode = QLTD_SELF_REGISTRATION_EXECUTIVE_DEPT_CODE;
@@ -101,7 +101,7 @@ function qltdSelfRegistrationRegister_(payload) {
   if (jobGroup.requiresDept) {
     const department = qltdSelfRegistrationFindDepartment_(payload.deptCode);
     if (!department) {
-      return qltdSelfRegistrationError_('DEPT_INVALID', 'Phong/ban khong hop le hoac chua duoc kich hoat.');
+      return qltdSelfRegistrationError_('DEPT_INVALID', 'Phòng/ban không hợp lệ hoặc chưa được kích hoạt.');
     }
     deptCode = department.code;
     deptName = department.name;
@@ -109,7 +109,7 @@ function qltdSelfRegistrationRegister_(payload) {
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) {
-    return qltdSelfRegistrationError_('REGISTRATION_BUSY', 'He thong dang xu ly dang ky khac. Vui long thu lai.');
+    return qltdSelfRegistrationError_('REGISTRATION_BUSY', 'Hệ thống đang xử lý đăng ký khác. Vui lòng thử lại.');
   }
 
   try {
@@ -119,7 +119,7 @@ function qltdSelfRegistrationRegister_(payload) {
     const existing = qltdUsersGetByEmail_(identity.email);
     if (existing) {
       if (existing.status !== 'ACTIVE') {
-        return qltdSelfRegistrationError_('USER_INACTIVE', 'Tai khoan da ton tai nhung dang bi khoa. Vui long lien he quan tri.');
+        return qltdSelfRegistrationError_('USER_INACTIVE', 'Tài khoản đã tồn tại nhưng đang bị khóa. Vui lòng liên hệ quản trị.');
       }
       return {
         success: true,
@@ -281,10 +281,10 @@ function qltdFirebaseResolveIdentity_(payload, tokenRequired) {
 
   if (!idToken) {
     if (tokenRequired) {
-      return qltdSelfRegistrationError_('ID_TOKEN_REQUIRED', 'Khong xac minh duoc phien dang nhap Google. Vui long dang nhap lai.');
+      return qltdSelfRegistrationError_('ID_TOKEN_REQUIRED', 'Không xác minh được phiên đăng nhập Google. Vui lòng đăng nhập lại.');
     }
     if (!requestedEmail) {
-      return qltdSelfRegistrationError_('AUTH_REQUIRED', 'Thieu thong tin nguoi dung thuc hien thao tac.');
+      return qltdSelfRegistrationError_('AUTH_REQUIRED', 'Thiếu thông tin người dùng thực hiện thao tác.');
     }
     return {
       success: true,
@@ -295,7 +295,7 @@ function qltdFirebaseResolveIdentity_(payload, tokenRequired) {
 
   const firebaseApiKey = qltdFirebaseGetWebApiKey_();
   if (!firebaseApiKey) {
-    return qltdSelfRegistrationError_('FIREBASE_API_KEY_MISSING', 'Apps Script chua duoc cau hinh khoa xac minh Firebase.');
+    return qltdSelfRegistrationError_('FIREBASE_API_KEY_MISSING', 'Apps Script chưa được cấu hình khóa xác minh Firebase.');
   }
 
   try {
@@ -314,10 +314,10 @@ function qltdFirebaseResolveIdentity_(payload, tokenRequired) {
     const verifiedEmail = qltdUsersNormalizeEmail_(firebaseUser && firebaseUser.email);
 
     if (statusCode < 200 || statusCode >= 300 || !verifiedEmail) {
-      return qltdSelfRegistrationError_('ID_TOKEN_INVALID', 'Phien dang nhap Google khong hop le hoac da het han.');
+      return qltdSelfRegistrationError_('ID_TOKEN_INVALID', 'Phiên đăng nhập Google không hợp lệ hoặc đã hết hạn.');
     }
     if (requestedEmail && requestedEmail !== verifiedEmail) {
-      return qltdSelfRegistrationError_('EMAIL_MISMATCH', 'Email khai bao khong khop tai khoan Google dang dang nhap.');
+      return qltdSelfRegistrationError_('EMAIL_MISMATCH', 'Email khai báo không khớp tài khoản Google đang đăng nhập.');
     }
 
     return {
@@ -328,7 +328,7 @@ function qltdFirebaseResolveIdentity_(payload, tokenRequired) {
       authMode: 'FIREBASE_ID_TOKEN'
     };
   } catch (error) {
-    return qltdSelfRegistrationError_('IDENTITY_VERIFY_ERROR', 'Khong the xac minh phien dang nhap Google.', {
+    return qltdSelfRegistrationError_('IDENTITY_VERIFY_ERROR', 'Không thể xác minh phiên đăng nhập Google.', {
       detail: String(error && error.message || error)
     });
   }
@@ -351,13 +351,13 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
   if (!user) {
     return {
       allowed: false,
-      response: qltdSelfRegistrationError_('USER_NOT_FOUND', 'Tai khoan chua duoc dang ky tren he thong.')
+      response: qltdSelfRegistrationError_('USER_NOT_FOUND', 'Tài khoản chưa được đăng ký trên hệ thống.')
     };
   }
   if (user.status !== 'ACTIVE') {
     return {
       allowed: false,
-      response: qltdSelfRegistrationError_('USER_INACTIVE', 'Tai khoan dang bi khoa.')
+      response: qltdSelfRegistrationError_('USER_INACTIVE', 'Tài khoản đang bị khóa.')
     };
   }
 
@@ -365,7 +365,7 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
   if (allowedRoles.indexOf(role) === -1) {
     return {
       allowed: false,
-      response: qltdSelfRegistrationError_('ROLE_SCOPE_DENIED', 'Vai tro hien tai khong duoc phep thuc hien thao tac nay.', {
+      response: qltdSelfRegistrationError_('ROLE_SCOPE_DENIED', 'Vai trò hiện tại không được phép thực hiện thao tác này.', {
         action: action,
         role: role
       })
@@ -385,14 +385,14 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
   if (!userDept) {
     return {
       allowed: false,
-      response: qltdSelfRegistrationError_('USER_DEPT_MISSING', 'Tai khoan chua duoc gan phong/ban. Vui long lien he quan tri.')
+      response: qltdSelfRegistrationError_('USER_DEPT_MISSING', 'Tài khoản chưa được gán phòng/ban. Vui lòng liên hệ quản trị.')
     };
   }
 
   if (targetDept && targetDept !== userDept) {
     return {
       allowed: false,
-      response: qltdSelfRegistrationError_('DEPT_SCOPE_DENIED', 'Ban chi duoc lap va cap nhat du lieu thuoc phong/ban cua minh.', {
+      response: qltdSelfRegistrationError_('DEPT_SCOPE_DENIED', 'Bạn chỉ được lập và cập nhật dữ liệu thuộc phòng/ban của mình.', {
         action: action,
         userDeptCode: user.deptCode,
         requestedDeptCode: qltdDeptScopeReadRawPayloadDept_(payload)

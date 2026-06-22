@@ -27,6 +27,7 @@ import {
 } from './main-milestone-logic.js';
 import { buildDepartmentDashboardModel } from './department-dashboard.js';
 import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E4_ACTUAL_DATE_LIFECYCLE';
+import { bindClickOnce, createGoogleSignInHandler } from './auth-sign-in.js?v=AUTH_GUARD_V1';
 
 window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
 
@@ -162,6 +163,12 @@ function setStatus(message, type = 'info') {
   if (!els.loginStatus) return;
   els.loginStatus.textContent = message;
   els.loginStatus.dataset.type = type;
+}
+
+function setSignInPending(isPending) {
+  if (!els.signInButton) return;
+  els.signInButton.disabled = Boolean(isPending);
+  els.signInButton.setAttribute('aria-busy', isPending ? 'true' : 'false');
 }
 
 function showOnly(view) {
@@ -6824,22 +6831,13 @@ function renderApiError(user, error) {
   renderApp(user, 'GUEST_VIEWER', buildAuthenticatedViewerProfile(user, { apiStatus: 'ERROR' }));
 }
 
-async function handleSignIn() {
-  if (!auth) {
-    setStatus('Ch\u01b0a c\u00f3 Firebase web config DEV.', 'warning');
-    return;
-  }
-
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-
-  try {
-    setStatus('\u0110ang m\u1edf Google Login...', 'info');
-    await signInWithPopup(auth, provider);
-  } catch (error) {
-    setStatus(error.message || '\u0110\u0103ng nh\u1eadp th\u1ea5t b\u1ea1i.', 'error');
-  }
-}
+const handleSignIn = createGoogleSignInHandler({
+  getCurrentAuth: () => auth,
+  createProvider: () => new GoogleAuthProvider(),
+  signInWithPopup,
+  setPending: setSignInPending,
+  setStatus
+});
 
 async function handleSignOut() {
   if (!auth) return;
@@ -6857,9 +6855,14 @@ function boot() {
 
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
+  auth.languageCode = 'vi';
   db = getFirestore(app);
 
   onAuthStateChanged(auth, async (user) => {
+    window.__QLTD_CURRENT_AUTH_USER__ = user || null;
+    window.__QLTD_AUTH_STATE_READY__ = true;
+    window.dispatchEvent(new CustomEvent('qltd:auth-state-changed', { detail: { user: user || null } }));
+
     if (!user) {
       renderSignedOut();
       return;
@@ -6883,9 +6886,9 @@ function boot() {
   });
 }
 
-if (els.signInButton) els.signInButton.addEventListener('click', handleSignIn);
-if (els.signOutButton) els.signOutButton.addEventListener('click', handleSignOut);
-if (els.deniedSignOutButton) els.deniedSignOutButton.addEventListener('click', handleSignOut);
+bindClickOnce(els.signInButton, 'SignIn', handleSignIn);
+bindClickOnce(els.signOutButton, 'SignOut', handleSignOut);
+bindClickOnce(els.deniedSignOutButton, 'DeniedSignOut', handleSignOut);
 window.addEventListener('resize', () => {
   const gantt = getDhtmlxGanttInstance();
   if (qltdActiveView === 'gantt' && gantt && gantt.setSizes) gantt.setSizes();
