@@ -17,6 +17,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiProfile_(params.email);
   }
 
+  if (action === 'registration_options') {
+    return qltdDevApiJson_(qltdSelfRegistrationGetOptions_());
+  }
+
   if (action === 'bootstrap') {
     return qltdDevApiJson_(qltdDevApiBootstrap_(params));
   }
@@ -202,6 +206,15 @@ function qltdDevApiHandlePost_(e) {
   const payload = parseResult.payload;
   const action = String(payload.action || '').trim().toLowerCase();
 
+  if (action === 'user_register') {
+    return qltdDevApiJson_(qltdSelfRegistrationRegister_(payload));
+  }
+
+  const scopeResult = qltdDeptScopeAuthorizeWrite_(payload, action);
+  if (!scopeResult.allowed) {
+    return qltdDevApiJson_(scopeResult.response);
+  }
+
   if (action === 'budget_submitplan') {
     return qltdDevApiJson_(qltdBudgetSubmitPlan_(payload));
   }
@@ -309,6 +322,8 @@ function qltdDevApiProfile_(emailValue) {
       source: QLTD_DEV_API_SOURCE
     });
   }
+
+  qltdSelfRegistrationTouchLastLogin_(user);
 
   return qltdDevApiJson_({
     success: true,
