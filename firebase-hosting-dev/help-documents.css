@@ -24,6 +24,11 @@
   line-height: 1.55;
 }
 
+.help-document-list {
+  display: grid;
+  gap: 12px;
+}
+
 .help-document-card {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr) auto;
