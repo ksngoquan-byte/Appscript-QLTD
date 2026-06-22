@@ -1,0 +1,114 @@
+/* QLTD UI polish: active main navigation and semantic KPI icons. */
+nav.tabs button.qltd-nav-active,
+nav.tabs button.active {
+  border-color: #0f766e !important;
+  background: #0f766e !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.18) !important;
+}
+
+nav.tabs button:not(.qltd-nav-active):not(.active):not(:disabled):hover {
+  border-color: rgba(15, 118, 110, 0.42);
+  background: #eef8f5;
+  color: #0f766e;
+}
+
+nav.tabs button:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.22);
+  outline-offset: 2px;
+}
+
+.exec-kpi-card,
+.exec-kpi-grid > article[data-qltd-kpi-icon],
+.dept-kpi-card,
+.department-kpi-card,
+.dashboard-kpi-card {
+  grid-template-columns: 48px minmax(0, 1fr) !important;
+  column-gap: 16px !important;
+}
+
+.qltd-kpi-icon {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 46px !important;
+  height: 46px !important;
+  min-width: 46px;
+  border-radius: 14px !important;
+  border: 1px solid transparent;
+  background: #eef2f7;
+  color: #475569;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.qltd-kpi-icon svg {
+  display: block;
+  width: 25px;
+  height: 25px;
+  overflow: visible;
+}
+
+.qltd-kpi-icon[data-qltd-icon="total"] {
+  border-color: #dbeafe;
+  background: #eff6ff !important;
+  color: #3b82f6;
+}
+
+.qltd-kpi-icon[data-qltd-icon="completed"] {
+  border-color: #bbf7d0;
+  background: #ecfdf3 !important;
+  color: #16a34a;
+}
+
+.qltd-kpi-icon[data-qltd-icon="progress"] {
+  border-color: #dbeafe;
+  background: #eff6ff !important;
+  color: #3182e8;
+}
+
+.qltd-kpi-icon[data-qltd-icon="notStarted"] {
+  border-color: #e2e8f0;
+  background: #f1f5f9 !important;
+  color: #334155;
+}
+
+.qltd-kpi-icon[data-qltd-icon="overdue"] {
+  border-color: #fecdd3;
+  background: #fff1f2 !important;
+  color: #e93649;
+}
+
+.qltd-kpi-icon[data-qltd-icon="dueSoon"] {
+  border-color: #fed7aa;
+  background: #fff7ed !important;
+  color: #ea580c;
+}
+
+.qltd-kpi-icon[data-qltd-icon="milestone"] {
+  border-color: #ddd6fe;
+  background: #f5f3ff !important;
+  color: #7c3aed;
+}
+
+@media (max-width: 640px) {
+  .exec-kpi-card,
+  .exec-kpi-grid > article[data-qltd-kpi-icon],
+  .dept-kpi-card,
+  .department-kpi-card,
+  .dashboard-kpi-card {
+    grid-template-columns: 42px minmax(0, 1fr) !important;
+    column-gap: 12px !important;
+  }
+
+  .qltd-kpi-icon {
+    width: 42px !important;
+    height: 42px !important;
+    min-width: 42px;
+    border-radius: 12px !important;
+  }
+
+  .qltd-kpi-icon svg {
+    width: 23px;
+    height: 23px;
+  }
+}
