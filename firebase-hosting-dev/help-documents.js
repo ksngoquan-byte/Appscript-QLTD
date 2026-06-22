@@ -11,13 +11,13 @@ const HELP_GUIDES = Object.freeze([
   }),
   Object.freeze({
     audience: 'TRƯỞNG/PHÓ PHÒNG BAN',
-    title: 'Tài liệu hướng dẫn nhanh cho Trưởng/Phó phòng ban',
-    description: 'Hướng dẫn nhận mục tiêu Master, phân rã và giao công việc chi tiết, theo dõi Dashboard/Gantt, cập nhật báo cáo tuần và kiểm soát ngân sách gắn công việc.',
+    title: 'Hướng dẫn Trưởng/Phó phòng ban',
+    description: 'Nhận mục tiêu • Phân rã công việc • Cập nhật tuần • Kiểm soát ngân sách',
     version: '2.1',
     pages: '11 trang',
     updatedAt: '22/06/2026',
-    viewUrl: 'https://drive.google.com/file/d/1x8F6n0tpNuNKfJDSO4RKiDFRmjqdbnvH/view?usp=drivesdk',
-    downloadUrl: 'https://drive.google.com/uc?export=download&id=1x8F6n0tpNuNKfJDSO4RKiDFRmjqdbnvH'
+    viewUrl: './huong-dan-truong-pho-phong-ban-qltd-entiz-v2-1.pdf',
+    downloadUrl: './huong-dan-truong-pho-phong-ban-qltd-entiz-v2-1.pdf'
   })
 ]);
 
