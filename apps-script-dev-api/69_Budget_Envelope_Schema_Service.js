@@ -1,4 +1,12 @@
+<<<<<<< Updated upstream
 const QLTD_BUDGET_ENVELOPE_ALLOCATION_HEADERS = [
+=======
+const QLTD_BUDGET_ENVELOPE_SOURCE = 'budget_envelope_schema_v1';
+const QLTD_BUDGET_ENVELOPE_PROJECT_CODE = '24-1.ĐB';
+const QLTD_BUDGET_ENVELOPE_HEADER_ROW = 4;
+
+const QLTD_BUDGET_ENVELOPE_CENTRAL_HEADERS = [
+>>>>>>> Stashed changes
   'Ma cong viec Master',
   'Giai doan FS',
   'Phien ban',
@@ -9,7 +17,11 @@ const QLTD_BUDGET_ENVELOPE_ALLOCATION_HEADERS = [
   'Hieu luc'
 ];
 
+<<<<<<< Updated upstream
 const QLTD_BUDGET_ENVELOPE_PB_HEADERS = [
+=======
+const QLTD_BUDGET_ENVELOPE_DEPT_HEADERS = [
+>>>>>>> Stashed changes
   'Co ngan sach',
   'Huong dong tien',
   'Can cu ngan sach',
@@ -17,6 +29,7 @@ const QLTD_BUDGET_ENVELOPE_PB_HEADERS = [
   'Ma yeu cau dieu chinh'
 ];
 
+<<<<<<< Updated upstream
 /**
  * Dry-run kiểm tra schema phong bì ngân sách MVP.
  * Không ghi dữ liệu, không append cột, không đổi cấu trúc sheet.
@@ -285,3 +298,572 @@ function qltdBudgetEnvelopeInspectPbSheets_(projectCode, deptCode, warnings, err
     };
   });
 }
+=======
+function qltdBudgetEnvelopeSchemaDryRunPilotProject241DB() {
+  return qltdBudgetEnvelopeSchemaRunPilotProject241DB_(true);
+}
+
+function qltdBudgetEnvelopeSchemaApplyPilotProject241DB() {
+  return qltdBudgetEnvelopeSchemaRunPilotProject241DB_(false);
+}
+
+function qltdBudgetEnvelopeSchemaRunPilotProject241DB_(dryRun) {
+  const inspection = qltdBudgetEnvelopeSchemaInspectPilotProject241DB_();
+  if (inspection.blocked) {
+    return Object.assign({}, inspection, {
+      dryRun: !!dryRun,
+      applied: false
+    });
+  }
+
+  if (dryRun) {
+    return Object.assign({}, inspection, {
+      dryRun: true,
+      applied: false
+    });
+  }
+
+  const appliedActions = qltdBudgetEnvelopeSchemaApplyInspection_(inspection);
+  const after = qltdBudgetEnvelopeSchemaInspectPilotProject241DB_();
+
+  return Object.assign({}, after, {
+    dryRun: false,
+    applied: true,
+    appliedActions: appliedActions,
+    before: qltdBudgetEnvelopeSchemaStripRuntimeFields_(inspection)
+  });
+}
+
+function qltdBudgetEnvelopeSchemaInspectPilotProject241DB_() {
+  const warnings = [];
+  const errors = [];
+  const sheets = [];
+  const blockedSheets = [];
+  const skippedSheets = [];
+  const changedSheets = [];
+
+  const projectsResult = qltdBudgetReadProjects_();
+  if (projectsResult.error) {
+    const blocked = qltdBudgetEnvelopeSchemaBuildBlockedResult_(
+      warnings,
+      errors,
+      sheets,
+      blockedSheets,
+      skippedSheets,
+      changedSheets,
+      [projectsResult.error],
+      []
+    );
+    return qltdBudgetEnvelopeSchemaFinalizeInspection_(blocked, true);
+  }
+
+  const project = qltdBudgetFindProjectByCode_(projectsResult.projects, QLTD_BUDGET_ENVELOPE_PROJECT_CODE);
+  if (!project || project.status !== 'ACTIVE') {
+    const blocked = qltdBudgetEnvelopeSchemaBuildBlockedResult_(
+      warnings,
+      errors,
+      sheets,
+      blockedSheets,
+      skippedSheets,
+      changedSheets,
+      [{
+        code: 'PROJECT_NOT_FOUND',
+        message: 'Project ' + QLTD_BUDGET_ENVELOPE_PROJECT_CODE + ' khong ton tai hoac khong active.'
+      }],
+      projectsResult.warnings || []
+    );
+    return qltdBudgetEnvelopeSchemaFinalizeInspection_(blocked, true);
+  }
+
+  if (!project.deptSpreadsheetId) {
+    const blocked = qltdBudgetEnvelopeSchemaBuildBlockedResult_(
+      warnings,
+      errors,
+      sheets,
+      blockedSheets,
+      skippedSheets,
+      changedSheets,
+      [{
+        code: 'DEPT_SPREADSHEET_ID_MISSING',
+        message: 'Project chua co DeptSpreadsheetId.'
+      }],
+      projectsResult.warnings || []
+    );
+    return qltdBudgetEnvelopeSchemaFinalizeInspection_(blocked, true);
+  }
+
+  let deptSpreadsheet;
+  try {
+    deptSpreadsheet = SpreadsheetApp.openById(project.deptSpreadsheetId);
+  } catch (error) {
+    const blocked = qltdBudgetEnvelopeSchemaBuildBlockedResult_(
+      warnings,
+      errors,
+      sheets,
+      blockedSheets,
+      skippedSheets,
+      changedSheets,
+      [{
+        code: 'DEPT_SPREADSHEET_OPEN_FAILED',
+        message: qltdBudgetEnvelopeSchemaSafeMessage_(error)
+      }],
+      projectsResult.warnings || []
+    );
+    return qltdBudgetEnvelopeSchemaFinalizeInspection_(blocked, true);
+  }
+
+  const centralSheet = qltdBudgetGetReadonlySheet_(QLTD_BUDGET_SHEET.CENTRAL_ALLOCATIONS);
+  const centralResult = qltdBudgetEnvelopeSchemaInspectSheet_({
+    sheet: centralSheet,
+    sheetName: QLTD_BUDGET_SHEET.CENTRAL_ALLOCATIONS,
+    requiredHeaders: QLTD_BUDGET_ENVELOPE_CENTRAL_HEADERS,
+    sourceLabel: 'CENTRAL'
+  });
+  sheets.push(centralResult);
+  warnings.push.apply(warnings, centralResult.warnings || []);
+  if (centralResult.blocked) blockedSheets.push(centralResult);
+  if (centralResult.missingHeaders.length) changedSheets.push(centralResult);
+
+  const deptsResult = qltdBudgetReadProjectDepts_();
+  if (deptsResult.error) {
+    const blocked = qltdBudgetEnvelopeSchemaBuildBlockedResult_(
+      warnings,
+      errors,
+      sheets,
+      blockedSheets,
+      skippedSheets,
+      changedSheets,
+      [deptsResult.error],
+      projectsResult.warnings.concat(centralResult.warnings || [])
+    );
+    return qltdBudgetEnvelopeSchemaFinalizeInspection_(blocked, true);
+  }
+
+  const activeDepts = (deptsResult.departments || [])
+    .filter(function(dept) {
+      return dept.projectCode === QLTD_BUDGET_ENVELOPE_PROJECT_CODE && dept.status === 'ACTIVE';
+    })
+    .sort(function(a, b) {
+      const aOrder = Number(a.sortOrder || 9999);
+      const bOrder = Number(b.sortOrder || 9999);
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return String(a.deptName || '').localeCompare(String(b.deptName || ''));
+    });
+
+  const seenSheets = {};
+  activeDepts.forEach(function(dept) {
+    const resolved = qltdBudgetFindDeptSheet_(deptSpreadsheet, dept, dept.deptCode);
+    const warningsBefore = (projectsResult.warnings || []).concat(deptsResult.warnings || []);
+
+    if (!resolved.sheet) {
+      const blockedResult = qltdBudgetEnvelopeSchemaInspectSheet_({
+        sheet: null,
+        sheetName: dept.deptCode || dept.projectUnitCode || dept.deptName || 'UNKNOWN',
+        requiredHeaders: QLTD_BUDGET_ENVELOPE_DEPT_HEADERS,
+        sourceLabel: 'PB',
+        blockedReason: 'DEPT_SHEET_NOT_FOUND',
+        warnings: warningsBefore.concat(resolved.warnings || []),
+        candidateDept: dept
+      });
+      sheets.push(blockedResult);
+      blockedSheets.push(blockedResult);
+      return;
+    }
+
+    const sheetName = resolved.sheet.getName();
+    if (seenSheets[sheetName]) {
+      const skipped = qltdBudgetEnvelopeSchemaMakeSheetResult_({
+        sheetName: sheetName,
+        sourceLabel: 'PB',
+        exists: true,
+        blocked: false,
+        skipped: true,
+        skipReason: 'DUPLICATE_PHYSICAL_SHEET',
+        beforeHeaders: qltdBudgetEnvelopeSchemaSnapshotHeaders_(resolved.sheet, QLTD_BUDGET_ENVELOPE_HEADER_ROW),
+        requiredHeaders: QLTD_BUDGET_ENVELOPE_DEPT_HEADERS,
+        missingHeaders: [],
+        addedHeaders: [],
+        afterHeaders: qltdBudgetEnvelopeSchemaSnapshotHeaders_(resolved.sheet, QLTD_BUDGET_ENVELOPE_HEADER_ROW),
+        warnings: warningsBefore.concat(resolved.warnings || []),
+        candidateDept: dept
+      });
+      sheets.push(skipped);
+      skippedSheets.push(skipped);
+      return;
+    }
+
+    seenSheets[sheetName] = true;
+    const inspected = qltdBudgetEnvelopeSchemaInspectSheet_({
+      sheet: resolved.sheet,
+      sheetName: sheetName,
+      requiredHeaders: QLTD_BUDGET_ENVELOPE_DEPT_HEADERS,
+      sourceLabel: 'PB',
+      warnings: warningsBefore.concat(resolved.warnings || []),
+      candidateDept: dept
+    });
+    sheets.push(inspected);
+    warnings.push.apply(warnings, inspected.warnings || []);
+    if (inspected.blocked) blockedSheets.push(inspected);
+    if (inspected.missingHeaders.length) changedSheets.push(inspected);
+  });
+
+  const overallBlocked = blockedSheets.length > 0;
+  const overallChanged = changedSheets.length > 0;
+  const status = overallBlocked ? 'BLOCKED' : (overallChanged ? 'CHANGE_REQUIRED' : 'NO_CHANGE');
+  const result = {
+    success: !overallBlocked,
+    apiStatus: overallBlocked ? 'BLOCKED' : 'OK',
+    source: QLTD_BUDGET_ENVELOPE_SOURCE,
+    dryRun: true,
+    applied: false,
+    blocked: overallBlocked,
+    status: status,
+    projectCode: QLTD_BUDGET_ENVELOPE_PROJECT_CODE,
+    projectName: project.projectName || '',
+    projectSpreadsheetId: getCurrentSpreadsheet_().getId(),
+    deptSpreadsheetId: project.deptSpreadsheetId,
+    generatedAt: new Date().toISOString(),
+    warnings: warnings.concat(projectsResult.warnings || [], deptsResult.warnings || []),
+    errors: errors.slice(),
+    sheets: sheets,
+    central: centralResult,
+    departments: sheets.filter(function(item) {
+      return item.sourceLabel === 'PB';
+    }),
+    summary: {
+      totalSheets: sheets.length,
+      blockedSheets: blockedSheets.length,
+      changedSheets: changedSheets.length,
+      skippedSheets: skippedSheets.length,
+      addedHeaders: changedSheets.reduce(function(total, item) {
+        return total + item.missingHeaders.length;
+      }, 0)
+    },
+    plannedActions: overallBlocked ? [] : qltdBudgetEnvelopeSchemaBuildPlan_(sheets),
+    blockedSheets: blockedSheets,
+    skippedSheets: skippedSheets,
+    changedSheets: changedSheets,
+    rollback: overallBlocked ? [] : qltdBudgetEnvelopeSchemaBuildRollback_(sheets)
+  };
+
+  return result;
+}
+
+function qltdBudgetEnvelopeSchemaInspectSheet_(input) {
+  const warnings = (input.warnings || []).slice();
+  const sheet = input.sheet || null;
+  const sheetName = input.sheetName || (sheet && sheet.getName()) || '';
+  const requiredHeaders = (input.requiredHeaders || []).slice();
+  const sourceLabel = input.sourceLabel || '';
+
+  if (!sheet) {
+    return qltdBudgetEnvelopeSchemaMakeSheetResult_({
+      sheetName: sheetName,
+      sourceLabel: sourceLabel,
+      exists: false,
+      blocked: true,
+      blockedReason: input.blockedReason || 'SHEET_NOT_FOUND',
+      beforeHeaders: [],
+      requiredHeaders: requiredHeaders,
+      missingHeaders: requiredHeaders.slice(),
+      addedHeaders: [],
+      afterHeaders: [],
+      warnings: warnings,
+      candidateDept: input.candidateDept || null
+    });
+  }
+
+  const beforeHeaders = qltdBudgetEnvelopeSchemaSnapshotHeaders_(sheet, QLTD_BUDGET_ENVELOPE_HEADER_ROW);
+  const inspected = qltdBudgetEnvelopeSchemaInspectHeaders_(beforeHeaders, requiredHeaders);
+
+  return qltdBudgetEnvelopeSchemaMakeSheetResult_({
+    sheetName: sheetName,
+    sourceLabel: sourceLabel,
+    exists: true,
+    blocked: inspected.blocked,
+    blockedReason: inspected.blockedReason,
+    beforeHeaders: beforeHeaders,
+    requiredHeaders: requiredHeaders,
+    missingHeaders: inspected.missingHeaders,
+    addedHeaders: inspected.missingHeaders.slice(),
+    afterHeaders: qltdBudgetEnvelopeSchemaBuildAfterHeaders_(beforeHeaders, inspected.startColumn, inspected.missingHeaders),
+    startColumn: inspected.startColumn,
+    warnings: warnings,
+    candidateDept: input.candidateDept || null
+  });
+}
+
+function qltdBudgetEnvelopeSchemaInspectHeaders_(beforeHeaders, requiredHeaders) {
+  const normalizedBefore = (beforeHeaders || []).map(qltdBudgetEnvelopeSchemaNormalizeHeader_);
+  const required = (requiredHeaders || []).slice();
+  const seen = {};
+  const duplicateHeaders = [];
+  let lastUsedHeaderIndex = -1;
+
+  normalizedBefore.forEach(function(header, index) {
+    if (!header) return;
+    lastUsedHeaderIndex = index;
+    if (seen[header]) {
+      duplicateHeaders.push(beforeHeaders[index]);
+    } else {
+      seen[header] = true;
+    }
+  });
+
+  if (!normalizedBefore.some(function(header) { return !!header; })) {
+    return {
+      blocked: true,
+      blockedReason: 'EMPTY_HEADER_ROW',
+      missingHeaders: required.slice()
+    };
+  }
+
+  if (duplicateHeaders.length) {
+    return {
+      blocked: true,
+      blockedReason: 'DUPLICATE_HEADER',
+      missingHeaders: []
+    };
+  }
+
+  const missingHeaders = required.filter(function(header) {
+    return normalizedBefore.indexOf(qltdBudgetEnvelopeSchemaNormalizeHeader_(header)) < 0;
+  });
+
+  return {
+    blocked: false,
+    blockedReason: '',
+    missingHeaders: missingHeaders,
+    startColumn: lastUsedHeaderIndex + 2
+  };
+}
+
+function qltdBudgetEnvelopeSchemaApplyInspection_(inspection) {
+  if (!inspection || inspection.blocked) return [];
+
+  const applied = [];
+  (inspection.plannedActions || []).forEach(function(action) {
+    const sheet = qltdBudgetEnvelopeSchemaResolveSheetForAction_(action);
+    if (!sheet) {
+      throw new Error('Khong tim thay sheet de apply: ' + action.sheetName);
+    }
+
+    const insertCount = qltdBudgetEnvelopeSchemaGetInsertCount_(sheet, action.startColumn, action.headers.length);
+    if (insertCount > 0) {
+      sheet.insertColumnsAfter(sheet.getMaxColumns(), insertCount);
+    }
+
+    sheet.getRange(QLTD_BUDGET_ENVELOPE_HEADER_ROW, action.startColumn, 1, action.headers.length)
+      .setValues([action.headers.slice()]);
+
+    applied.push({
+      sheetName: action.sheetName,
+      sourceLabel: action.sourceLabel,
+      headerRow: QLTD_BUDGET_ENVELOPE_HEADER_ROW,
+      startColumn: action.startColumn,
+      insertedColumns: insertCount,
+      addedHeaders: action.headers.slice()
+    });
+  });
+
+  return applied;
+}
+
+function qltdBudgetEnvelopeSchemaResolveSheetForAction_(action) {
+  if (!action || !action.sheetName) return null;
+  if (action.sourceLabel === 'CENTRAL') {
+    return qltdBudgetGetReadonlySheet_(action.sheetName);
+  }
+
+  const project = qltdBudgetEnvelopeSchemaGetProject_();
+  if (!project || !project.deptSpreadsheetId) return null;
+  const spreadsheet = SpreadsheetApp.openById(project.deptSpreadsheetId);
+  return spreadsheet.getSheetByName(action.sheetName);
+}
+
+function qltdBudgetEnvelopeSchemaGetProject_() {
+  const projectsResult = qltdBudgetReadProjects_();
+  if (projectsResult.error) return null;
+  return qltdBudgetFindProjectByCode_(projectsResult.projects, QLTD_BUDGET_ENVELOPE_PROJECT_CODE);
+}
+
+function qltdBudgetEnvelopeSchemaBuildPlan_(sheets) {
+  return (sheets || []).map(function(item) {
+    if (item.blocked || item.skipped || !item.missingHeaders.length) return null;
+    return {
+      type: 'APPEND_HEADERS',
+      sourceLabel: item.sourceLabel,
+      sheetName: item.sheetName,
+      headerRow: QLTD_BUDGET_ENVELOPE_HEADER_ROW,
+      startColumn: item.startColumn,
+      headers: item.missingHeaders.slice(),
+      beforeHeaders: item.beforeHeaders.slice(),
+      afterHeaders: item.afterHeaders.slice(),
+      blocked: false
+    };
+  }).filter(function(item) {
+    return !!item;
+  });
+}
+
+function qltdBudgetEnvelopeSchemaBuildRollback_(sheets) {
+  return (sheets || []).map(function(item) {
+    if (item.blocked || item.skipped || !item.missingHeaders.length) return null;
+    return {
+      sheetName: item.sheetName,
+      headerRow: QLTD_BUDGET_ENVELOPE_HEADER_ROW,
+      deleteFromColumn: item.startColumn,
+      deleteColumnCount: item.missingHeaders.length,
+      headersToRemove: item.missingHeaders.slice()
+    };
+  }).filter(function(item) {
+    return !!item;
+  });
+}
+
+function qltdBudgetEnvelopeSchemaSnapshotHeaders_(sheet, headerRow) {
+  if (!sheet) return [];
+  const width = Math.max(sheet.getLastColumn ? sheet.getLastColumn() : 1, 1);
+  const values = sheet.getRange(headerRow, 1, 1, width).getDisplayValues()[0] || [];
+  return values.map(function(value) {
+    return qltdBudgetEnvelopeSchemaNormalizeHeader_(value);
+  });
+}
+
+function qltdBudgetEnvelopeSchemaNormalizeHeader_(value) {
+  return String(value === null || typeof value === 'undefined' ? '' : value).trim().replace(/\s+/g, ' ');
+}
+
+function qltdBudgetEnvelopeSchemaBuildAfterHeaders_(beforeHeaders, startColumn, missingHeaders) {
+  const after = (beforeHeaders || []).slice();
+  const columnStart = Math.max(Number(startColumn || 0) - 1, 0);
+  (missingHeaders || []).forEach(function(header, index) {
+    after[columnStart + index] = header;
+  });
+  return after;
+}
+
+function qltdBudgetEnvelopeSchemaMakeSheetResult_(input) {
+  const beforeHeaders = (input.beforeHeaders || []).slice();
+  const addedHeaders = (input.addedHeaders || []).slice();
+  const afterHeaders = (input.afterHeaders || []).slice();
+  const missingHeaders = (input.missingHeaders || []).slice();
+  const warnings = (input.warnings || []).slice();
+  const blocked = !!input.blocked;
+  const skipped = !!input.skipped;
+  const startColumn = typeof input.startColumn === 'number'
+    ? input.startColumn
+    : (blocked || skipped ? 0 : (beforeHeaders.reduce(function(lastIndex, value, index) {
+      return qltdBudgetEnvelopeSchemaNormalizeHeader_(value) ? index : lastIndex;
+    }, -1) + 2));
+
+  return {
+    sheetName: input.sheetName || '',
+    sourceLabel: input.sourceLabel || '',
+    exists: input.exists !== false,
+    blocked: blocked,
+    blockedReason: input.blockedReason || '',
+    skipped: skipped,
+    skipReason: input.skipReason || '',
+    headerRow: QLTD_BUDGET_ENVELOPE_HEADER_ROW,
+    beforeHeaders: beforeHeaders,
+    requiredHeaders: (input.requiredHeaders || []).slice(),
+    missingHeaders: missingHeaders,
+    addedHeaders: addedHeaders,
+    afterHeaders: afterHeaders,
+    startColumn: startColumn,
+    warnings: warnings,
+    candidateDept: input.candidateDept || null
+  };
+}
+
+function qltdBudgetEnvelopeSchemaBuildBlockedResult_(warnings, errors, sheets, blockedSheets, skippedSheets, changedSheets, localErrors, extraWarnings) {
+  return {
+    success: false,
+    apiStatus: 'BLOCKED',
+    source: QLTD_BUDGET_ENVELOPE_SOURCE,
+    dryRun: true,
+    applied: false,
+    blocked: true,
+    status: 'BLOCKED',
+    projectCode: QLTD_BUDGET_ENVELOPE_PROJECT_CODE,
+    projectName: '',
+    projectSpreadsheetId: getCurrentSpreadsheet_().getId(),
+    deptSpreadsheetId: '',
+    generatedAt: new Date().toISOString(),
+    warnings: (warnings || []).concat(extraWarnings || []),
+    errors: (errors || []).concat(localErrors || []),
+    sheets: (sheets || []).slice(),
+    central: null,
+    departments: [],
+    summary: {
+      totalSheets: (sheets || []).length,
+      blockedSheets: (blockedSheets || []).length,
+      changedSheets: (changedSheets || []).length,
+      skippedSheets: (skippedSheets || []).length,
+      addedHeaders: 0
+    },
+    plannedActions: [],
+    blockedSheets: (blockedSheets || []).slice(),
+    skippedSheets: (skippedSheets || []).slice(),
+    changedSheets: (changedSheets || []).slice(),
+    rollback: []
+  };
+}
+
+function qltdBudgetEnvelopeSchemaFinalizeInspection_(result, blocked) {
+  if (blocked) {
+    return result;
+  }
+  return result;
+}
+
+function qltdBudgetEnvelopeSchemaGetInsertCount_(sheet, startColumn, headerCount) {
+  const requiredEnd = startColumn + headerCount - 1;
+  const maxColumns = sheet && typeof sheet.getMaxColumns === 'function' ? sheet.getMaxColumns() : requiredEnd;
+  return Math.max(0, requiredEnd - maxColumns);
+}
+
+function qltdBudgetEnvelopeSchemaStripRuntimeFields_(result) {
+  return {
+    success: result.success,
+    apiStatus: result.apiStatus,
+    source: result.source,
+    dryRun: result.dryRun,
+    applied: result.applied,
+    blocked: result.blocked,
+    status: result.status,
+    projectCode: result.projectCode,
+    projectName: result.projectName,
+    projectSpreadsheetId: result.projectSpreadsheetId,
+    deptSpreadsheetId: result.deptSpreadsheetId,
+    generatedAt: result.generatedAt,
+    summary: result.summary,
+    plannedActions: result.plannedActions,
+    blockedSheets: result.blockedSheets,
+    skippedSheets: result.skippedSheets,
+    changedSheets: result.changedSheets,
+    rollback: result.rollback
+  };
+}
+
+function qltdBudgetEnvelopeSchemaSafeMessage_(error) {
+  return error && error.message ? String(error.message) : String(error || 'UNKNOWN_ERROR');
+}
+
+function qltdBudgetEnvelopeSchemaLog_(message) {
+  try {
+    if (typeof Logger !== 'undefined' && Logger && typeof Logger.log === 'function') {
+      Logger.log('[BudgetEnvelopeSchema] ' + message);
+    }
+  } catch (err) {
+    // Logging should never block schema inspection/apply.
+  }
+}
+
+function qltdBudgetEnvelopeSchemaCountAddedHeaders_(result) {
+  return (result.changedSheets || []).reduce(function(total, item) {
+    return total + (item.missingHeaders || []).length;
+  }, 0);
+}
+>>>>>>> Stashed changes

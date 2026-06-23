@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 function qltdBudgetEnvelopeSchemaDryRunApi_(params) {
   const projectCode = String(params && params.projectCode || '').trim();
   const deptCode = String(params && params.deptCode || '').trim();
@@ -71,3 +72,41 @@ function qltdBudgetEnvelopeSchemaSelfCheck_() {
   console.log(JSON.stringify(result, null, 2));
   return result;
 }
+=======
+function runBudgetEnvelopeApplyPilotProject241DB() {
+  const result = qltdBudgetEnvelopeSchemaApplyPilotProject241DB();
+  const compact = qltdBudgetEnvelopeSchemaBuildCompactLog_(result);
+  const json = JSON.stringify(compact);
+
+  try {
+    console.log(json);
+  } catch (err) {
+    // console may not be available in every Apps Script execution path.
+  }
+
+  qltdBudgetEnvelopeSchemaLog_(json);
+  return result;
+}
+
+function qltdBudgetEnvelopeSchemaBuildCompactLog_(result) {
+  return {
+    success: !!(result && result.success),
+    dryRun: !!(result && result.dryRun),
+    applied: !!(result && result.applied),
+    blocked: !!(result && result.blocked),
+    status: result && result.status || '',
+    projectCode: result && result.projectCode || '',
+    centralAddedHeaders: result && result.central && result.central.missingHeaders ? result.central.missingHeaders : [],
+    deptAddedHeaders: (result && result.departments || []).map(function(item) {
+      return {
+        sheetName: item.sheetName,
+        addedHeaders: item.missingHeaders || [],
+        blocked: !!item.blocked,
+        skipped: !!item.skipped
+      };
+    }),
+    summary: result && result.summary || {}
+  };
+}
+
+>>>>>>> Stashed changes
