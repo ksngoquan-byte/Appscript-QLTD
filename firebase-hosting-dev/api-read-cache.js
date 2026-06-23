@@ -210,3 +210,5 @@ export function installApiReadCache(target = window) {
 }
 
 if (typeof window !== 'undefined') installApiReadCache(window);
+
+import('./perf-hotfix-v3.js?v=PERF_DEPT_DETAIL_BUDGET_3');
