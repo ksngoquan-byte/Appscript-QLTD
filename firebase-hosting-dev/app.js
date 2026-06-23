@@ -6775,23 +6775,6 @@ async function fetchBackendProfile(email) {
   return fetchBackendJson('profile', { email });
 }
 
-function buildAuthenticatedViewerProfile(user, base = {}) {
-  return {
-    ...base,
-    success: true,
-    email: user && user.email,
-    role: 'GUEST_VIEWER',
-    apiStatus: base.apiStatus || 'CONNECTED',
-    permissions: {
-      dashboard: true,
-      gantt: true,
-      lookup: true,
-      reportUpdate: false,
-      admin: false
-    }
-  };
-}
-
 function renderApp(user, role, profile = {}) {
   showOnly(els.appShell);
   const effectiveProfile = {
@@ -6821,7 +6804,8 @@ function renderApp(user, role, profile = {}) {
 
 function renderApiError(user, error) {
   console.error('Apps Script DEV API connection failed', error);
-  renderApp(user, 'GUEST_VIEWER', buildAuthenticatedViewerProfile(user, { apiStatus: 'ERROR' }));
+  renderDenied(user);
+  setApiStatus('Không kết nối được API');
 }
 
 async function handleSignIn() {
@@ -6831,7 +6815,6 @@ async function handleSignIn() {
   }
 
   const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
 
   try {
     setStatus('\u0110ang m\u1edf Google Login...', 'info');
@@ -6869,10 +6852,15 @@ function boot() {
       const profile = await fetchBackendProfile(user.email);
 
       if (!profile.success) {
-        renderApp(user, 'GUEST_VIEWER', buildAuthenticatedViewerProfile(user, {
-          apiStatus: profile.apiStatus || 'CONNECTED',
-          profileMessage: profile.message || ''
-        }));
+        if (profile.message === 'USER_NOT_FOUND') {
+          setStatus('Tài khoản mới, chờ khai báo lần đầu...', 'info');
+          return;
+        }
+        if (profile.message === 'USER_INACTIVE' || profile.message === 'INVALID_ROLE') {
+          renderDenied(user);
+          return;
+        }
+        renderDenied(user);
         return;
       }
 
