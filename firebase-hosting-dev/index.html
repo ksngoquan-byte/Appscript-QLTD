@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#0b3ea8">
     <title>Entiz Project 360</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com">
     <link rel="preconnect" href="https://cdn.dhtmlx.com">
@@ -19,150 +22,304 @@
       :root {
         --entiz-blue: #0b3ea8;
         --entiz-blue-dark: #082d7c;
-        --entiz-blue-soft: #eaf2ff;
+        --entiz-blue-light: #eaf2ff;
+        --entiz-ink: #0f172a;
       }
-      #loginView.auth-view {
-        grid-template-columns: minmax(0, 1.15fr) minmax(340px, 460px);
-        width: min(1240px, calc(100% - 40px));
-        gap: 0;
-        min-height: calc(100vh - 48px);
-        margin: 24px auto;
-        padding: 0;
-        overflow: hidden;
-        border: 1px solid rgba(148, 163, 184, .26);
-        border-radius: 28px;
-        background: #fff;
-        box-shadow: 0 26px 80px rgba(15, 23, 42, .14);
+
+      html,
+      body {
+        min-height: 100%;
       }
-      #loginView .brand-panel {
-        position: relative;
-        min-height: 680px;
-        display: grid;
-        align-content: center;
-        gap: 34px;
-        padding: 72px 76px;
-        overflow: hidden;
+
+      body {
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+        background: #4b84ea;
+      }
+
+      .page {
+        min-height: 100vh;
         background:
-          radial-gradient(circle at 15% 12%, rgba(255,255,255,.92), rgba(255,255,255,0) 34%),
-          linear-gradient(145deg, #f8fbff 0%, #eaf3ff 52%, #cfe2ff 100%);
+          radial-gradient(circle at 12% 18%, rgba(255,255,255,.22), rgba(255,255,255,0) 24%),
+          radial-gradient(circle at 88% 12%, rgba(255,255,255,.18), rgba(255,255,255,0) 18%),
+          linear-gradient(135deg, #dbe9fb 0%, #b7d1ff 34%, #7aa8f6 68%, #4b84ea 100%);
       }
-      #loginView .brand-panel::before,
-      #loginView .brand-panel::after {
+
+      #loginView.auth-view {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(380px, 450px);
+        align-items: center;
+        width: 100%;
+        min-height: 100vh;
+        margin: 0;
+        padding: 0 clamp(36px, 5vw, 96px);
+        gap: clamp(32px, 5vw, 72px);
+        overflow: hidden;
+        background: transparent;
+      }
+
+      #loginView.auth-view::before,
+      #loginView.auth-view::after {
         content: "";
         position: absolute;
-        inset: auto -14% -22% -18%;
-        height: 54%;
+        left: -8%;
+        width: 118%;
         border-radius: 50% 50% 0 0;
-        background: linear-gradient(145deg, rgba(37,99,235,.08), rgba(37,99,235,.34));
-        transform: rotate(-5deg);
+        pointer-events: none;
       }
-      #loginView .brand-panel::after {
-        inset: auto -24% -31% -6%;
-        height: 48%;
-        background: linear-gradient(145deg, rgba(14,165,233,.08), rgba(29,78,216,.24));
-        transform: rotate(7deg);
+
+      #loginView.auth-view::before {
+        bottom: -14%;
+        height: 40vh;
+        background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.20));
       }
-      .entiz-logo {
+
+      #loginView.auth-view::after {
+        bottom: -24%;
+        height: 34vh;
+        background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.14));
+      }
+
+      #loginView .brand-panel {
         position: relative;
         z-index: 1;
+        display: grid;
+        align-content: center;
+        gap: 30px;
+        min-height: auto;
+        padding: 0;
+        background: transparent;
+      }
+
+      .entiz-logo {
         display: block;
-        width: min(300px, 78%);
+        width: clamp(290px, 28vw, 410px);
+        max-width: 100%;
         height: auto;
         object-fit: contain;
+        filter: drop-shadow(0 14px 34px rgba(8,45,124,.12));
       }
-      .brand-copy { position: relative; z-index: 1; }
+
+      .brand-copy {
+        max-width: 840px;
+      }
+
       #loginView .brand-copy p {
-        margin: 0 0 12px;
-        color: var(--entiz-blue);
+        margin: 0 0 14px;
+        color: rgba(255,255,255,.82);
         font-size: 14px;
         font-weight: 800;
-        letter-spacing: .08em;
+        letter-spacing: .16em;
         text-transform: uppercase;
       }
+
       #loginView .brand-copy h1 {
         margin: 0;
-        color: var(--entiz-blue-dark);
-        font-size: clamp(44px, 5vw, 72px);
-        line-height: 1.02;
-        letter-spacing: -.04em;
+        color: #ffffff;
+        font-family: Manrope, Inter, sans-serif;
+        font-size: clamp(58px, 6.2vw, 96px);
+        font-weight: 800;
+        line-height: .98;
+        letter-spacing: -.05em;
+        text-shadow: 0 12px 32px rgba(8,45,124,.16);
       }
+
       #loginView .brand-copy span {
         display: block;
-        margin-top: 18px;
-        color: #334155;
-        font-size: clamp(18px, 2vw, 24px);
+        margin-top: 20px;
+        color: rgba(255,255,255,.95);
+        font-size: clamp(23px, 2vw, 32px);
+        font-weight: 500;
+        line-height: 1.4;
       }
+
       #loginView .login-card {
+        position: relative;
+        z-index: 1;
         align-self: center;
-        width: min(460px, calc(100% - 48px));
-        margin: 48px auto;
-        gap: 28px;
-        padding: 42px;
-        border-radius: 22px;
-        border: 1px solid rgba(148,163,184,.26);
-        background: rgba(255,255,255,.98);
-        box-shadow: 0 18px 50px rgba(15,23,42,.10);
+        width: min(450px, 100%);
+        margin: 0 0 0 auto;
+        gap: 30px;
+        padding: 44px 38px;
+        border: 1px solid rgba(255,255,255,.45);
+        border-radius: 30px;
+        background: rgba(255,255,255,.94);
+        box-shadow: 0 30px 80px rgba(15,23,42,.18);
+        backdrop-filter: blur(18px);
       }
-      #loginView .login-heading { text-align: center; gap: 10px; }
+
+      #loginView .login-heading {
+        display: grid;
+        gap: 12px;
+        text-align: center;
+      }
+
       #loginView .login-heading p {
+        margin: 0;
         color: var(--entiz-blue);
         font-size: 15px;
         font-weight: 800;
+        letter-spacing: .02em;
         text-transform: none;
       }
+
       #loginView .login-heading h2 {
-        color: #0f172a;
-        font-size: clamp(34px, 3.4vw, 48px);
-        line-height: 1.06;
-        letter-spacing: -.035em;
+        margin: 0;
+        color: var(--entiz-ink);
+        font-family: Manrope, Inter, sans-serif;
+        font-size: clamp(40px, 3.5vw, 52px);
+        font-weight: 800;
+        line-height: 1.04;
+        letter-spacing: -.04em;
       }
+
       #loginView .login-heading span {
         color: #64748b;
         font-size: 15px;
-        line-height: 1.6;
+        font-weight: 500;
+        line-height: 1.7;
       }
+
       #loginView .google-button {
-        min-height: 56px;
-        border: 1px solid #cbd5e1;
-        border-radius: 12px;
-        background: #fff;
-        color: #0f172a;
-        box-shadow: 0 5px 14px rgba(15,23,42,.08);
+        min-height: 60px;
+        border: 1px solid rgba(11,62,168,.18);
+        border-radius: 16px;
+        background: #ffffff;
+        color: var(--entiz-ink);
+        font-size: 17px;
+        font-weight: 700;
+        box-shadow: 0 10px 24px rgba(15,23,42,.08);
+        transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
       }
+
       #loginView .google-button:hover:not(:disabled) {
+        transform: translateY(-1px);
         border-color: #93c5fd;
         background: #f8fbff;
+        box-shadow: 0 14px 30px rgba(15,23,42,.10);
       }
+
       #loginView .google-badge {
+        width: 28px;
+        height: 28px;
         background: conic-gradient(from -45deg, #4285f4 0 25%, #34a853 0 50%, #fbbc05 0 75%, #ea4335 0);
         color: #fff;
         font-size: 0;
       }
-      #loginView .google-badge::after { content: "G"; font-size: 14px; font-weight: 900; }
-      #loginView .status-text { text-align: center; }
-      .topbar-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-      .topbar-logo { width: 104px; height: auto; flex: 0 0 auto; }
-      .topbar-brand-copy { min-width: 0; }
-      .topbar-brand-copy p { color: var(--entiz-blue); }
-      .topbar-brand-copy h1 { color: #0f172a; }
-      @media (max-width: 820px) {
+
+      #loginView .google-badge::after {
+        content: "G";
+        font-size: 15px;
+        font-weight: 900;
+      }
+
+      #loginView .status-text {
+        margin: -6px 0 0;
+        color: #0f766e;
+        font-size: 14px;
+        font-weight: 600;
+        text-align: center;
+      }
+
+      .topbar-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .topbar-logo {
+        width: 104px;
+        height: auto;
+        flex: 0 0 auto;
+      }
+
+      .topbar-brand-copy {
+        min-width: 0;
+      }
+
+      .topbar-brand-copy p {
+        color: var(--entiz-blue);
+      }
+
+      .topbar-brand-copy h1 {
+        color: #0f172a;
+      }
+
+      @media (max-width: 1020px) {
         #loginView.auth-view {
           grid-template-columns: 1fr;
-          min-height: auto;
-          margin: 14px auto;
-          width: min(100% - 24px, 620px);
-          border-radius: 22px;
+          align-content: center;
+          justify-items: center;
+          padding: 44px 26px 56px;
+          text-align: center;
         }
-        #loginView .brand-panel { min-height: 360px; padding: 42px 34px; gap: 22px; }
-        .entiz-logo { width: min(240px, 72%); }
-        #loginView .brand-copy h1 { font-size: 42px; }
-        #loginView .login-card { margin: 24px auto 34px; padding: 30px 24px; }
-        .topbar-logo { width: 88px; }
+
+        #loginView .brand-panel {
+          justify-items: center;
+          gap: 24px;
+        }
+
+        .brand-copy {
+          max-width: 100%;
+        }
+
+        #loginView .brand-copy h1 {
+          font-size: clamp(44px, 8vw, 72px);
+        }
+
+        #loginView .brand-copy span {
+          font-size: clamp(18px, 3.5vw, 27px);
+        }
+
+        #loginView .login-card {
+          width: min(500px, 100%);
+          margin: 0 auto;
+        }
       }
-      @media (max-width: 480px) {
-        #loginView .brand-panel { min-height: 300px; padding: 34px 24px; }
-        #loginView .brand-copy h1 { font-size: 34px; }
-        #loginView .brand-copy span { font-size: 17px; }
+
+      @media (max-width: 560px) {
+        #loginView.auth-view {
+          padding: 32px 18px 42px;
+        }
+
+        #loginView.auth-view::before {
+          height: 24vh;
+        }
+
+        #loginView.auth-view::after {
+          height: 20vh;
+        }
+
+        .entiz-logo {
+          width: min(250px, 72vw);
+        }
+
+        #loginView .brand-copy h1 {
+          font-size: 40px;
+        }
+
+        #loginView .brand-copy span {
+          font-size: 18px;
+        }
+
+        #loginView .login-card {
+          padding: 32px 24px;
+          border-radius: 24px;
+        }
+
+        #loginView .login-heading h2 {
+          font-size: 36px;
+        }
+
+        #loginView .google-button {
+          min-height: 56px;
+          font-size: 16px;
+        }
+
+        .topbar-logo {
+          width: 88px;
+        }
       }
     </style>
   </head>
@@ -170,7 +327,7 @@
     <main class="page">
       <section id="loginView" class="auth-view">
         <div class="brand-panel" aria-hidden="true">
-          <img class="entiz-logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOIAAACKCAMAAACAaWbSAAABgFBMVEX0+f77/f8fLZTvNDggLpj31dbp6fIpNpqyut3wRzhKVqr7pzNrdbqlrdjR1+w5RqL6lzT9tzFibbbyVjf4iDWQmM3TNTj0ZzfyWVz1dzbzeHv1ra7b4fHCyOX659aDjcjxaGz2ysr3tqtaZrP2vsD+xTBBTae8wuLziov6163vT1J1fsB6hMOao9L5x6r75LX7x262veD1h0v6uXLzeVD3lk/8x1H1hnX4p3T7uFPyZlf902r814n2l3L5qFP78dn3lYv5t4kyQJ7YWFv3p4z7x4ncRDfYS0zcdXj84p7ZY2b33uH90lfNPkHnPkHzW2DlnaEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC0DehhAAAAgHRSTlP/AP////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFa9HyQAAAn1SURBVHja3Z0Lf9o4EsBHDciOY+xA6ttma+ASDthsoIGmSZMmbbbNbpvu7j2+/6c5SX5JtmRDELXM/BICBlz+zGheklVAGwsgoBI/oPfALNkGIto9RJSeCOSI9UIjHZKdBwy0VKRXwEDZGqI5uHoBdx4RcpYqpUTNQYT0BoFwn8NAzdZipKSMLTnCARrif7bgbBBnlM1GlLwZctmNGS5nI52JGY6RQXEDRJDpdLcQZcGCd6QG8W6qRIB8YoNM8qbPReTfFccNwY0m592p7MaYwkm3R5UVF4nrEY40HREVzycGENQgLQatF2XSsuV+ZgcRmzwWV0E0RXXbR0TN0yKkiJZallmxgRqa3VDEVg+rJIxGonFtqrUR3Yqcp7GGWoXIoFCW2iC0m4hCNWxOSvccRFC3ASRGipqIWNLpAEmnETXRUEGWqMaI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" alt="">
+          <img class="entiz-logo" src="./entiz-logo.svg" alt="">
           <div class="brand-copy">
             <p>Entiz</p>
             <h1>Entiz Project 360</h1>
@@ -208,7 +365,7 @@
       <section id="appShell" class="shell hidden" aria-label="Entiz Project 360">
         <header class="topbar">
           <div class="topbar-brand">
-            <img class="topbar-logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOIAAACKCAMAAACAaWbSAAABgFBMVEX0+f77/f8fLZTvNDggLpj31dbp6fIpNpqyut3wRzhKVqr7pzNrdbqlrdjR1+w5RqL6lzT9tzFibbbyVjf4iDWQmM3TNTj0ZzfyWVz1dzbzeHv1ra7b4fHCyOX659aDjcjxaGz2ysr3tqtaZrP2vsD+xTBBTae8wuLziov6163vT1J1fsB6hMOao9L5x6r75LX7x262veD1h0v6uXLzeVD3lk/8x1H1hnX4p3T7uFPyZlf902r814n2l3L5qFP78dn3lYv5t4kyQJ7YWFv3p4z7x4ncRDfYS0zcdXj84p7ZY2b33uH90lfNPkHnPkHzW2DlnaEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC0DehhAAAAgHRSTlP/AP////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFa9HyQAAAn1SURBVHja3Z0Lf9o4EsBHDciOY+xA6ttma+ASDthsoIGmSZMmbbbNbpvu7j2+/6c5SX5JtmRDELXM/BICBlz+zGheklVAGwsgoBI/oPfALNkGIto9RJSeCOSI9UIjHZKdBwy0VKRXwEDZGqI5uHoBdx4RcpYqpUTNQYT0BoFwn8NAzdZipKSMLTnCARrif7bgbBBnlM1GlLwZctmNGS5nI52JGY6RQXEDRJDpdLcQZcGCd6QG8W6qRIB8YoNM8qbPReTfFccNwY0m592p7MaYwkm3R5UVF4nrEY40HREVzycGENQgLQatF2XSsuV+ZgcRmzwWV0E0RXXbR0TN0yKkiJZallmxgRqa3VDEVg+rJIxGonFtqrUR3Yqcp7GGWoXIoFCW2iC0m4hCNWxOSvccRFC3ASRGipqIWNLpAEmnETXRUEGWqMaI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" alt="Entiz">
+            <img class="topbar-logo" src="./entiz-logo.svg" alt="Entiz">
             <div class="topbar-brand-copy">
               <p>Entiz Project 360</p>
               <h1>Nền tảng quản trị dự án tổng thể</h1>
