@@ -98,6 +98,16 @@
     }
   }
 
+  function getApiErrorMessage(result, fallbackMessage) {
+    return String(
+      result && (
+        result.errorCode ||
+        result.errorMessage ||
+        result.message
+      ) || fallbackMessage || 'Không tải được dữ liệu đăng ký.'
+    ).trim();
+  }
+
   function getCurrentAuthUser() {
     return auth && auth.currentUser ? auth.currentUser : currentUser;
   }
@@ -294,7 +304,18 @@
       }
       if (profile && profile.message === 'USER_NOT_FOUND') {
         const options = await getJson('user_getregistrationoptions', { email: user.email || '' });
-        renderForm(user, options && options.success ? options : { departments: [], groups: [] });
+        if (!options || options.success !== true) {
+          console.error('user_getregistrationoptions failed', options);
+          throw new Error(getApiErrorMessage(options, 'Không tải được danh mục đăng ký.'));
+        }
+        if (!Array.isArray(options.groups) || options.groups.length === 0) {
+          console.error('user_getregistrationoptions returned empty groups', options);
+          throw new Error(getApiErrorMessage({
+            errorCode: 'REGISTRATION_GROUPS_EMPTY',
+            errorMessage: 'Danh sách nhóm người dùng đang rỗng.'
+          }));
+        }
+        renderForm(user, options);
         return;
       }
       if (profile && profile.message === 'USER_INACTIVE') {

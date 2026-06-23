@@ -9,11 +9,12 @@
     style.textContent = `
       #loginView .entiz-logo {
         object-fit: contain;
-        filter: brightness(0) invert(1) drop-shadow(0 12px 28px rgba(8,45,124,.12));
+        filter: none;
       }
 
       .topbar-logo {
         object-fit: contain;
+        filter: none;
       }
     `;
 
