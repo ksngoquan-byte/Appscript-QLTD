@@ -195,7 +195,6 @@ function formatRole(role) {
   if (role === 'EDITOR') return 'Editor';
   if (role === 'REPORTER') return 'Reporter';
   if (role === 'VIEWER') return 'Viewer';
-  if (role === 'GUEST_VIEWER') return 'Guest Viewer';
   return role || 'Kh\u00f4ng x\u00e1c \u0111\u1ecbnh';
 }
 
@@ -205,7 +204,7 @@ function normalizeRoleKey(role) {
 
 function isReadOnlyViewer(profile = currentUserProfile) {
   const role = normalizeRoleKey(profile && profile.role);
-  return role === 'VIEWER' || role === 'GUEST_VIEWER' || !canEditPlanning(profile);
+  return role === 'VIEWER' || !canEditPlanning(profile);
 }
 
 function isAuthenticatedUser(profile = currentUserProfile) {
@@ -244,7 +243,7 @@ function canEditPlanning(profile = currentUserProfile) {
 
 function normalizePermissions(permissions = {}, role = '') {
   const roleKey = normalizeRoleKey(role);
-  const canViewCore = ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER', 'GUEST_VIEWER'].includes(roleKey);
+  const canViewCore = ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER'].includes(roleKey);
 
   return {
     dashboard: !!permissions.dashboard || canViewCore,
@@ -3784,8 +3783,30 @@ function showWeeklyToast(message) {
 }
 
 async function postBackendJson(payload) {
-  const response = await fetch(APPS_SCRIPT_DEV_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
-  if (!response.ok) throw new Error(`Apps Script API POST failed: ${response.status}`); return response.json();
+  let forceRefresh = false;
+
+  while (true) {
+    const requestPayload = { ...(payload || {}) };
+    if (auth && auth.currentUser) {
+      requestPayload.email = auth.currentUser.email || requestPayload.email || '';
+      requestPayload.idToken = await auth.currentUser.getIdToken(forceRefresh);
+    }
+
+    const response = await fetch(APPS_SCRIPT_DEV_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(requestPayload)
+    });
+    if (!response.ok) throw new Error(`Apps Script API POST failed: ${response.status}`);
+
+    const result = await response.json();
+    const message = String(result?.errorCode || result?.message || '').trim().toUpperCase();
+    if (forceRefresh === false && (message === 'ID_TOKEN_INVALID' || message === 'ID_TOKEN_EXPIRED')) {
+      forceRefresh = true;
+      continue;
+    }
+    return result;
+  }
 }
 
 function getNextWeeklyPeriod(week) { const start = new Date(`${week.weekStart}T12:00:00`); start.setDate(start.getDate() + 7); const end = new Date(start); end.setDate(end.getDate() + 6); const iso = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`; return { weekId: `WEEK-${iso(start)}`, weekStart: iso(start), weekEnd: iso(end) }; }
@@ -6748,31 +6769,46 @@ async function loadDeptPlansForSelectedProject(projectCode) {
     renderDeptPlans({ success: false });
   }
 }
-async function fetchBackendJson(action, params = {}) {
+async function fetchBackendJson(action, params = {}, options = {}) {
   const startedAt = performance.now();
-  const url = new URL(APPS_SCRIPT_DEV_URL);
-  url.searchParams.set('action', action);
+  let forceRefresh = false;
 
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) {
-      url.searchParams.set(key, value);
+  while (true) {
+    const url = new URL(APPS_SCRIPT_DEV_URL);
+    url.searchParams.set('action', action);
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        url.searchParams.set(key, value);
+      }
+    });
+
+    if (options.auth && auth && auth.currentUser) {
+      url.searchParams.set('email', auth.currentUser.email || url.searchParams.get('email') || '');
+      url.searchParams.set('idToken', await auth.currentUser.getIdToken(forceRefresh));
     }
-  });
 
-  const response = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
+    const response = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
 
-  if (!response.ok) {
-    throw new Error(`Apps Script API ${action} failed: ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`Apps Script API ${action} failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const message = String(payload?.errorCode || payload?.message || '').trim().toUpperCase();
+    if (options.auth && forceRefresh === false && (message === 'ID_TOKEN_INVALID' || message === 'ID_TOKEN_EXPIRED')) {
+      forceRefresh = true;
+      continue;
+    }
+
+    if (qltdDevPerfEnabled()) console.info(`[QLTD PERF] ${action}: ${Math.round(performance.now() - startedAt)}ms`);
+    return payload;
   }
-
-  const payload = await response.json();
-  if (qltdDevPerfEnabled()) console.info(`[QLTD PERF] ${action}: ${Math.round(performance.now() - startedAt)}ms`);
-  return payload;
 }
 
 async function fetchBackendProfile(email) {
   await fetchBackendJson('health');
-  return fetchBackendJson('profile', { email });
+  return fetchBackendJson('profile', { email }, { auth: true });
 }
 
 function renderApp(user, role, profile = {}) {
@@ -6780,7 +6816,7 @@ function renderApp(user, role, profile = {}) {
   const effectiveProfile = {
     ...profile,
     email: profile.email || (user && user.email),
-    role: profile.role || role || 'GUEST_VIEWER'
+    role: profile.role || role || ''
   };
   const displayRole = formatRole(effectiveProfile.role);
   applyPermissions(effectiveProfile);

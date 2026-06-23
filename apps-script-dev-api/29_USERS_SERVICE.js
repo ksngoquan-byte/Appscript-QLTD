@@ -16,6 +16,10 @@ const QLTD_USERS_REGISTRATION_GROUPS = {
   DEPT_MANAGER: 'EDITOR',
   EMPLOYEE: 'REPORTER'
 };
+const QLTD_USERS_EXECUTIVE_DEPT = {
+  deptCode: 'BLD',
+  deptName: 'Ban lãnh đạo'
+};
 const QLTD_USERS_INITIAL_ADMIN = {
   email: 'ksngoquan@gmail.com',
   displayName: 'Ngô Quân',
@@ -115,7 +119,10 @@ function qltdUsersGetByEmail_(email) {
   return null;
 }
 
-function qltdUsersGetRegistrationOptions_() {
+function qltdUsersGetRegistrationOptions_(params) {
+  const identity = qltdFirebaseResolveIdentity_(params, true);
+  if (!identity.success) return identity;
+
   return {
     success: true,
     groups: [
@@ -178,21 +185,35 @@ function qltdUsersCollectRegistrationDepartments_() {
     });
 }
 
+function qltdUsersFindRegistrationDepartment_(deptCode) {
+  const targetCode = qltdUsersNormalizeDeptCode_(deptCode);
+  if (!targetCode) return null;
+
+  return qltdUsersCollectRegistrationDepartments_().find(function(item) {
+    return qltdUsersNormalizeDeptCode_(item.deptCode) === targetCode;
+  }) || null;
+}
+
 function qltdUsersRegister_(payload) {
-  const email = qltdUsersNormalizeEmail_(payload && payload.email);
-  const displayName = String(payload && payload.displayName || '').trim();
+  const identity = qltdFirebaseResolveIdentity_(payload, true);
+  if (!identity.success) return identity;
+
+  const email = qltdUsersNormalizeEmail_(identity.email);
+  const displayName = String(payload && payload.displayName || identity.displayName || '').trim();
   const title = qltdUsersSanitizeNotePart_(payload && payload.title);
   const userGroup = String(payload && payload.userGroup || '').trim().toUpperCase();
-  const deptCode = qltdUsersNormalizeDeptCode_(payload && payload.deptCode);
-  const deptName = String(payload && payload.deptName || '').trim();
   const role = QLTD_USERS_REGISTRATION_GROUPS[userGroup] || '';
+  const requiresDepartment = userGroup === 'DEPT_MANAGER' || userGroup === 'EMPLOYEE';
+  const selectedDepartment = requiresDepartment ? qltdUsersFindRegistrationDepartment_(payload && payload.deptCode) : null;
+  const deptCode = requiresDepartment ? qltdUsersNormalizeDeptCode_(selectedDepartment && selectedDepartment.deptCode) : QLTD_USERS_EXECUTIVE_DEPT.deptCode;
+  const deptName = requiresDepartment ? String(selectedDepartment && selectedDepartment.deptName || '').trim() : QLTD_USERS_EXECUTIVE_DEPT.deptName;
 
   const validationErrors = [];
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) validationErrors.push('EMAIL_INVALID');
   if (displayName.length < 2) validationErrors.push('DISPLAY_NAME_REQUIRED');
   if (!role) validationErrors.push('USER_GROUP_INVALID');
   if (!title) validationErrors.push('TITLE_REQUIRED');
-  if (!deptCode || !deptName) validationErrors.push('DEPARTMENT_REQUIRED');
+  if (requiresDepartment && (!deptCode || !deptName)) validationErrors.push('DEPARTMENT_REQUIRED');
 
   if (validationErrors.length) {
     return {
@@ -236,6 +257,7 @@ function qltdUsersRegister_(payload) {
       'SELF_REGISTRATION_V2',
       'Group=' + userGroup,
       'Title=' + title,
+      'AuthMode=' + String(identity.authMode || ''),
       'RegisteredAt=' + qltdUsersFormatIsoLocal_(now)
     ].join(' | ');
 
@@ -278,6 +300,25 @@ function qltdUsersRegister_(payload) {
       // Lock may not have been acquired; no follow-up action is required.
     }
   }
+}
+
+function qltdUsersBuildAuthError_(code, message, extra) {
+  const response = {
+    success: false,
+    message: code,
+    errorCode: code,
+    errorMessage: message,
+    apiStatus: 'CONNECTED',
+    source: 'users_registration_v2'
+  };
+
+  if (extra && typeof extra === 'object') {
+    Object.keys(extra).forEach(function(key) {
+      response[key] = extra[key];
+    });
+  }
+
+  return response;
 }
 
 function qltdUsersRegistrationSuccess_(user, created, alreadyExists) {

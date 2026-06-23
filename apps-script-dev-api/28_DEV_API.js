@@ -14,11 +14,11 @@ function qltdDevApiHandleGet(e) {
   }
 
   if (action === 'profile') {
-    return qltdDevApiProfile_(params.email);
+    return qltdDevApiProfile_(params);
   }
 
   if (action === 'user_getregistrationoptions') {
-    return qltdDevApiJson_(qltdUsersGetRegistrationOptions_());
+    return qltdDevApiJson_(qltdUsersGetRegistrationOptions_(params));
   }
 
   if (action === 'bootstrap') {
@@ -210,6 +210,11 @@ function qltdDevApiHandlePost_(e) {
     return qltdDevApiJson_(qltdUsersRegister_(payload));
   }
 
+  const scopeResult = qltdDeptScopeAuthorizeWrite_(payload, action);
+  if (!scopeResult.allowed) {
+    return qltdDevApiJson_(scopeResult.response);
+  }
+
   if (action === 'budget_submitplan') {
     return qltdDevApiJson_(qltdBudgetSubmitPlan_(payload));
   }
@@ -283,8 +288,13 @@ function qltdDevApiIsActionRequest(e) {
   return !!(e && e.parameter && e.parameter.action);
 }
 
-function qltdDevApiProfile_(emailValue) {
-  const email = qltdDevApiNormalizeEmail_(emailValue);
+function qltdDevApiProfile_(params) {
+  const identity = qltdFirebaseResolveIdentity_(params, true);
+  if (!identity.success) {
+    return qltdDevApiJson_(identity);
+  }
+
+  const email = qltdDevApiNormalizeEmail_(identity.email || (params && params.email));
 
   qltdUsersEnsureSheet_();
   qltdUsersSeedAdminIfMissing_();

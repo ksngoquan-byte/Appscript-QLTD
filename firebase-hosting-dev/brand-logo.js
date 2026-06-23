@@ -24,9 +24,10 @@
     ensureBrandStyles();
 
     document.querySelectorAll('.entiz-logo, .topbar-logo').forEach((image) => {
-      image.src = './entiz-logo.svg?v=ENTIZ_SELF_CONTAINED_1';
+      image.src = './entiz-logo.png?v=ENTIZ_OFFICIAL_PNG_1';
       image.removeAttribute('srcset');
-      image.dataset.qltdBrandLogo = 'self-contained-v1';
+      image.alt = '';
+      image.dataset.qltdBrandLogo = 'official-png-v1';
     });
   }
 
