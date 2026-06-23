@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>QLTD Entiz DEV</title>
+    <meta name="theme-color" content="#0b3ea8">
+    <title>Entiz Project 360</title>
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com">
     <link rel="preconnect" href="https://cdn.dhtmlx.com">
@@ -14,28 +15,178 @@
     <link rel="stylesheet" href="./dashboard_executive_v3.css">
     <link rel="stylesheet" href="./help-documents.css?v=HELP_AUDIENCE_PDF_2">
     <link rel="stylesheet" href="./ui-polish.css?v=UI_KPI_ICON_1">
+    <style>
+      :root {
+        --entiz-blue: #0b3ea8;
+        --entiz-blue-dark: #082d7c;
+        --entiz-blue-soft: #eaf2ff;
+      }
+      #loginView.auth-view {
+        grid-template-columns: minmax(0, 1.15fr) minmax(340px, 460px);
+        width: min(1240px, calc(100% - 40px));
+        gap: 0;
+        min-height: calc(100vh - 48px);
+        margin: 24px auto;
+        padding: 0;
+        overflow: hidden;
+        border: 1px solid rgba(148, 163, 184, .26);
+        border-radius: 28px;
+        background: #fff;
+        box-shadow: 0 26px 80px rgba(15, 23, 42, .14);
+      }
+      #loginView .brand-panel {
+        position: relative;
+        min-height: 680px;
+        display: grid;
+        align-content: center;
+        gap: 34px;
+        padding: 72px 76px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 15% 12%, rgba(255,255,255,.92), rgba(255,255,255,0) 34%),
+          linear-gradient(145deg, #f8fbff 0%, #eaf3ff 52%, #cfe2ff 100%);
+      }
+      #loginView .brand-panel::before,
+      #loginView .brand-panel::after {
+        content: "";
+        position: absolute;
+        inset: auto -14% -22% -18%;
+        height: 54%;
+        border-radius: 50% 50% 0 0;
+        background: linear-gradient(145deg, rgba(37,99,235,.08), rgba(37,99,235,.34));
+        transform: rotate(-5deg);
+      }
+      #loginView .brand-panel::after {
+        inset: auto -24% -31% -6%;
+        height: 48%;
+        background: linear-gradient(145deg, rgba(14,165,233,.08), rgba(29,78,216,.24));
+        transform: rotate(7deg);
+      }
+      .entiz-logo {
+        position: relative;
+        z-index: 1;
+        display: block;
+        width: min(300px, 78%);
+        height: auto;
+        object-fit: contain;
+      }
+      .brand-copy { position: relative; z-index: 1; }
+      #loginView .brand-copy p {
+        margin: 0 0 12px;
+        color: var(--entiz-blue);
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      #loginView .brand-copy h1 {
+        margin: 0;
+        color: var(--entiz-blue-dark);
+        font-size: clamp(44px, 5vw, 72px);
+        line-height: 1.02;
+        letter-spacing: -.04em;
+      }
+      #loginView .brand-copy span {
+        display: block;
+        margin-top: 18px;
+        color: #334155;
+        font-size: clamp(18px, 2vw, 24px);
+      }
+      #loginView .login-card {
+        align-self: center;
+        width: min(460px, calc(100% - 48px));
+        margin: 48px auto;
+        gap: 28px;
+        padding: 42px;
+        border-radius: 22px;
+        border: 1px solid rgba(148,163,184,.26);
+        background: rgba(255,255,255,.98);
+        box-shadow: 0 18px 50px rgba(15,23,42,.10);
+      }
+      #loginView .login-heading { text-align: center; gap: 10px; }
+      #loginView .login-heading p {
+        color: var(--entiz-blue);
+        font-size: 15px;
+        font-weight: 800;
+        text-transform: none;
+      }
+      #loginView .login-heading h2 {
+        color: #0f172a;
+        font-size: clamp(34px, 3.4vw, 48px);
+        line-height: 1.06;
+        letter-spacing: -.035em;
+      }
+      #loginView .login-heading span {
+        color: #64748b;
+        font-size: 15px;
+        line-height: 1.6;
+      }
+      #loginView .google-button {
+        min-height: 56px;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        background: #fff;
+        color: #0f172a;
+        box-shadow: 0 5px 14px rgba(15,23,42,.08);
+      }
+      #loginView .google-button:hover:not(:disabled) {
+        border-color: #93c5fd;
+        background: #f8fbff;
+      }
+      #loginView .google-badge {
+        background: conic-gradient(from -45deg, #4285f4 0 25%, #34a853 0 50%, #fbbc05 0 75%, #ea4335 0);
+        color: #fff;
+        font-size: 0;
+      }
+      #loginView .google-badge::after { content: "G"; font-size: 14px; font-weight: 900; }
+      #loginView .status-text { text-align: center; }
+      .topbar-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+      .topbar-logo { width: 104px; height: auto; flex: 0 0 auto; }
+      .topbar-brand-copy { min-width: 0; }
+      .topbar-brand-copy p { color: var(--entiz-blue); }
+      .topbar-brand-copy h1 { color: #0f172a; }
+      @media (max-width: 820px) {
+        #loginView.auth-view {
+          grid-template-columns: 1fr;
+          min-height: auto;
+          margin: 14px auto;
+          width: min(100% - 24px, 620px);
+          border-radius: 22px;
+        }
+        #loginView .brand-panel { min-height: 360px; padding: 42px 34px; gap: 22px; }
+        .entiz-logo { width: min(240px, 72%); }
+        #loginView .brand-copy h1 { font-size: 42px; }
+        #loginView .login-card { margin: 24px auto 34px; padding: 30px 24px; }
+        .topbar-logo { width: 88px; }
+      }
+      @media (max-width: 480px) {
+        #loginView .brand-panel { min-height: 300px; padding: 34px 24px; }
+        #loginView .brand-copy h1 { font-size: 34px; }
+        #loginView .brand-copy span { font-size: 17px; }
+      }
+    </style>
   </head>
   <body>
     <main class="page">
       <section id="loginView" class="auth-view">
         <div class="brand-panel" aria-hidden="true">
-          <div class="brand-mark">QE</div>
-          <div>
-            <p>Entiz DEV</p>
-            <h1>QLTD Entiz</h1>
-            <span>Cổng quản lý tiến độ dự án</span>
+          <img class="entiz-logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOIAAACKCAMAAACAaWbSAAABgFBMVEX0+f77/f8fLZTvNDggLpj31dbp6fIpNpqyut3wRzhKVqr7pzNrdbqlrdjR1+w5RqL6lzT9tzFibbbyVjf4iDWQmM3TNTj0ZzfyWVz1dzbzeHv1ra7b4fHCyOX659aDjcjxaGz2ysr3tqtaZrP2vsD+xTBBTae8wuLziov6163vT1J1fsB6hMOao9L5x6r75LX7x262veD1h0v6uXLzeVD3lk/8x1H1hnX4p3T7uFPyZlf902r814n2l3L5qFP78dn3lYv5t4kyQJ7YWFv3p4z7x4ncRDfYS0zcdXj84p7ZY2b33uH90lfNPkHnPkHzW2DlnaEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC0DehhAAAAgHRSTlP/AP////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFa9HyQAAAn1SURBVHja3Z0Lf9o4EsBHDciOY+xA6ttma+ASDthsoIGmSZMmbbbNbpvu7j2+/6c5SX5JtmRDELXM/BICBlz+zGheklVAGwsgoBI/oPfALNkGIto9RJSeCOSI9UIjHZKdBwy0VKRXwEDZGqI5uHoBdx4RcpYqpUTNQYT0BoFwn8NAzdZipKSMLTnCARrif7bgbBBnlM1GlLwZctmNGS5nI52JGY6RQXEDRJDpdLcQZcGCd6QG8W6qRIB8YoNM8qbPReTfFccNwY0m592p7MaYwkm3R5UVF4nrEY40HREVzycGENQgLQatF2XSsuV+ZgcRmzwWV0E0RXXbR0TN0yKkiJZallmxgRqa3VDEVg+rJIxGonFtqrUR3Yqcp7GGWoXIoFCW2iC0m4hCNWxOSvccRFC3ASRGipqIWNLpAEmnETXRUEGWqMaI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" alt="">
+          <div class="brand-copy">
+            <p>Entiz</p>
+            <h1>Entiz Project 360</h1>
+            <span>Nền tảng quản trị dự án tổng thể</span>
           </div>
         </div>
 
         <div class="login-card">
           <div class="login-heading">
             <p>Đăng nhập</p>
-            <h2>QLTD Entiz</h2>
-            <span>Cổng quản lý tiến độ dự án</span>
+            <h2>Entiz Project 360</h2>
+            <span>Công việc • Tiến độ • Ngân sách • Báo cáo • Dashboard</span>
           </div>
 
           <button id="signInButton" class="google-button" type="button">
-            <span class="google-badge">G</span>
+            <span class="google-badge" aria-hidden="true">G</span>
             Đăng nhập bằng Google
           </button>
 
@@ -54,11 +205,14 @@
         </div>
       </section>
 
-      <section id="appShell" class="shell hidden" aria-label="QLTD Entiz">
+      <section id="appShell" class="shell hidden" aria-label="Entiz Project 360">
         <header class="topbar">
-          <div>
-            <p>QLTD Entiz</p>
-            <h1>Cổng quản lý tiến độ dự án</h1>
+          <div class="topbar-brand">
+            <img class="topbar-logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOIAAACKCAMAAACAaWbSAAABgFBMVEX0+f77/f8fLZTvNDggLpj31dbp6fIpNpqyut3wRzhKVqr7pzNrdbqlrdjR1+w5RqL6lzT9tzFibbbyVjf4iDWQmM3TNTj0ZzfyWVz1dzbzeHv1ra7b4fHCyOX659aDjcjxaGz2ysr3tqtaZrP2vsD+xTBBTae8wuLziov6163vT1J1fsB6hMOao9L5x6r75LX7x262veD1h0v6uXLzeVD3lk/8x1H1hnX4p3T7uFPyZlf902r814n2l3L5qFP78dn3lYv5t4kyQJ7YWFv3p4z7x4ncRDfYS0zcdXj84p7ZY2b33uH90lfNPkHnPkHzW2DlnaEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC0DehhAAAAgHRSTlP/AP////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFa9HyQAAAn1SURBVHja3Z0Lf9o4EsBHDciOY+xA6ttma+ASDthsoIGmSZMmbbbNbpvu7j2+/6c5SX5JtmRDELXM/BICBlz+zGheklVAGwsgoBI/oPfALNkGIto9RJSeCOSI9UIjHZKdBwy0VKRXwEDZGqI5uHoBdx4RcpYqpUTNQYT0BoFwn8NAzdZipKSMLTnCARrif7bgbBBnlM1GlLwZctmNGS5nI52JGY6RQXEDRJDpdLcQZcGCd6QG8W6qRIB8YoNM8qbPReTfFccNwY0m592p7MaYwkm3R5UVF4nrEY40HREVzycGENQgLQatF2XSsuV+ZgcRmzwWV0E0RXXbR0TN0yKkiJZallmxgRqa3VDEVg+rJIxGonFtqrUR3Yqcp7GGWoXIoFCW2iC0m4hCNWxOSvccRFC3ASRGipqIWNLpAEmnETXRUEGWqMaI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" alt="Entiz">
+            <div class="topbar-brand-copy">
+              <p>Entiz Project 360</p>
+              <h1>Nền tảng quản trị dự án tổng thể</h1>
+            </div>
           </div>
           <div class="profile">
             <img id="userAvatar" alt="" class="avatar">
@@ -97,8 +251,8 @@
         </section>
 
         <section class="placeholder-panel">
-          <h2>Login shell DEV đã sẵn sàng</h2>
-          <p>WEB-03 sẽ kết nối Apps Script API và kiểm tra quyền từ backend.</p>
+          <h2>Entiz Project 360 đã sẵn sàng</h2>
+          <p>Hệ thống quản trị dự án, công việc, tiến độ, ngân sách và báo cáo điều hành.</p>
         </section>
       </section>
     </main>
