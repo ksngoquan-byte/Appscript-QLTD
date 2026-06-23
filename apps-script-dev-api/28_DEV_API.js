@@ -65,6 +65,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdBudgetCheckAllocation_(params));
   }
 
+  if (action === 'budget_envelope_schema_dryrun') {
+    return qltdDevApiJson_(qltdBudgetEnvelopeSchemaDryRunApi_(params));
+  }
+
   if (action === 'budget_checktwolayerschema') {
     return qltdDevApiJson_(qltdBudgetCheckTwoLayerSchema_(params));
   }
