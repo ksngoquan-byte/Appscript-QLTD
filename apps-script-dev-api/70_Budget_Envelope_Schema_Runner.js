@@ -5,7 +5,24 @@ function qltdBudgetEnvelopeSchemaDryRunApi_(params) {
 }
 
 /**
- * Hàm chạy thủ công trong Apps Script editor.
+ * Hàm public để chọn và chạy trực tiếp trong Apps Script editor.
+ * Chỉ self-check hằng số, không truy cập hoặc ghi Google Sheet.
+ */
+function runBudgetEnvelopeSchemaSelfCheck() {
+  return qltdBudgetEnvelopeSchemaSelfCheck_();
+}
+
+/**
+ * Hàm public pilot mặc định cho dự án 24-1.ĐB.
+ * Chỉ đọc schema, không ghi hoặc append cột.
+ * Có thể sửa tạm mã phòng/ban trong hàm khi cần pilot phạm vi hẹp hơn.
+ */
+function runBudgetEnvelopePilotDryRun() {
+  return qltdBudgetEnvelopeRunPilotDryRun_('24-1.ĐB', '');
+}
+
+/**
+ * Hàm chạy nội bộ.
  * Chỉ đọc schema, không ghi hoặc append cột.
  *
  * Ví dụ:
