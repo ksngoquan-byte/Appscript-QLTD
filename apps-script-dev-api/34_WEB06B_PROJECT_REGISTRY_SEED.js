@@ -45,7 +45,7 @@ function web06bSeedProjectRegistry() {
 
 function web06bBuildDeptRows_(target, projectCode, unitSuffix, projectName) {
   const depts = [
-    ['BQLDA', 'BQLDA', 'BQLDA'],
+    ['BQLDA', 'BQLDA', 'BQLDA', 'QLDA'],
     ['PTDA', 'PTDA', 'PTDA'],
     ['GPMB', 'GPMB', 'GPMB'],
     ['Thietke', 'Thietke', 'Thiết kế'],
@@ -63,7 +63,8 @@ function web06bBuildDeptRows_(target, projectCode, unitSuffix, projectName) {
       DeptName: dept[2] + ' ' + projectName,
       Status: 'ACTIVE',
       SortOrder: (index + 1) * 10,
-      Note: 'WEB-06B'
+      Note: 'WEB-06B',
+      MasterDeptCode: qltdMasterDeptCanonicalCode_(dept[3] || dept[0])
     });
   });
 }

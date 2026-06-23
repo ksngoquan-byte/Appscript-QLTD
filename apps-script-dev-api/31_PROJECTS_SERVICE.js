@@ -134,7 +134,7 @@ function qltdProjectsListForUser_(email) {
 
   if (!user) return allProjects;
 
-  if (user.role === 'ADMIN') {
+  if (user.role === 'ADMIN' || user.role === 'PMO') {
     return allProjects;
   }
 

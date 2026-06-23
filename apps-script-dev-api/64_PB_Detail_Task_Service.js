@@ -48,9 +48,9 @@ function qltdWorkGetDetailTasks_(params) {
   const auth = qltdWorkAuthUser_(params && params.email, action, QLTD_PB_DETAIL_TASK_SOURCE, meta);
   if (auth.error) return auth.error;
 
-  const context = qltdPbDetailResolveContext_(action, params || {}, meta);
+  const context = qltdPbDetailResolveContext_(action, params || {}, meta, auth.user);
   if (context.error) return context.error;
-  if (!qltdWorkCanReadDept_(auth.user, context.deptCode)) {
+  if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'PERMISSION_DENIED', 'User cannot read this dept.', context.meta, context.warnings);
   }
 
@@ -173,9 +173,9 @@ function qltdPbDetailWriteWithLock_(action, payload, handler) {
   const auth = qltdWorkAuthUser_(payload && payload.email, action, QLTD_PB_DETAIL_TASK_SOURCE, meta);
   if (auth.error) return auth.error;
 
-  const context = qltdPbDetailResolveContext_(action, payload || {}, meta);
+  const context = qltdPbDetailResolveContext_(action, payload || {}, meta, auth.user);
   if (context.error) return context.error;
-  if (!qltdWorkCanManageDept_(auth.user, context.deptCode)) {
+  if (!qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'PERMISSION_DENIED', 'User cannot manage this dept.', context.meta, context.warnings);
   }
 
@@ -196,9 +196,10 @@ function qltdPbDetailWriteWithLock_(action, payload, handler) {
   }
 }
 
-function qltdPbDetailResolveContext_(action, params, baseMeta) {
+function qltdPbDetailResolveContext_(action, params, baseMeta, actorUser) {
   const resolved = qltdWorkResolveProjectDept_(action, params, QLTD_PB_DETAIL_TASK_SOURCE, {
     requireDeptSpreadsheet: true,
+    actorUser: actorUser,
     meta: baseMeta || {}
   });
   if (resolved.error) return {

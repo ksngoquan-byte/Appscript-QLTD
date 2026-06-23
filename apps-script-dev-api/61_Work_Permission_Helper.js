@@ -113,31 +113,37 @@ function qltdWorkIsEditorScope_(user) {
   return qltdWorkNormalizeRole_(user && user.role) === 'EDITOR';
 }
 
-function qltdWorkSameDept_(user, deptCode) {
-  return !!user && qltdWorkNormalizeCode_(user.deptCode) === qltdWorkNormalizeCode_(deptCode);
+function qltdWorkSameDept_(user, deptCode, dept) {
+  if (!user) return false;
+  const userMasterDeptCode = qltdMasterDeptCanonicalCode_(user.deptCode);
+  const targetMasterDeptCode = dept
+    ? qltdMasterDeptCanonicalCode_(dept.masterDeptCode || dept.deptCode || dept.projectUnitCode)
+    : qltdMasterDeptCanonicalCode_(deptCode);
+  if (userMasterDeptCode && targetMasterDeptCode) return userMasterDeptCode === targetMasterDeptCode;
+  return qltdWorkNormalizeCode_(user.deptCode) === qltdWorkNormalizeCode_(deptCode);
 }
 
-function qltdWorkCanManageDept_(user, deptCode) {
+function qltdWorkCanManageDept_(user, deptCode, dept) {
   if (qltdWorkIsAdminScope_(user)) return true;
-  return qltdWorkIsEditorScope_(user) && qltdWorkSameDept_(user, deptCode);
+  return qltdWorkIsEditorScope_(user) && qltdWorkSameDept_(user, deptCode, dept);
 }
 
-function qltdWorkCanReadDept_(user, deptCode) {
+function qltdWorkCanReadDept_(user, deptCode, dept) {
   const role = qltdWorkNormalizeRole_(user && user.role);
   if (qltdWorkIsAdminScope_(user)) return true;
   if (role === 'EDITOR' || role === 'REPORTER' || role === 'VIEWER') {
-    return qltdWorkSameDept_(user, deptCode);
+    return qltdWorkSameDept_(user, deptCode, dept);
   }
   return false;
 }
 
-function qltdWorkCanWriteTask_(user, deptCode) {
-  return qltdWorkCanManageDept_(user, deptCode);
+function qltdWorkCanWriteTask_(user, deptCode, dept) {
+  return qltdWorkCanManageDept_(user, deptCode, dept);
 }
 
-function qltdWorkCanReviewWeekly_(user, deptCode) {
+function qltdWorkCanReviewWeekly_(user, deptCode, dept) {
   if (qltdWorkIsAdminScope_(user)) return true;
-  return qltdWorkIsEditorScope_(user) && qltdWorkSameDept_(user, deptCode);
+  return qltdWorkIsEditorScope_(user) && qltdWorkSameDept_(user, deptCode, dept);
 }
 
 function qltdWorkResolveProjectDept_(action, params, source, options) {
@@ -201,10 +207,17 @@ function qltdWorkResolveProjectDept_(action, params, source, options) {
   const projectDepts = deptsResult.departments.filter(function(dept) {
     return dept.projectCode === projectCode && dept.status === 'ACTIVE';
   });
-  const dept = qltdBudgetFindProjectDept_(projectDepts, requestedDeptCode);
+  let dept = qltdBudgetFindProjectDept_(projectDepts, requestedDeptCode);
+  if (!dept && opts.actorUser && !qltdWorkIsAdminScope_(opts.actorUser)) {
+    const actorMasterDeptCode = qltdMasterDeptCanonicalCode_(opts.actorUser.deptCode);
+    const requestedMasterDeptCode = qltdMasterDeptCanonicalCode_(requestedDeptCode);
+    if (actorMasterDeptCode && (!requestedMasterDeptCode || requestedMasterDeptCode === actorMasterDeptCode)) {
+      dept = qltdBudgetFindProjectDeptByMasterDeptCode_(projectDepts, actorMasterDeptCode);
+    }
+  }
   if (!dept) {
     return {
-      error: qltdWorkError_(source, action, 'DEPT_NOT_FOUND', 'Active project department not found.', meta, projectsResult.warnings.concat(deptsResult.warnings || []))
+      error: qltdWorkError_(source, action, 'PROJECT_DEPT_NOT_ASSIGNED', 'Phong/ban cua ban chua duoc phan cong tham gia du an nay.', meta, projectsResult.warnings.concat(deptsResult.warnings || []))
     };
   }
 
@@ -308,14 +321,14 @@ function qltdWorkFindActiveUserByEmail_(email) {
 
 function qltdWorkFindActiveUsersByDisplayNameDept_(displayName, deptCode) {
   const targetName = String(displayName || '').trim();
-  const normalizedDeptCode = qltdWorkNormalizeCode_(deptCode);
+  const normalizedDeptCode = qltdMasterDeptCanonicalCode_(deptCode);
   if (!targetName || !normalizedDeptCode) return [];
 
   return qltdWorkListUsers_().filter(function(user) {
     return (
       user.displayName === targetName &&
       user.status === 'ACTIVE' &&
-      qltdWorkNormalizeCode_(user.deptCode) === normalizedDeptCode
+      qltdMasterDeptCanonicalCode_(user.deptCode) === normalizedDeptCode
     );
   });
 }
@@ -382,9 +395,9 @@ function qltdWorkAssigneeResolutionError_(source, action, fieldName, resolution,
 }
 
 function qltdWorkFindAssigneeDeptMismatches_(resolution, deptCode) {
-  const normalizedDeptCode = qltdWorkNormalizeCode_(deptCode);
+  const normalizedDeptCode = qltdMasterDeptCanonicalCode_(deptCode);
   return (resolution && resolution.users || []).filter(function(user) {
-    return qltdWorkNormalizeCode_(user.deptCode) !== normalizedDeptCode;
+    return qltdMasterDeptCanonicalCode_(user.deptCode) !== normalizedDeptCode;
   });
 }
 

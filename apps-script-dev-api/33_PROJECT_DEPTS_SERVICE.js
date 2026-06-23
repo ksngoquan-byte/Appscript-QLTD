@@ -6,16 +6,17 @@ const QLTD_PROJECT_DEPTS_HEADERS = [
   'DeptName',
   'Status',
   'SortOrder',
-  'Note'
+  'Note',
+  'MasterDeptCode'
 ];
 
 const QLTD_PROJECT_DEPTS_DEFAULT_ROWS = [
-  ['37-8.NC', 'UBNCSP', 'UBNCSP', 'UBNCSP', 'ACTIVE', 1, 'Initial mapping'],
-  ['37-8.NC', 'PTDA', 'PTDA', 'PTDA', 'ACTIVE', 2, 'Initial mapping'],
-  ['37-8.NC', 'KEHOACH', 'KEHOACH', 'Ke hoach', 'ACTIVE', 3, 'Initial mapping'],
-  ['37-8.NC', 'PHAPCHE', 'PHAPCHE', 'Phap che', 'ACTIVE', 4, 'Initial mapping'],
-  ['37-8.NC', 'KSXD', 'KSXD', 'KSXD', 'ACTIVE', 5, 'Initial mapping'],
-  ['37-8.NC', 'BQLDA', 'BQLDA_NC', 'BQLDA Nam Cam', 'ACTIVE', 6, 'Initial mapping']
+  ['37-8.NC', 'UBNCSP', 'UBNCSP', 'UBNCSP', 'ACTIVE', 1, 'Initial mapping', 'UBNCSP'],
+  ['37-8.NC', 'PTDA', 'PTDA', 'PTDA', 'ACTIVE', 2, 'Initial mapping', 'PTDA'],
+  ['37-8.NC', 'KEHOACH', 'KEHOACH', 'Ke hoach', 'ACTIVE', 3, 'Initial mapping', 'KEHOACH'],
+  ['37-8.NC', 'PHAPCHE', 'PHAPCHE', 'Phap che', 'ACTIVE', 4, 'Initial mapping', 'PHAPCHE'],
+  ['37-8.NC', 'KSXD', 'KSXD', 'KSXD', 'ACTIVE', 5, 'Initial mapping', 'KYTHUAT'],
+  ['37-8.NC', 'BQLDA', 'BQLDA_NC', 'BQLDA Nam Cam', 'ACTIVE', 6, 'Initial mapping', 'QLDA']
 ];
 
 function qltdSetupProjectDeptsSheet() {
@@ -127,7 +128,8 @@ function qltdProjectDeptsListAllRaw_() {
         deptName: String(row[3] || '').trim(),
         status: qltdProjectDeptsNormalizeStatus_(row[4]),
         sortOrder: row[5] || '',
-        note: String(row[6] || '').trim()
+        note: String(row[6] || '').trim(),
+        masterDeptCode: qltdMasterDeptCanonicalCode_(row[7] || row[1] || row[2])
       };
     })
     .filter(function(row) {
@@ -136,7 +138,7 @@ function qltdProjectDeptsListAllRaw_() {
 }
 
 function qltdProjectDeptsGetAllowedProjectCodesForUser_(user, email) {
-  const deptCode = qltdProjectDeptsNormalizeCode_(user && user.deptCode);
+  const deptCode = qltdMasterDeptCanonicalCode_(user && user.deptCode);
   const projectUnitCode = qltdProjectDeptsGetUserProjectUnitCode_(email);
 
   if (!deptCode && !projectUnitCode) return [];
@@ -145,7 +147,7 @@ function qltdProjectDeptsGetAllowedProjectCodesForUser_(user, email) {
   const allowed = {};
 
   rows.forEach(function(row) {
-    const matchesDept = deptCode && row.deptCode === deptCode;
+    const matchesDept = deptCode && row.masterDeptCode === deptCode;
     const matchesProjectUnit = projectUnitCode && row.projectUnitCode === projectUnitCode;
 
     if (matchesDept || matchesProjectUnit) {

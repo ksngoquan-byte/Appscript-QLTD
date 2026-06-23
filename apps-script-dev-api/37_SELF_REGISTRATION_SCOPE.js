@@ -118,29 +118,87 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
     return { allowed: true, response: null, user: user };
   }
 
-  const userDept = qltdDeptScopeNormalizeCode_(user.deptCode);
+  const actorMasterDeptCode = qltdMasterDeptCanonicalCode_(user.deptCode);
   const targetDept = qltdDeptScopeFindPayloadDept_(payload);
 
-  if (!userDept) {
+  if (!actorMasterDeptCode) {
     return {
       allowed: false,
       response: qltdUsersBuildAuthError_('USER_DEPT_MISSING', 'Tai khoan chua duoc gan phong/ban. Vui long lien he quan tri.')
     };
   }
 
-  if (targetDept && targetDept !== userDept) {
+  const routeResult = qltdDeptScopeResolveProjectDeptForActor_(payload, actorMasterDeptCode);
+  if (!routeResult.success) {
+    return {
+      allowed: false,
+      response: routeResult.response
+    };
+  }
+
+  const projectDept = routeResult.dept;
+  const targetMasterDept = qltdMasterDeptCanonicalCode_(targetDept);
+  const targetRoutingDept = qltdDeptScopeNormalizeCode_(targetDept);
+  if (
+    targetDept &&
+    targetMasterDept !== actorMasterDeptCode &&
+    targetRoutingDept !== qltdDeptScopeNormalizeCode_(projectDept.deptCode) &&
+    targetRoutingDept !== qltdDeptScopeNormalizeCode_(projectDept.projectUnitCode)
+  ) {
     return {
       allowed: false,
       response: qltdUsersBuildAuthError_('DEPT_SCOPE_DENIED', 'Ban chi duoc lap va cap nhat du lieu thuoc phong/ban cua minh.', {
         action: action,
         userDeptCode: user.deptCode,
+        actorMasterDeptCode: actorMasterDeptCode,
         requestedDeptCode: qltdDeptScopeReadRawPayloadDept_(payload)
       })
     };
   }
 
-  qltdDeptScopeForcePayloadDept_(payload, user.deptCode, user.deptName);
+  payload.actorMasterDeptCode = actorMasterDeptCode;
+  payload.targetProjectDeptCode = projectDept.deptCode;
+  qltdDeptScopeForcePayloadDept_(payload, projectDept.deptCode, projectDept.deptName);
   return { allowed: true, response: null, user: user };
+}
+
+function qltdDeptScopeResolveProjectDeptForActor_(payload, actorMasterDeptCode) {
+  const projectCode = qltdBudgetNormalizeCode_(qltdDeptScopeReadRawPayloadProject_(payload));
+  if (!projectCode) {
+    return {
+      success: false,
+      response: qltdUsersBuildAuthError_('PROJECT_CODE_REQUIRED', 'Thieu ma du an.')
+    };
+  }
+
+  const deptsResult = qltdBudgetReadProjectDepts_();
+  if (deptsResult.error) {
+    return {
+      success: false,
+      response: qltdUsersBuildAuthError_('PROJECT_DEPTS_UNAVAILABLE', 'Khong doc duoc Project_Depts.', {
+        upstreamErrors: deptsResult.error.errors || []
+      })
+    };
+  }
+
+  const projectDepts = deptsResult.departments.filter(function(dept) {
+    return dept.projectCode === projectCode && dept.status === 'ACTIVE';
+  });
+  const dept = qltdBudgetFindProjectDeptByMasterDeptCode_(projectDepts, actorMasterDeptCode);
+  if (!dept) {
+    return {
+      success: false,
+      response: qltdUsersBuildAuthError_('PROJECT_DEPT_NOT_ASSIGNED', 'Phong/ban cua ban chua duoc phan cong tham gia du an nay.', {
+        projectCode: projectCode,
+        actorMasterDeptCode: actorMasterDeptCode
+      })
+    };
+  }
+
+  return {
+    success: true,
+    dept: dept
+  };
 }
 
 function qltdDeptScopeFindPayloadDept_(payload) {
@@ -151,6 +209,28 @@ function qltdDeptScopeReadRawPayloadDept_(payload) {
   if (!payload || typeof payload !== 'object') return '';
 
   const directKeys = ['deptCode', 'departmentCode', 'ownerDeptCode', 'reportDeptCode'];
+  for (let index = 0; index < directKeys.length; index += 1) {
+    const value = payload[directKeys[index]];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+
+  const nestedKeys = ['task', 'detailTask', 'item', 'report', 'data', 'payload'];
+  for (let index = 0; index < nestedKeys.length; index += 1) {
+    const nested = payload[nestedKeys[index]];
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) continue;
+    for (let keyIndex = 0; keyIndex < directKeys.length; keyIndex += 1) {
+      const value = nested[directKeys[keyIndex]];
+      if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+    }
+  }
+
+  return '';
+}
+
+function qltdDeptScopeReadRawPayloadProject_(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+
+  const directKeys = ['projectCode', 'projectId'];
   for (let index = 0; index < directKeys.length; index += 1) {
     const value = payload[directKeys[index]];
     if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();

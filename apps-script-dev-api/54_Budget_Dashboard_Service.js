@@ -604,7 +604,7 @@ function qltdBudgetBuildReadContext_(params, action, includeBudgetType) {
   if (user.status !== 'ACTIVE') return { error: qltdBudgetError_(action, 'USER_INACTIVE', 'User khong ACTIVE.', meta) };
 
   const projectCode = qltdBudgetNormalizeCode_(params.projectCode);
-  const isAdmin = user.role === 'ADMIN';
+  const isAdmin = user.role === 'ADMIN' || user.role === 'PMO';
   if (!projectCode) return { error: qltdBudgetError_(action, 'PROJECT_CODE_REQUIRED', 'Thieu projectCode.', meta) };
   if (projectCode === 'ALL' && !isAdmin) return { error: qltdBudgetError_(action, 'ACCESS_DENIED', 'Chi ADMIN duoc doc projectCode=ALL.', meta) };
 
@@ -755,12 +755,12 @@ function qltdBudgetReadAllowedDeptCodes_(user, email, departments, projectCode) 
   const allowed = {};
   if (!user || user.role === 'ADMIN') return allowed;
 
-  const userDeptCode = qltdBudgetNormalizeCode_(user.deptCode);
+  const userDeptCode = qltdMasterDeptCanonicalCode_(user.deptCode);
   const userProjectUnitCode = qltdBudgetNormalizeCode_(user.projectUnitCode);
   (departments || []).forEach(function(dept) {
     if (projectCode !== 'ALL' && dept.projectCode !== projectCode) return;
     if (
-      (userDeptCode && dept.deptCode === userDeptCode) ||
+      (userDeptCode && qltdMasterDeptCanonicalCode_(dept.masterDeptCode || dept.deptCode || dept.projectUnitCode) === userDeptCode) ||
       (userProjectUnitCode && dept.projectUnitCode === userProjectUnitCode)
     ) {
       allowed[dept.deptCode] = true;
@@ -812,14 +812,14 @@ function qltdBudgetReadProjectsForBudgetUser_(user, departments) {
     return project.projectCode && project.status === 'ACTIVE';
   });
 
-  if (user && user.role === 'ADMIN') return activeProjects;
+  if (user && (user.role === 'ADMIN' || user.role === 'PMO')) return activeProjects;
 
   const allowed = {};
-  const userDeptCode = qltdBudgetNormalizeCode_(user && user.deptCode);
+  const userDeptCode = qltdMasterDeptCanonicalCode_(user && user.deptCode);
   const userProjectUnitCode = qltdBudgetNormalizeCode_(user && user.projectUnitCode);
   (departments || []).forEach(function(dept) {
     if (
-      (userDeptCode && dept.deptCode === userDeptCode) ||
+      (userDeptCode && qltdMasterDeptCanonicalCode_(dept.masterDeptCode || dept.deptCode || dept.projectUnitCode) === userDeptCode) ||
       (userProjectUnitCode && dept.projectUnitCode === userProjectUnitCode)
     ) {
       allowed[dept.projectCode] = true;
@@ -843,6 +843,7 @@ function qltdBudgetReadProjectDeptsReadonly_() {
       deptCode: qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'DeptCode', '')),
       projectUnitCode: qltdBudgetNormalizeCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'ProjectUnitCode', '')),
       deptName: String(qltdBudgetGetCell_(row, parsed.headerMap, 'DeptName', '') || '').trim(),
+      masterDeptCode: qltdMasterDeptCanonicalCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'MasterDeptCode', '') || qltdBudgetGetCell_(row, parsed.headerMap, 'DeptCode', '') || qltdBudgetGetCell_(row, parsed.headerMap, 'ProjectUnitCode', '')),
       status: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Status', 'ACTIVE') || 'ACTIVE').trim().toUpperCase()
     };
   }).filter(function(dept) {

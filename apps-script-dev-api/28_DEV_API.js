@@ -171,6 +171,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(result);
   }
 
+  if (action === 'projectdepts_masterdept_dryrun') {
+    return qltdDevApiJson_(qltdProjectDeptsMasterDeptDryRun_());
+  }
+
   return qltdDevApiJson_({
     success: false,
     message: 'UNKNOWN_ACTION'
@@ -277,6 +281,10 @@ function qltdDevApiHandlePost_(e) {
 
   if (action === 'weekly_review') {
     return qltdDevApiJson_(qltdWeeklyReview_(payload));
+  }
+
+  if (action === 'projectdepts_masterdept_apply') {
+    return qltdDevApiJson_(qltdProjectDeptsMasterDeptApply_(payload));
   }
 
   return qltdDevApiJson_(qltdBudgetWriteError_('UNKNOWN_POST_ACTION', 'UNKNOWN_POST_ACTION', 'Post action khong hop le.', {

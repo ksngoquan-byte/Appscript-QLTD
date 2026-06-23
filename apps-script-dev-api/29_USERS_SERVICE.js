@@ -137,60 +137,15 @@ function qltdUsersGetRegistrationOptions_(params) {
 }
 
 function qltdUsersCollectRegistrationDepartments_() {
-  const byCode = {};
-
-  function addDepartment(codeValue, nameValue, sortOrderValue) {
-    const code = qltdUsersNormalizeDeptCode_(codeValue);
-    const name = String(nameValue || '').trim();
-    if (!code || code === 'ADMIN' || code === 'TEST') return;
-
-    if (!byCode[code]) {
-      byCode[code] = {
-        deptCode: code,
-        deptName: name || code,
-        sortOrder: Number(sortOrderValue || 9999)
-      };
-      return;
-    }
-
-    if ((!byCode[code].deptName || byCode[code].deptName === code) && name) {
-      byCode[code].deptName = name;
-    }
-    byCode[code].sortOrder = Math.min(byCode[code].sortOrder, Number(sortOrderValue || 9999));
-  }
-
-  try {
-    if (typeof qltdProjectDeptsListActive_ === 'function') {
-      qltdProjectDeptsListActive_().forEach(function(row) {
-        addDepartment(row.deptCode, row.deptName, row.sortOrder);
-      });
-    }
-  } catch (error) {
-    console.warn('Cannot load Project_Depts for user registration', error);
-  }
-
-  const sheet = qltdUsersEnsureSheet_();
-  const lastRow = sheet.getLastRow();
-  if (lastRow >= 2) {
-    sheet.getRange(2, 1, lastRow - 1, QLTD_USERS_HEADERS.length).getValues().forEach(function(row) {
-      addDepartment(row[4], row[5], 9999);
-    });
-  }
-
-  return Object.keys(byCode)
-    .map(function(code) { return byCode[code]; })
-    .sort(function(a, b) {
-      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-      return String(a.deptName || '').localeCompare(String(b.deptName || ''), 'vi');
-    });
+  return qltdMasterDeptList_();
 }
 
 function qltdUsersFindRegistrationDepartment_(deptCode) {
-  const targetCode = qltdUsersNormalizeDeptCode_(deptCode);
+  const targetCode = qltdMasterDeptCanonicalCode_(deptCode);
   if (!targetCode) return null;
 
   return qltdUsersCollectRegistrationDepartments_().find(function(item) {
-    return qltdUsersNormalizeDeptCode_(item.deptCode) === targetCode;
+    return item.deptCode === targetCode;
   }) || null;
 }
 
@@ -205,7 +160,7 @@ function qltdUsersRegister_(payload) {
   const role = QLTD_USERS_REGISTRATION_GROUPS[userGroup] || '';
   const requiresDepartment = userGroup === 'DEPT_MANAGER' || userGroup === 'EMPLOYEE';
   const selectedDepartment = requiresDepartment ? qltdUsersFindRegistrationDepartment_(payload && payload.deptCode) : null;
-  const deptCode = requiresDepartment ? qltdUsersNormalizeDeptCode_(selectedDepartment && selectedDepartment.deptCode) : QLTD_USERS_EXECUTIVE_DEPT.deptCode;
+  const deptCode = requiresDepartment ? qltdMasterDeptCanonicalCode_(selectedDepartment && selectedDepartment.deptCode) : QLTD_USERS_EXECUTIVE_DEPT.deptCode;
   const deptName = requiresDepartment ? String(selectedDepartment && selectedDepartment.deptName || '').trim() : QLTD_USERS_EXECUTIVE_DEPT.deptName;
 
   const validationErrors = [];

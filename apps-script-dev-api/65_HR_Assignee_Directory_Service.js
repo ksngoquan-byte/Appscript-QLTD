@@ -15,12 +15,12 @@ const QLTD_HR_ASSIGNEE_HEADERS = {
 // Mapping is independent from Project_Depts. A department is usable only after
 // the project registry contains the corresponding QLTD code.
 const QLTD_HR_DEPT_CODE_BY_NAME = {
-  'ban quan ly du an': 'BQLDA',
+  'ban quan ly du an': 'QLDA',
   'phong phat trien du an': 'PTDA',
   'phong thiet ke ky thuat': 'THIETKE',
   'phong concept': 'THIETKE',
   'phong ket cau': 'THIETKE',
-  'phong bim': 'THIETKE',
+  'phong bim': 'BIM',
   'phong tieu chuan': 'TIEUCHUAN',
   'bo phan dau thau': 'DAUTHAU',
   'phong ke hoach': 'KEHOACH',
@@ -28,8 +28,8 @@ const QLTD_HR_DEPT_CODE_BY_NAME = {
   'phong ke toan': 'KETOAN',
   'van phong uy ban r&d': 'UBNCSP',
   'phong phap che': 'PHAPCHE',
-  'phong kiem soat xay dung': 'KSXD',
-  'khoi xay dung': 'KSXD',
+  'phong kiem soat xay dung': 'KYTHUAT',
+  'khoi xay dung': 'KYTHUAT',
   'phong mkt - truyen thong': 'MKT',
   'phong quan ly kinh doanh': 'KINHDOANH',
   'phong quan ly va khai thac bds': 'VANHANH',
@@ -47,9 +47,9 @@ function qltdWorkListAssignees_(params) {
   const auth = qltdWorkAuthUser_(params && params.email, action, QLTD_HR_ASSIGNEE_SOURCE, {});
   if (auth.error) return auth.error;
 
-  const context = qltdWorkResolveProjectDept_(action, params || {}, QLTD_HR_ASSIGNEE_SOURCE, {});
+  const context = qltdWorkResolveProjectDept_(action, params || {}, QLTD_HR_ASSIGNEE_SOURCE, { actorUser: auth.user });
   if (context.error) return qltdHrAssigneeNormalizeContextError_(context.error, params && params.deptCode);
-  if (!qltdWorkCanReadDept_(auth.user, context.deptCode)) {
+  if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_HR_ASSIGNEE_SOURCE, action, 'FORBIDDEN', 'Bạn không có quyền xem nhân sự của phòng/ban này.', {
       projectCode: context.projectCode,
       deptCode: context.deptCode,
@@ -101,7 +101,7 @@ function qltdHrAssigneeGetDirectory_(context) {
   }
 
   const rows = qltdHrAssigneeReadRows_();
-  const result = qltdHrAssigneeBuildDirectory_(rows, context.project, context.deptCode);
+  const result = qltdHrAssigneeBuildDirectory_(rows, context.project, qltdHrAssigneeContextMasterDeptCode_(context));
   cache.put(cacheKey, JSON.stringify(result), QLTD_HR_ASSIGNEE_CACHE_SECONDS);
   return result;
 }
@@ -174,13 +174,13 @@ function qltdHrAssigneeColumnLetter_(columnNumber) {
 }
 
 function qltdHrAssigneeBuildDirectory_(rows, project, deptCode) {
-  const normalizedDeptCode = qltdWorkNormalizeCode_(deptCode);
+  const normalizedDeptCode = qltdMasterDeptCanonicalCode_(deptCode);
   const projectName = String(project && project.projectName || '').trim();
   const warnings = [];
   const assignees = rows.filter(function(row) {
     if (row.deptCode !== normalizedDeptCode) return false;
     if (qltdHrAssigneeNormalizeText_(row.status) !== QLTD_HR_ASSIGNEE_ACTIVE_STATUS) return false;
-    return normalizedDeptCode !== 'BQLDA' || qltdHrAssigneeProjectMatches_(row.project, projectName, project && project.projectCode);
+    return normalizedDeptCode !== 'QLDA' || qltdHrAssigneeProjectMatches_(row.project, projectName, project && project.projectCode);
   }).map(function(row) {
     return {
       email: row.email,
@@ -236,11 +236,11 @@ function qltdHrAssigneeResolve_(value, context) {
       unresolved.push({ value: email, reason: 'INACTIVE' });
       return;
     }
-    if (row.deptCode !== context.deptCode) {
+    if (row.deptCode !== qltdHrAssigneeContextMasterDeptCode_(context)) {
       unresolved.push({ value: email, reason: 'WRONG_DEPT' });
       return;
     }
-    if (context.deptCode === 'BQLDA' && !qltdHrAssigneeProjectMatches_(row.project, context.project.projectName, context.projectCode)) {
+    if (qltdHrAssigneeContextMasterDeptCode_(context) === 'QLDA' && !qltdHrAssigneeProjectMatches_(row.project, context.project.projectName, context.projectCode)) {
       unresolved.push({ value: email, reason: 'WRONG_PROJECT' });
       return;
     }
@@ -271,4 +271,8 @@ function qltdHrAssigneeResolutionError_(action, fieldName, resolution, context, 
     field: fieldName,
     unresolved: resolution.unresolved || []
   });
+}
+
+function qltdHrAssigneeContextMasterDeptCode_(context) {
+  return qltdMasterDeptCanonicalCode_(context && context.dept && context.dept.masterDeptCode || context && context.deptCode);
 }

@@ -97,7 +97,8 @@ const QLTD_BUDGET_PROJECT_DEPT_HEADERS = [
   'DeptName',
   'Status',
   'SortOrder',
-  'Note'
+  'Note',
+  'MasterDeptCode'
 ];
 
 const QLTD_BUDGET_DEPT_TASK_REQUIRED_HEADERS = [
