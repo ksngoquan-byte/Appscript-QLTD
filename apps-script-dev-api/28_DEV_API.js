@@ -17,6 +17,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiProfile_(params.email);
   }
 
+  if (action === 'user_getregistrationoptions') {
+    return qltdDevApiJson_(qltdUsersGetRegistrationOptions_());
+  }
+
   if (action === 'bootstrap') {
     return qltdDevApiJson_(qltdDevApiBootstrap_(params));
   }
@@ -202,6 +206,10 @@ function qltdDevApiHandlePost_(e) {
   const payload = parseResult.payload;
   const action = String(payload.action || '').trim().toLowerCase();
 
+  if (action === 'user_register') {
+    return qltdDevApiJson_(qltdUsersRegister_(payload));
+  }
+
   if (action === 'budget_submitplan') {
     return qltdDevApiJson_(qltdBudgetSubmitPlan_(payload));
   }
@@ -287,6 +295,7 @@ function qltdDevApiProfile_(emailValue) {
     return qltdDevApiJson_({
       success: false,
       message: 'USER_NOT_FOUND',
+      requiresRegistration: true,
       apiStatus: 'CONNECTED',
       source: QLTD_DEV_API_SOURCE
     });
@@ -309,6 +318,8 @@ function qltdDevApiProfile_(emailValue) {
       source: QLTD_DEV_API_SOURCE
     });
   }
+
+  qltdUsersTouchLastLogin_(user.rowIndex);
 
   return qltdDevApiJson_({
     success: true,
