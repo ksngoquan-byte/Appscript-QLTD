@@ -6,3 +6,4 @@ firebase-hosting-dev/node_modules/
 firebase-hosting-dev/package-lock.json
 firebase-hosting-dev/*.bak
 firebase-hosting-dev/*.log
+.codebase-memory/
