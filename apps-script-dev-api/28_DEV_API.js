@@ -14,7 +14,11 @@ function qltdDevApiHandleGet(e) {
   }
 
   if (action === 'profile') {
-    return qltdDevApiProfile_(params.email);
+    return qltdDevApiProfile_(params);
+  }
+
+  if (action === 'user_getregistrationoptions') {
+    return qltdDevApiJson_(qltdUsersGetRegistrationOptions_(params));
   }
 
   if (action === 'bootstrap') {
@@ -167,6 +171,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(result);
   }
 
+  if (action === 'projectdepts_masterdept_dryrun') {
+    return qltdDevApiJson_(qltdProjectDeptsMasterDeptDryRun_());
+  }
+
   return qltdDevApiJson_({
     success: false,
     message: 'UNKNOWN_ACTION'
@@ -201,6 +209,15 @@ function qltdDevApiHandlePost_(e) {
 
   const payload = parseResult.payload;
   const action = String(payload.action || '').trim().toLowerCase();
+
+  if (action === 'user_register') {
+    return qltdDevApiJson_(qltdUsersRegister_(payload));
+  }
+
+  const scopeResult = qltdDeptScopeAuthorizeWrite_(payload, action);
+  if (!scopeResult.allowed) {
+    return qltdDevApiJson_(scopeResult.response);
+  }
 
   if (action === 'budget_submitplan') {
     return qltdDevApiJson_(qltdBudgetSubmitPlan_(payload));
@@ -266,6 +283,10 @@ function qltdDevApiHandlePost_(e) {
     return qltdDevApiJson_(qltdWeeklyReview_(payload));
   }
 
+  if (action === 'projectdepts_masterdept_apply') {
+    return qltdDevApiJson_(qltdProjectDeptsMasterDeptApply_(payload));
+  }
+
   return qltdDevApiJson_(qltdBudgetWriteError_('UNKNOWN_POST_ACTION', 'UNKNOWN_POST_ACTION', 'Post action khong hop le.', {
     action: payload.action || ''
   }));
@@ -275,8 +296,13 @@ function qltdDevApiIsActionRequest(e) {
   return !!(e && e.parameter && e.parameter.action);
 }
 
-function qltdDevApiProfile_(emailValue) {
-  const email = qltdDevApiNormalizeEmail_(emailValue);
+function qltdDevApiProfile_(params) {
+  const identity = qltdFirebaseResolveIdentity_(params, true);
+  if (!identity.success) {
+    return qltdDevApiJson_(identity);
+  }
+
+  const email = qltdDevApiNormalizeEmail_(identity.email || (params && params.email));
 
   qltdUsersEnsureSheet_();
   qltdUsersSeedAdminIfMissing_();
@@ -287,6 +313,7 @@ function qltdDevApiProfile_(emailValue) {
     return qltdDevApiJson_({
       success: false,
       message: 'USER_NOT_FOUND',
+      requiresRegistration: true,
       apiStatus: 'CONNECTED',
       source: QLTD_DEV_API_SOURCE
     });
@@ -309,6 +336,8 @@ function qltdDevApiProfile_(emailValue) {
       source: QLTD_DEV_API_SOURCE
     });
   }
+
+  qltdUsersTouchLastLogin_(user.rowIndex);
 
   return qltdDevApiJson_({
     success: true,

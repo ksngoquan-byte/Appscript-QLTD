@@ -69,13 +69,14 @@ function qltdWeeklyReview_(payload) {
 
   const contextResult = qltdWorkResolveProjectDept_(action, payload || {}, QLTD_WEEKLY_REPORT_SOURCE, {
     requireDeptSpreadsheet: false,
+    actorUser: auth.user,
     meta: meta
   });
   if (contextResult.error) return contextResult.error;
 
   const resolvedDeptCode = contextResult.deptCode;
   meta.deptCode = resolvedDeptCode;
-  if (!qltdWorkCanReviewWeekly_(auth.user, resolvedDeptCode)) {
+  if (!qltdWorkCanReviewWeekly_(auth.user, resolvedDeptCode, contextResult.dept)) {
     return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'User cannot review weekly reports for this department.', Object.assign({
       role: auth.user.role
     }, meta), contextResult.warnings || []);
@@ -200,6 +201,7 @@ function qltdWeeklyValidateWriteScope_(action, payload, auth, allowViewer) {
 
   const contextResult = qltdWorkResolveProjectDept_(action, payload, QLTD_WEEKLY_REPORT_SOURCE, {
     requireDeptSpreadsheet: false,
+    actorUser: auth.user,
     meta: {
       email: auth.email,
       weekCode: weekCode
@@ -227,12 +229,12 @@ function qltdWeeklyValidateWriteScope_(action, payload, auth, allowViewer) {
       error: qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'User can only write own weekly reports.', meta, contextResult.warnings)
     };
   }
-  if (!qltdWorkIsAdminScope_(auth.user) && !qltdWorkSameDept_(auth.user, contextResult.deptCode)) {
+  if (!qltdWorkIsAdminScope_(auth.user) && !qltdWorkSameDept_(auth.user, contextResult.deptCode, contextResult.dept)) {
     return {
       error: qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'User can only write weekly reports for own department.', meta, contextResult.warnings)
     };
   }
-  if (qltdWorkNormalizeCode_(targetUser.deptCode) !== qltdWorkNormalizeCode_(contextResult.deptCode)) {
+  if (!qltdWorkSameDept_(targetUser, contextResult.deptCode, contextResult.dept)) {
     return {
       error: qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'USER_DEPT_MISMATCH', 'Report user DeptCode does not match report DeptCode.', meta, contextResult.warnings)
     };

@@ -73,6 +73,7 @@ function qltdBudgetGetProjectDepts_(params) {
       return {
         deptCode: dept.deptCode,
         deptName: dept.deptName,
+        masterDeptCode: dept.masterDeptCode || '',
         projectUnitCode: dept.projectUnitCode,
         status: dept.status,
         sortOrder: dept.sortOrder || ''
@@ -211,7 +212,8 @@ function qltdBudgetReadProjects_() {
         defaultDeptSheet: String(qltdBudgetGetCell_(row, parsed.headerMap, 'DefaultDeptSheet', '*') || '*').trim(),
         status: qltdBudgetNormalizeStatus_(qltdBudgetGetCell_(row, parsed.headerMap, 'Status', 'ACTIVE')),
         sortOrder: qltdBudgetGetCell_(row, parsed.headerMap, 'SortOrder', ''),
-        note: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Note', '') || '').trim()
+        note: String(qltdBudgetGetCell_(row, parsed.headerMap, 'Note', '') || '').trim(),
+        masterDeptCode: qltdMasterDeptCanonicalCode_(qltdBudgetGetCell_(row, parsed.headerMap, 'MasterDeptCode', '') || qltdBudgetGetCell_(row, parsed.headerMap, 'DeptCode', '') || qltdBudgetGetCell_(row, parsed.headerMap, 'ProjectUnitCode', ''))
       };
     }).filter(function(project) {
       return !!project.projectCode && !!project.projectName;

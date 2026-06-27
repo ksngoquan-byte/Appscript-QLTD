@@ -69,7 +69,12 @@ function qltdWorkGetMyTasks_(params) {
 
     const projectDepts = deptsResult.departments.filter(function(dept) {
       if (dept.projectCode !== project.projectCode || dept.status !== 'ACTIVE') return false;
-      if (filterDeptCode && qltdWorkNormalizeCode_(dept.deptCode) !== filterDeptCode && qltdWorkNormalizeCode_(dept.projectUnitCode) !== filterDeptCode) return false;
+      if (
+        filterDeptCode &&
+        qltdWorkNormalizeCode_(dept.deptCode) !== filterDeptCode &&
+        qltdWorkNormalizeCode_(dept.projectUnitCode) !== filterDeptCode &&
+        qltdMasterDeptCanonicalCode_(dept.masterDeptCode || dept.deptCode || dept.projectUnitCode) !== qltdMasterDeptCanonicalCode_(filterDeptCode)
+      ) return false;
       return true;
     });
 
@@ -110,6 +115,7 @@ function qltdWorkGetDeptTasks_(params) {
 
   const contextResult = qltdWorkResolveProjectDept_(action, params || {}, QLTD_WORK_TASK_SOURCE, {
     requireDeptSpreadsheet: true,
+    actorUser: auth.user,
     meta: {
       email: auth.email
     }
@@ -118,7 +124,7 @@ function qltdWorkGetDeptTasks_(params) {
 
   const context = qltdWorkBuildDeptContext_(contextResult.project, contextResult.dept, contextResult.requestedDeptCode, contextResult.warnings || []);
   const role = qltdWorkNormalizeRole_(auth.user.role);
-  if (!qltdWorkCanReadDept_(auth.user, context.deptCode) && role !== 'REPORTER') {
+  if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept) && role !== 'REPORTER') {
     return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, 'ACCESS_DENIED', 'User cannot read this department.', {
       email: auth.email,
       projectCode: context.projectCode,
@@ -127,7 +133,7 @@ function qltdWorkGetDeptTasks_(params) {
     }, context.warnings);
   }
 
-  if (role === 'REPORTER' && !qltdWorkSameDept_(auth.user, context.deptCode)) {
+  if (role === 'REPORTER' && !qltdWorkSameDept_(auth.user, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, 'ACCESS_DENIED', 'Reporter can only read own department tasks.', {
       email: auth.email,
       projectCode: context.projectCode,
@@ -178,6 +184,7 @@ function qltdWorkAssignTask_(payload) {
 
   const contextResult = qltdWorkResolveProjectDept_(action, payload || {}, QLTD_WORK_TASK_SOURCE, {
     requireDeptSpreadsheet: true,
+    actorUser: auth.user,
     meta: {
       email: auth.email,
       masterTaskCode: taskCode
@@ -186,7 +193,7 @@ function qltdWorkAssignTask_(payload) {
   if (contextResult.error) return contextResult.error;
 
   const context = qltdWorkBuildDeptContext_(contextResult.project, contextResult.dept, contextResult.requestedDeptCode, contextResult.warnings || []);
-  if (!qltdWorkCanManageDept_(auth.user, context.deptCode)) {
+  if (!qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, 'ACCESS_DENIED', 'User cannot assign tasks in this department.', {
       email: auth.email,
       projectCode: context.projectCode,
@@ -295,6 +302,7 @@ function qltdWorkUpdateTask_(payload) {
 
   const contextResult = qltdWorkResolveProjectDept_(action, payload || {}, QLTD_WORK_TASK_SOURCE, {
     requireDeptSpreadsheet: true,
+    actorUser: auth.user,
     meta: {
       email: auth.email,
       masterTaskCode: taskCode
@@ -330,7 +338,7 @@ function qltdWorkUpdateTask_(payload) {
     if (targetResult.error) return targetResult.error;
     qltdWorkAttachTaskAssignees_(targetResult.task, context.deptCode, targetResult.warnings);
 
-    const isManager = qltdWorkCanManageDept_(auth.user, context.deptCode);
+    const isManager = qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept);
     const isOwner = qltdWorkUserMatchesAssignees_(auth.email, targetResult.task.ownerResolution);
     const isCoordinator = qltdWorkUserMatchesAssignees_(auth.email, targetResult.task.coordinatorResolution);
     if (!isManager && !isOwner && !isCoordinator) {
@@ -397,6 +405,7 @@ function qltdWorkBuildDeptContext_(project, dept, requestedDeptCode, warnings) {
     dept: dept,
     projectCode: project.projectCode,
     deptCode: qltdWorkNormalizeCode_(dept.deptCode || requestedDeptCode),
+    masterDeptCode: qltdMasterDeptCanonicalCode_(dept.masterDeptCode || dept.deptCode || requestedDeptCode),
     requestedDeptCode: requestedDeptCode || dept.deptCode,
     warnings: warnings || []
   };

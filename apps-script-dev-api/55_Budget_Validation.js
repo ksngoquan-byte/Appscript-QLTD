@@ -48,9 +48,20 @@ function qltdBudgetFindProjectDept_(departments, deptCode) {
     const dept = departments[index];
     if (
       qltdBudgetNormalizeCode_(dept.deptCode) === normalized ||
-      qltdBudgetNormalizeCode_(dept.projectUnitCode) === normalized ||
-      qltdBudgetNormalizeCode_(dept.deptName) === normalized
+      qltdBudgetNormalizeCode_(dept.projectUnitCode) === normalized
     ) {
+      return dept;
+    }
+  }
+  return null;
+}
+
+function qltdBudgetFindProjectDeptByMasterDeptCode_(departments, masterDeptCode) {
+  const normalized = qltdMasterDeptCanonicalCode_(masterDeptCode);
+  if (!normalized) return null;
+  for (let index = 0; index < (departments || []).length; index += 1) {
+    const dept = departments[index];
+    if (qltdMasterDeptCanonicalCode_(dept.masterDeptCode || dept.deptCode || dept.projectUnitCode) === normalized) {
       return dept;
     }
   }
