@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../apps-script-dev-api/66_Weekly_Task_Update_Service.js', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
 const sheetRows = [];
 const detailSyncCalls = [];
 const masterApprovalSyncCalls = [];
+const masterProgressWritebackCalls = [];
 const budgetReportIds = new Set();
 const budgetWriteCalls = [];
 const aggregateCalls = [];
@@ -139,6 +141,16 @@ context.qltdWeeklyMasterApprovalApplyToMaster_ = (target, auth, dependencyDecisi
     warnings: []
   };
 };
+context.qltdWeeklyMasterProgressWriteback_ = (update, auth, requestId) => {
+  masterProgressWritebackCalls.push({ update, auth, requestId });
+  return {
+    success: true,
+    applied: true,
+    idempotent: true,
+    duplicateNote: false,
+    changes: []
+  };
+};
 
 assert.equal(buildKey('p1', 'ptda', 'week-2026-06-01', 'master', 'CV-1'), 'P1|PTDA|WEEK-2026-06-01|MASTER|CV-1');
 assert.equal(date('2026-06-01'), '2026-06-01');
@@ -212,7 +224,11 @@ assert.equal(inspect(badSheet).headerMatches, false);
 
 sheetRows.push(headers.slice());
 const saveBase = { email: 'user@example.com', projectCode: 'P1', deptCode: 'PTDA', weekCode: 'WEEK-2026-06-01', itemType: 'MASTER', itemId: 'CV-1', progressEnd: 30, taskStatus: 'Đang thực hiện', actualStart: '2026-06-01', thisWeekResult: 'Đã làm' };
-assert.equal(save(saveBase).inserted, true);
+const firstSave = save({ ...saveBase, requestId: 'weekly-progress-001' });
+assert.equal(firstSave.inserted, true);
+assert.equal(firstSave.masterWriteback.applied, true);
+assert.equal(firstSave.ganttRefreshRequired, true);
+assert.equal(masterProgressWritebackCalls.at(-1).requestId, 'weekly-progress-001');
 assert.equal(sheetRows.length, 2);
 assert.equal(save({ ...saveBase, progressEnd: 55 }).duplicatePrevented, true);
 assert.equal(sheetRows.length, 2);
@@ -326,9 +342,14 @@ assert.equal(weeklyActuals.byItemWeek[weeklyActualKey].amount, 500000);
 rawBudgetRows.length = 0;
 
 const beforePendingRows = sheetRows.length;
+const beforePendingWritebacks = masterProgressWritebackCalls.length;
 const pending = save({ ...saveBase, itemId: 'CV-100', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-20' });
 assert.equal(pending.update.approvalStatus, 'PENDING');
 assert.equal(pending.taskSync.approvalRequired, true);
+assert.equal(pending.masterWriteback.applied, false);
+assert.equal(pending.masterWriteback.reason, 'APPROVAL_REQUIRED');
+assert.equal(pending.ganttRefreshRequired, false);
+assert.equal(masterProgressWritebackCalls.length, beforePendingWritebacks);
 assert.equal(sheetRows.length, beforePendingRows + 1);
 const missingDecision = review({ email: 'admin@example.com', updateId: pending.update.updateId, approvalStatus: 'APPROVED' });
 assert.equal(missingDecision.code, 'DEPENDENCY_DECISION_REQUIRED');
@@ -347,5 +368,13 @@ assert.equal(reviewResult.recalcTriggered, true);
 assert.equal(masterApprovalSyncCalls.length, 1);
 assert.equal(masterApprovalSyncCalls[0].dependencyDecision, 'KEEP_CURRENT');
 assert.equal(masterApprovalSyncCalls[0].recoveryPlan, 'Bù tiến độ');
+
+assert.match(source, /function qltdWeeklyMasterProgressWriteback_/);
+assert.match(source, /if \(update\.actualStart\) changes\.push/);
+assert.doesNotMatch(source.match(/function qltdWeeklyMasterProgressWriteback_[\s\S]*?function qltdWeeklyMasterApprovalApplyToMaster_/)[0], /planStart|planFinish|predecessor|baseline/);
+assert.match(source, /ganttRefreshRequired:\s*!!\(sync\.masterWriteback && sync\.masterWriteback\.applied\)/);
+assert.match(appSource, /requestId:\s*getWeeklySaveRequestId\(\)/);
+assert.match(appSource, /\['TASK_SYNC_PARTIAL', 'MASTER_WRITEBACK_PARTIAL'\]\.includes\(warning\?\.code\)/);
+assert.match(appSource, /if \(data\.ganttRefreshRequired && projectCode\) await loadGanttDataForSelectedProject\(projectCode\)/);
 
 console.log('weekly-task-updates tests: PASS');

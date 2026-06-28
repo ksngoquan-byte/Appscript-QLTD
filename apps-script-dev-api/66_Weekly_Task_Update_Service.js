@@ -394,7 +394,7 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
     if (locked) lock.releaseLock();
   }
 
-  const sync = qltdWeeklyTaskUpdatesSyncTask_(payload, validation, scope, auth);
+  const sync = qltdWeeklyTaskUpdatesSyncTask_(payload, validation, scope, auth, saved.update);
   if (sync.warning) saved.warnings.push(sync.warning);
   if (budgetPreparation.writes.length && sync.warning) {
     return qltdWeeklyTaskUpdatesPartialWriteError_(payload, scope, 'TASK_SYNC', budgetResults, sync.result, true);
@@ -404,6 +404,8 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
     duplicatePrevented: saved.duplicatePrevented,
     update: saved.update,
     taskSync: sync.result,
+    masterWriteback: sync.masterWriteback || null,
+    ganttRefreshRequired: !!(sync.masterWriteback && sync.masterWriteback.applied),
     task: {
       saved: true,
       inserted: saved.inserted,
@@ -1085,7 +1087,7 @@ function qltdWeeklyTaskUpdatesMapPbDetailStatus_(value) {
   return status;
 }
 
-function qltdWeeklyTaskUpdatesSyncTask_(payload, validation, scope, auth) {
+function qltdWeeklyTaskUpdatesSyncTask_(payload, validation, scope, auth, savedUpdate) {
   const updates = { status: validation.taskStatus };
   if (validation.actualStartShouldWrite) updates.actualStart = validation.actualStart;
   if (validation.actualFinishShouldWrite) updates.actualFinish = validation.actualFinish;
@@ -1127,17 +1129,56 @@ function qltdWeeklyTaskUpdatesSyncTask_(payload, validation, scope, auth) {
         skippedMasterSync: true,
         message: 'MASTER completion proposal saved for Admin approval. Cong_viec was not updated.'
       },
-      warning: qltdWorkWarning_('MASTER_COMPLETION_APPROVAL_PENDING', 'MASTER completion proposal saved; Admin must approve and update Cong_viec manually.')
+      masterWriteback: {
+        applied: false,
+        approvalStatus: QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING,
+        reason: 'APPROVAL_REQUIRED'
+      },
+      warning: qltdWorkWarning_('MASTER_COMPLETION_APPROVAL_PENDING', 'MASTER completion proposal saved; Admin/PMO approval is required before Cong_viec completion writeback.')
     };
   }
   const detailContext = qltdPbDetailBuildSheetContext_('weekly_taskupdates_save', Object.assign({}, scope, { meta: scope.meta }));
+  let sourceSyncResult;
+  let sourceSyncWarning = null;
   if (!detailContext.error && detailContext.dataRows.some(function(row) { return row.rowType === QLTD_PB_DETAIL_ROW_TYPE_DETAIL && row.masterTaskCode === validation.itemId; })) {
-    return { result: { success: true, progressReadonly: true }, warning: qltdWorkWarning_('MASTER_PROGRESS_READONLY', 'MASTER has PB_DETAIL; narrative saved without overwriting progress.') };
+    sourceSyncResult = { success: true, progressReadonly: true };
+    sourceSyncWarning = qltdWorkWarning_('MASTER_PROGRESS_READONLY', 'MASTER has PB_DETAIL; department-sheet progress remains derived from PB_DETAIL.');
+  } else {
+    updates.action = 'work_updatetask'; updates.email = auth.email; updates.projectCode = scope.projectCode;
+    updates.deptCode = scope.deptCode; updates.masterTaskCode = validation.itemId; updates.progress = validation.progressEnd;
+    sourceSyncResult = qltdWorkUpdateTask_(updates);
+    if (!sourceSyncResult || !sourceSyncResult.success) {
+      sourceSyncWarning = qltdWorkWarning_('TASK_SYNC_PARTIAL', 'Weekly update was saved but department-sheet MASTER sync was not completed.');
+    }
   }
-  updates.action = 'work_updatetask'; updates.email = auth.email; updates.projectCode = scope.projectCode;
-  updates.deptCode = scope.deptCode; updates.masterTaskCode = validation.itemId; updates.progress = validation.progressEnd;
-  const result = qltdWorkUpdateTask_(updates);
-  return result && result.success ? { result: result } : { result: result, warning: qltdWorkWarning_('TASK_SYNC_PARTIAL', 'Weekly update was saved but MASTER sync was not completed.') };
+
+  const masterWriteback = qltdWeeklyMasterProgressWriteback_(savedUpdate || {
+    updateId: '',
+    projectCode: scope.projectCode,
+    itemId: validation.itemId,
+    taskStatus: validation.taskStatus,
+    progressEnd: validation.progressEnd,
+    actualStart: validation.actualStart,
+    actualFinish: validation.actualFinish,
+    thisWeekResult: validation.thisWeekResult,
+    issue: validation.issue,
+    recommendation: validation.recommendation,
+    updatedBy: auth.email
+  }, auth, String(payload && payload.requestId || '').trim(), scope.meta);
+  if (!masterWriteback.success) {
+    return {
+      result: sourceSyncResult,
+      masterWriteback: masterWriteback,
+      warning: qltdWorkWarning_('MASTER_WRITEBACK_PARTIAL', 'Weekly update was saved but Cong_viec writeback failed.', {
+        code: masterWriteback.code || masterWriteback.error && masterWriteback.error.code || ''
+      })
+    };
+  }
+  return {
+    result: sourceSyncResult,
+    masterWriteback: masterWriteback,
+    warning: sourceSyncWarning
+  };
 }
 
 function qltdWeeklyTaskUpdatesFindCurrentItem_(itemType, itemId, scope, action) {
@@ -1166,6 +1207,109 @@ function qltdWeeklyTaskUpdatesRead_() {
     const object = {}; QLTD_WEEKLY_TASK_UPDATE_HEADERS.forEach(function(header, column) { object[header] = row[column]; });
     return qltdWeeklyTaskUpdatesNormalize_(object, index + 2);
   }).filter(function(update) { return !!update.updateId; }), error: null };
+}
+
+function qltdWeeklyMasterProgressWriteback_(update, auth, requestId, meta) {
+  const action = 'weekly_master_progress_writeback';
+  const stageMeta = Object.assign({
+    projectCode: update.projectCode,
+    itemId: update.itemId,
+    updateId: update.updateId || '',
+    requestId: requestId || ''
+  }, meta || {});
+  const lock = LockService.getScriptLock();
+  let locked = false;
+  try {
+    locked = lock.tryLock(QLTD_WORK_WRITE_LOCK_TIMEOUT_MS);
+    if (!locked) {
+      return { success: false, applied: false, code: 'WRITE_LOCK_TIMEOUT', message: 'Cannot acquire Master progress writeback lock.' };
+    }
+    const project = qltdProjectsGetByCode_(update.projectCode);
+    if (!project || !project.masterSpreadsheetId) {
+      return { success: false, applied: false, code: 'MASTER_PROJECT_CONFIG_MISSING', message: 'Project MasterSpreadsheetId is missing.' };
+    }
+    const spreadsheet = SpreadsheetApp.openById(project.masterSpreadsheetId);
+    const sheetName = String(project.defaultTaskSheet || 'Cong_viec').trim() || 'Cong_viec';
+    const sheet = spreadsheet.getSheetByName(sheetName) || spreadsheet.getSheetByName('Cong_viec');
+    if (!sheet) return { success: false, applied: false, code: 'CONG_VIEC_SHEET_NOT_FOUND', message: 'Cannot find Cong_viec in Master spreadsheet.' };
+    const parseResult = qltdWorkParseDeptTaskSheet_(sheet);
+    if (parseResult.error) {
+      return {
+        success: false,
+        applied: false,
+        code: parseResult.error.code,
+        message: parseResult.error.message
+      };
+    }
+    const task = qltdWorkFindTaskByCode_(parseResult.tasks, update.itemId);
+    if (!task) return { success: false, applied: false, code: 'MASTER_TASK_NOT_FOUND', message: 'Cannot find MASTER task in Cong_viec by ItemId.' };
+    const targetResult = {
+      task: task,
+      sheet: sheet,
+      parsed: parseResult.parsed,
+      headerRow: parseResult.headerRow,
+      sourceSheet: sheet.getName(),
+      warnings: parseResult.warnings || []
+    };
+    const changes = [];
+    changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.status, update.taskStatus));
+    if (update.actualStart) changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.actualStart, update.actualStart));
+    if (qltdBudgetFindHeaderIndex_(targetResult.parsed.headerMap, QLTD_WORK_TASK_UPDATE_HEADERS.progress) >= 0) {
+      changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.progress, Number(update.progressEnd || 0)));
+    } else {
+      targetResult.warnings.push(qltdWorkWarning_('MASTER_PROGRESS_HEADER_MISSING', 'MASTER progress header is missing; progress was not synced.'));
+    }
+
+    const idempotencyKey = String(requestId || update.updateId || '').trim();
+    const marker = idempotencyKey ? '[WeeklyRequest:' + idempotencyKey + ']' : '';
+    const previousNote = String(task.updateNote || '');
+    const duplicateNote = !!marker && previousNote.indexOf(marker) !== -1;
+    if (!duplicateNote) {
+      const noteParts = [
+        marker,
+        'Kết quả tuần: ' + String(update.thisWeekResult || '').trim(),
+        update.issue ? 'Vướng mắc: ' + String(update.issue).trim() : '',
+        update.recommendation ? 'Kiến nghị: ' + String(update.recommendation).trim() : ''
+      ].filter(function(value) { return !!value; });
+      const nextNote = qltdWorkAppendTaskNote_(previousNote, noteParts.join(' | '), auth.email);
+      if (nextNote !== previousNote) {
+        changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.updateNote, nextNote));
+      }
+    }
+
+    Logger.log(JSON.stringify(Object.assign({}, stageMeta, {
+      action: action,
+      applied: true,
+      duplicateNote: duplicateNote,
+      changeCount: changes.length
+    })));
+    return {
+      success: true,
+      applied: true,
+      idempotent: true,
+      duplicateNote: duplicateNote,
+      projectCode: update.projectCode,
+      masterTaskCode: update.itemId,
+      sourceSheet: sheet.getName(),
+      rowNumber: task.rowNumber,
+      changes: changes,
+      warnings: targetResult.warnings
+    };
+  } catch (error) {
+    Logger.log(JSON.stringify(Object.assign({}, stageMeta, {
+      action: action,
+      applied: false,
+      message: qltdBudgetSafeErrorMessage_(error)
+    })));
+    return {
+      success: false,
+      applied: false,
+      code: 'MASTER_WRITEBACK_FAILED',
+      message: qltdBudgetSafeErrorMessage_(error)
+    };
+  } finally {
+    if (locked) lock.releaseLock();
+  }
 }
 
 function qltdWeeklyMasterApprovalApplyToMaster_(target, auth, dependencyDecision, recoveryPlan, reviewedAt, action, meta) {

@@ -3799,7 +3799,7 @@ async function verifyWeeklyTaskUpdateSaved(payload) {
 
 function getWeeklySyncWarning(result) {
   const warnings = result?.warnings || result?.data?.warnings || [];
-  return warnings.find((warning) => warning?.code === 'TASK_SYNC_PARTIAL') || null;
+  return warnings.find((warning) => ['TASK_SYNC_PARTIAL', 'MASTER_WRITEBACK_PARTIAL'].includes(warning?.code)) || null;
 }
 
 function applyWeeklySavedUpdateToView(payload, update) {
@@ -3829,8 +3829,7 @@ async function saveWeeklyTaskUpdate() {
   if (budgetPayload.error) { if (status) status.textContent = budgetPayload.error; return; }
   const progressEnd = validation.progressEnd; let confirmProgressDecrease = false;
   if (progressEnd < Number(item.progress || 0)) { confirmProgressDecrease = window.confirm(`Tiến độ mới ${progressEnd}% thấp hơn tiến độ hiện tại ${item.progress}%. Bạn có xác nhận?`); if (!confirmProgressDecrease) return; }
-  const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode, deptCode, weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: validation.status || '', actualStart: validation.dates.actualStart || '', actualFinish: validation.dates.actualFinish || '', actualStartEdit: validation.dates.actualStartEdit || '', actualFinishEdit: validation.dates.actualFinishEdit || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease, budgetUpdates: budgetPayload.updates };
-  if (body.budgetUpdates.length) body.requestId = getWeeklySaveRequestId();
+  const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode, deptCode, weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: validation.status || '', actualStart: validation.dates.actualStart || '', actualFinish: validation.dates.actualFinish || '', actualStartEdit: validation.dates.actualStartEdit || '', actualFinishEdit: validation.dates.actualFinishEdit || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease, budgetUpdates: budgetPayload.updates, requestId: getWeeklySaveRequestId() };
   if (button) { button.disabled = true; button.dataset.saving = '1'; button.textContent = 'Đang lưu...'; }
   if (status) status.textContent = 'Đang lưu...';
   try {
@@ -3851,6 +3850,7 @@ async function saveWeeklyTaskUpdate() {
     qltdWeeklySaveRequestId = '';
     qltdWeeklyTaskView.budgetDrafts = {};
     await loadWeeklyTaskDataForCurrent({ force: true });
+    if (data.ganttRefreshRequired && projectCode) await loadGanttDataForSelectedProject(projectCode);
   } catch (error) {
     if (error.backendResult) {
       if (status) status.textContent = error.message;
