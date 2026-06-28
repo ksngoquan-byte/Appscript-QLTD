@@ -431,7 +431,8 @@ let qltdDeptPlanPayload = null;
 let qltdSelectedDeptCode = '';
 let qltdDeptPlanRequestSeq = 0;
 const qltdDeptPlanCache = new Map();
-const QLTD_DEPT_PLAN_CACHE_MS = 120000;
+const QLTD_WEEKLY_DEPT_ACCESS_MESSAGE = 'Bạn không được cấp quyền truy cập vào dữ liệu phòng/ban này.';
+const QLTD_PLAN_DEPT_ACCESS_MESSAGE = 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.';
 
 function qltdDevPerfEnabled() {
   return ['localhost', '127.0.0.1'].includes(window.location.hostname) || new URLSearchParams(window.location.search).has('debugPerf');
@@ -2521,8 +2522,94 @@ function renderWeekPeriodsHtml(periods) {
   `;
 }
 
+function getBackendErrorCode(payload) {
+  return String(
+    payload?.errorCode ||
+    payload?.code ||
+    payload?.errors?.[0]?.code ||
+    payload?.error?.code ||
+    payload?.message ||
+    ''
+  ).trim().toUpperCase();
+}
+
+function getBackendErrorMessage(payload, fallback) {
+  return String(
+    payload?.errorMessage ||
+    payload?.errors?.[0]?.message ||
+    payload?.error?.message ||
+    (getBackendErrorCode(payload) !== String(payload?.message || '').trim().toUpperCase() ? payload?.message : '') ||
+    fallback ||
+    ''
+  ).trim();
+}
+
+function isDeptAccessDenied(payload) {
+  return ['ACCESS_DENIED', 'PERMISSION_DENIED', 'DEPT_SCOPE_DENIED', 'PROJECT_DEPT_NOT_ASSIGNED'].includes(getBackendErrorCode(payload));
+}
+
+function resetDeptScopedSelectionState() {
+  qltdSelectedMasterCode = '';
+  qltdSelectedWeeklyItemKey = '';
+  qltdWeeklyForcedItem = null;
+  qltdWeeklySaveRequestId = '';
+  qltdWeeklyTaskRequestSeq += 1;
+  qltdDetailPopupRequestSeq += 1;
+  qltdWeeklyTaskView = {
+    key: '',
+    items: [],
+    updates: [],
+    nextItems: [],
+    standaloneBudgetItems: [],
+    budgetDrafts: {},
+    loading: false,
+    error: '',
+    accessDenied: false
+  };
+  qltdWeeklyTaskCache.clear();
+  qltdDetailPopupCache.clear();
+  Object.keys(qltdWeeklyDrafts).forEach((key) => delete qltdWeeklyDrafts[key]);
+  closeDetailStatusPopup();
+  document.dispatchEvent(new CustomEvent('qltd:dept-plan-rendered', {
+    detail: {
+      projectCode: '',
+      deptCode: '',
+      masterTaskCode: '',
+      masterWbs: '',
+      masterTaskName: ''
+    }
+  }));
+}
+
+function resetDeptScopedClientState() {
+  qltdDeptPlanPayload = null;
+  qltdSelectedDeptCode = '';
+  qltdDeptPlanCache.clear();
+  resetDeptScopedSelectionState();
+}
+
+function renderDeptPlanUnavailable(payload) {
+  resetDeptScopedClientState();
+  ensureDeptSelector();
+  ensureDeptPlanPanel();
+  const denied = isDeptAccessDenied(payload);
+  const message = denied
+    ? QLTD_PLAN_DEPT_ACCESS_MESSAGE
+    : getBackendErrorMessage(payload, 'Không tải được dữ liệu phòng/ban.');
+  const deptSelector = document.getElementById('deptSelector');
+  const status = document.getElementById('deptPlanStatus');
+  const content = document.getElementById('deptPlanContent');
+  if (deptSelector) {
+    deptSelector.innerHTML = '<option value="">Không có dữ liệu được phép</option>';
+    deptSelector.value = '';
+    deptSelector.disabled = true;
+    deptSelector.onchange = null;
+  }
+  if (status) status.textContent = denied ? 'Không có quyền truy cập' : 'Không tải được dữ liệu';
+  if (content) content.innerHTML = `<div class="dept-access-denied" role="alert">${escapeHtml(message)}</div>`;
+}
+
 function renderDeptPlans(payload) {
-  qltdDeptPlanPayload = enrichDeptPlanPayloadWithOfficialMasters(payload || null);
   ensureDeptSelector();
   ensureDeptPlanPanel();
 
@@ -2532,20 +2619,19 @@ function renderDeptPlans(payload) {
 
   if (!content || !deptSelector) return;
 
-  payload = qltdDeptPlanPayload;
-
   if (!payload || !payload.success) {
-    if (status) status.textContent = 'Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c d\u1eef li\u1ec7u';
-    deptSelector.innerHTML = '<option value="">Kh\u00f4ng c\u00f3 d\u1eef li\u1ec7u</option>';
-    deptSelector.disabled = true;
-    content.innerHTML = '';
+    renderDeptPlanUnavailable(payload);
     return;
   }
 
+  qltdDeptPlanPayload = enrichDeptPlanPayloadWithOfficialMasters(payload);
+  payload = qltdDeptPlanPayload;
   const departments = payload.departments || [];
   deptSelector.innerHTML = '';
 
   if (!departments.length) {
+    qltdSelectedDeptCode = '';
+    resetDeptScopedSelectionState();
     deptSelector.innerHTML = '<option value="">Ch\u01b0a c\u00f3 ph\u00f2ng/ban</option>';
     deptSelector.disabled = true;
     if (status) status.textContent = '0 ph\u00f2ng/ban';
@@ -2567,6 +2653,8 @@ function renderDeptPlans(payload) {
   deptSelector.value = qltdSelectedDeptCode;
   deptSelector.disabled = false;
   deptSelector.onchange = () => {
+    content.innerHTML = '';
+    resetDeptScopedSelectionState();
     qltdSelectedDeptCode = deptSelector.value;
     renderSelectedDeptPlan();
   };
@@ -3106,13 +3194,36 @@ function renderSelectedDeptPlan() {
   bindReportSubTabControls(payload, dept, selectedMaster, week);
 }
 
+function getDeptObjectiveProgress(master) {
+  const progress = Number(master?.progress || 0);
+  return isNaN(progress) ? 0 : Math.max(0, Math.min(100, progress));
+}
+
+function getDeptObjectiveStatusClass(status) {
+  const key = normalizeSearchText(status).replace(/[^a-z0-9]/g, '');
+  if (key.includes('hoanthanh') || key.includes('complete') || key.includes('done')) return 'is-completed';
+  if (key.includes('dang') || key.includes('progress')) return 'is-in-progress';
+  if (key.includes('tamdung') || key.includes('paused')) return 'is-paused';
+  return 'is-not-started';
+}
+
 function renderDeptPlanTab(payload, dept, masters, selectedMaster) {
   if (!masters.length) return '<p class="empty-state">Phòng/ban này chưa có mục tiêu/công việc gốc.</p>';
+  const progress = getDeptObjectiveProgress(selectedMaster);
   return `
-    <div class="weekly-target-toolbar">
-      <div class="weekly-update-field"><label for="weeklyMasterSelector">Mục tiêu/Công việc gốc</label><select id="weeklyMasterSelector">${masters.map((master) => `<option value="${escapeHtml(master.masterCode || '')}" ${master.masterCode === qltdSelectedMasterCode ? 'selected' : ''}>${escapeHtml(getDeptPlanMasterWbs(master) ? `${getDeptPlanMasterWbs(master)} · ${master.taskName || ''}` : master.taskName || '')}</option>`).join('')}</select></div>
-      <div class="master-plan-period"><span>Thời gian kế hoạch</span><strong>${renderMasterPlanPeriod(selectedMaster)}</strong><small>${escapeHtml(selectedMaster?.status || 'Chưa cập nhật')} · ${escapeHtml(selectedMaster?.progress ?? 0)}%</small></div>
-    </div>
+    <section class="dept-objective-card" aria-label="Mục tiêu đang chọn">
+      <div class="dept-objective-selector">
+        <label for="weeklyMasterSelector">Mục tiêu đang chọn</label>
+        <select id="weeklyMasterSelector" title="${escapeHtml(selectedMaster?.taskName || '')}">${masters.map((master) => `<option value="${escapeHtml(master.masterCode || '')}" ${master.masterCode === qltdSelectedMasterCode ? 'selected' : ''}>${escapeHtml(getDeptPlanMasterWbs(master) ? `${getDeptPlanMasterWbs(master)} · ${master.taskName || ''}` : master.taskName || '')}</option>`).join('')}</select>
+      </div>
+      <div class="dept-objective-hierarchy">
+        <div><span>WBS</span><strong class="mono">${escapeHtml(getDeptPlanMasterWbs(selectedMaster) || '—')}</strong></div>
+        <div><span>Bắt đầu</span><strong>${escapeHtml(formatIsoDateVi(selectedMaster?.planStart || '') || '—')}</strong></div>
+        <div><span>Kết thúc</span><strong>${escapeHtml(formatIsoDateVi(selectedMaster?.planFinish || '') || '—')}</strong></div>
+        <div><span>Trạng thái</span><strong class="dept-objective-status ${getDeptObjectiveStatusClass(selectedMaster?.status)}">${escapeHtml(selectedMaster?.status || 'Chưa cập nhật')}</strong></div>
+        <div class="dept-objective-progress"><span>Tiến độ</span><strong>${escapeHtml(progress)}%</strong><div class="dept-objective-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${escapeHtml(progress)}"><i style="width:${escapeHtml(progress)}%"></i></div></div>
+      </div>
+    </section>
     ${renderMasterCompletionWarning(selectedMaster)}
     <div id="pbDetailMount" class="pb-detail-mount" aria-live="polite"></div>
     <section class="report-summary-section"><div class="report-section-heading">Tổng hợp mục tiêu phòng/ban</div><div class="dept-plan-table-wrap"><table class="dept-plan-table report-master-table"><thead><tr><th>WBS</th><th>Mục tiêu/Công việc gốc</th><th>Bắt đầu KH</th><th>Kết thúc KH</th><th>Việc chi tiết</th><th>Tiến độ</th><th>Trạng thái</th></tr></thead><tbody>
@@ -3247,20 +3358,25 @@ async function openDetailStatusPopup(payload, dept, masterCode) {
   const content = modal.querySelector('#detailStatusContent');
   modal.hidden = false;
   document.body.classList.add('has-detail-status-popup');
-  if (qltdDetailPopupCache.has(cacheKey)) {
-    renderDetailStatusPopup(payload, dept, masterCode, qltdDetailPopupCache.get(cacheKey));
-    return;
-  }
+  qltdDetailPopupCache.delete(cacheKey);
   content.innerHTML = '<div class="detail-status-loading">Đang tải việc chi tiết...</div>';
   const seq = ++qltdDetailPopupRequestSeq;
   try {
-    const result = await fetchBackendJson('work_getdetailtasks', { email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode, masterTaskCode: masterCode });
+    const result = await fetchBackendJson('work_getdetailtasks', { email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode, masterTaskCode: masterCode }, { auth: true });
     if (seq !== qltdDetailPopupRequestSeq || modal.hidden) return;
-    if (!result.success) throw new Error(result.message || result.error?.message || result.code || result.error?.code || 'Không tải được việc chi tiết.');
-    qltdDetailPopupCache.set(cacheKey, result);
+    if (!result.success) {
+      const backendError = new Error(getBackendErrorMessage(result, 'Không tải được việc chi tiết.'));
+      backendError.backendResult = result;
+      throw backendError;
+    }
     renderDetailStatusPopup(payload, dept, masterCode, result);
   } catch (error) {
     if (seq !== qltdDetailPopupRequestSeq) return;
+    if (isDeptAccessDenied(error.backendResult)) {
+      closeDetailStatusPopup();
+      renderDeptPlanUnavailable(error.backendResult);
+      return;
+    }
     content.innerHTML = `<div class="detail-status-error"><p>${escapeHtml(error.message || 'Không tải được việc chi tiết.')}</p><button type="button" data-detail-close>Đóng</button></div>`;
     content.querySelector('[data-detail-close]').onclick = closeDetailStatusPopup;
   }
@@ -3297,6 +3413,9 @@ function getWeeklyEffectiveTaskState(item, saved) {
 function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
   const key = getWeeklyTaskCacheKey(payload.projectCode, dept.deptCode || dept.sheetName || '', week.weekId);
   const state = qltdWeeklyTaskView.key === key ? qltdWeeklyTaskView : { items: [], updates: [], standaloneBudgetItems: [], loading: true, error: '' };
+  if (state.accessDenied) {
+    return `<section class="dept-access-denied" role="alert">${escapeHtml(QLTD_WEEKLY_DEPT_ACCESS_MESSAGE)}</section>`;
+  }
   const selected = state.items.find((item) => `${item.itemType}:${item.itemId}` === qltdSelectedWeeklyItemKey) || null;
   const updateContext = { projectCode: payload.projectCode, deptCode: dept.deptCode || dept.sheetName || '', weekCode: week.weekId };
   const saved = selected ? findWeeklySavedUpdate(state.updates, selected, updateContext) : null;
@@ -3751,7 +3870,7 @@ async function exportWeeklyReportExcel() {
       weekStart: nextWeek.weekStart,
       weekEnd: nextWeek.weekEnd,
       group: 'ALL'
-    });
+    }, { auth: true });
     if (!nextResult.success) throw new Error(nextResult.message || nextResult.error?.message || 'Không tải được kế hoạch tuần tới.');
     const nextData = nextResult.data || nextResult;
     const ExcelJS = await qltdWeb07LoadExcelJs();
@@ -3908,27 +4027,41 @@ function renderWeeklyTaskRegion() {
 
 async function loadWeeklyTaskData(payload, dept, week, periods, filters = {}) {
   if (!payload?.projectCode || !dept || !week) return;
-  const deptCode = dept.deptCode || dept.sheetName || ''; const key = getWeeklyTaskCacheKey(payload.projectCode, deptCode, week.weekId); const cached = qltdWeeklyTaskCache.get(key);
-  if (filters.force) qltdWeeklyTaskCache.delete(key);
-  if (cached && !filters.force) { qltdWeeklyTaskView = cached; renderWeeklyTaskRegion(); return; }
+  const deptCode = dept.deptCode || dept.sheetName || ''; const key = getWeeklyTaskCacheKey(payload.projectCode, deptCode, week.weekId);
+  qltdWeeklyTaskCache.delete(key);
   const previousDrafts = qltdWeeklyTaskView.key === key ? (qltdWeeklyTaskView.budgetDrafts || {}) : {};
-  const seq = ++qltdWeeklyTaskRequestSeq; qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: previousDrafts, loading: true, error: '' }; renderWeeklyTaskRegion();
+  const seq = ++qltdWeeklyTaskRequestSeq; qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: previousDrafts, loading: true, error: '', accessDenied: false }; renderWeeklyTaskRegion();
   const common = { email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode, weekCode: week.weekId };
   try {
     const [itemsResult, updatesResult] = await Promise.all([
-      fetchBackendJson('work_listweeklyitems', { ...common, weekStart: week.weekStart, weekEnd: week.weekEnd, search: filters.search || '', group: filters.group || 'ALL' }),
-      fetchBackendJson('weekly_taskupdates_get', common)
+      fetchBackendJson('work_listweeklyitems', { ...common, weekStart: week.weekStart, weekEnd: week.weekEnd, search: filters.search || '', group: filters.group || 'ALL' }, { auth: true }),
+      fetchBackendJson('weekly_taskupdates_get', common, { auth: true })
     ]);
     if (seq !== qltdWeeklyTaskRequestSeq) return;
-    if (!itemsResult.success || !updatesResult.success) throw new Error(itemsResult.message || updatesResult.message || 'Không tải được dữ liệu Weekly.');
+    if (!itemsResult.success || !updatesResult.success) {
+      const failedResult = !itemsResult.success ? itemsResult : updatesResult;
+      const backendError = new Error(getBackendErrorMessage(failedResult, 'Không tải được dữ liệu Weekly.'));
+      backendError.backendResult = failedResult;
+      throw backendError;
+    }
     const itemData = itemsResult.data || itemsResult; const updateData = updatesResult.data || updatesResult;
     const items = Array.isArray(itemData.items) ? itemData.items.slice() : [];
     if (qltdWeeklyForcedItem && qltdWeeklyForcedItem.projectCode === payload.projectCode && qltdWeeklyForcedItem.deptCode === deptCode && qltdWeeklyForcedItem.weekCode === week.weekId && !items.some((item) => item.itemType === qltdWeeklyForcedItem.itemType && item.itemId === qltdWeeklyForcedItem.itemId)) items.push(qltdWeeklyForcedItem);
-    qltdWeeklyTaskView = { key, items, updates: updateData.updates || [], nextItems: [], standaloneBudgetItems: itemData.standaloneBudgetItems || [], budgetDrafts: previousDrafts, loading: false, error: '' };
-    if (!filters.force) qltdWeeklyTaskCache.set(key, qltdWeeklyTaskView);
+    qltdWeeklyTaskView = { key, items, updates: updateData.updates || [], nextItems: [], standaloneBudgetItems: itemData.standaloneBudgetItems || [], budgetDrafts: previousDrafts, loading: false, error: '', accessDenied: false };
   } catch (error) {
     if (seq !== qltdWeeklyTaskRequestSeq) return;
-    qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: previousDrafts, loading: false, error: error.message || 'Không tải được dữ liệu Weekly.' };
+    const accessDenied = isDeptAccessDenied(error.backendResult);
+    qltdWeeklyTaskView = {
+      key,
+      items: [],
+      updates: [],
+      nextItems: [],
+      standaloneBudgetItems: [],
+      budgetDrafts: {},
+      loading: false,
+      error: accessDenied ? QLTD_WEEKLY_DEPT_ACCESS_MESSAGE : error.message || 'Không tải được dữ liệu Weekly.',
+      accessDenied
+    };
   }
   renderWeeklyTaskRegion();
 }
@@ -3960,7 +4093,7 @@ async function verifyWeeklyTaskUpdateSaved(payload) {
       projectCode: payload.projectCode,
       deptCode: payload.deptCode,
       weekCode: payload.weekCode
-    });
+    }, { auth: true });
     if (!result.success) return null;
     const data = result.data || result;
     return (data.updates || []).find((update) => weeklySavedUpdateMatchesPayload(update, payload)) || null;
@@ -7017,12 +7150,7 @@ function formatDateObjectViShort(date) {
 async function loadDeptPlansForSelectedProject(projectCode) {
   if (!projectCode) return;
   const requestSeq = ++qltdDeptPlanRequestSeq;
-
-  const cached = qltdDeptPlanCache.get(projectCode);
-  if (cached && Date.now() - cached.cachedAt < QLTD_DEPT_PLAN_CACHE_MS) {
-    renderDeptPlans(cached.payload);
-    return;
-  }
+  resetDeptScopedClientState();
 
   ensureDeptSelector();
   ensureDeptPlanPanel();
@@ -7036,9 +7164,8 @@ async function loadDeptPlansForSelectedProject(projectCode) {
   if (deptSelector) deptSelector.disabled = true;
 
   try {
-    const payload = await fetchBackendJson('listDeptPlans', { projectCode });
+    const payload = await fetchBackendJson('listDeptPlans', { projectCode }, { auth: true });
     if (requestSeq !== qltdDeptPlanRequestSeq) return;
-    qltdDeptPlanCache.set(projectCode, { payload, cachedAt: Date.now() });
     renderDeptPlans(payload);
   } catch (error) {
     if (requestSeq !== qltdDeptPlanRequestSeq) return;

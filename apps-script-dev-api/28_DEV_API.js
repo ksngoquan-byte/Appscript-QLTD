@@ -1,5 +1,17 @@
 const QLTD_DEV_API_SERVICE = 'QLTD_DEV_API';
 const QLTD_DEV_API_SOURCE = 'users_sheet';
+const QLTD_DEV_DEPT_READ_ACTIONS = {
+  work_getmytasks: true,
+  work_getdepttasks: true,
+  work_getdetailtasks: true,
+  work_auditdetailtaskparentfinish: true,
+  work_listweeklyitems: true,
+  work_listassignees: true,
+  weekly_taskupdates_get: true,
+  weekly_getmyreports: true,
+  weekly_getdeptreports: true,
+  listdeptplans: true
+};
 
 function qltdDevApiHandleGet(e) {
   const params = e && e.parameter ? e.parameter : {};
@@ -23,6 +35,13 @@ function qltdDevApiHandleGet(e) {
 
   if (action === 'bootstrap') {
     return qltdDevApiJson_(qltdDevApiBootstrap_(params));
+  }
+
+  if (QLTD_DEV_DEPT_READ_ACTIONS[action]) {
+    const readIdentity = qltdFirebaseResolveIdentity_(params, true);
+    if (!readIdentity.success) return qltdDevApiJson_(readIdentity);
+    params.email = readIdentity.email;
+    params.actorEmail = readIdentity.email;
   }
 
   if (action === 'budget_getprojects') {
@@ -134,7 +153,7 @@ function qltdDevApiHandleGet(e) {
   }
 
   if (action === 'listdeptplans') {
-    return qltdDevApiListDeptPlans_(params.projectCode);
+    return qltdDevApiListDeptPlans_(params);
   }
 
   if (action === 'ganttdata') {
@@ -405,8 +424,16 @@ function qltdDevApiListProjects_(params) {
     source: 'projects_sheet'
   });
 }
-function qltdDevApiListDeptPlans_(projectCode) {
-  return qltdDevApiJson_(qltdDeptPlanListForProject_(projectCode));
+function qltdDevApiListDeptPlans_(params) {
+  const action = 'listDeptPlans';
+  const auth = qltdWorkAuthUser_(params && params.email, action, 'dept_plan_service');
+  if (auth.error) return qltdDevApiJson_(auth.error);
+  return qltdDevApiJson_(qltdDeptPlanListForProject_(
+    params && params.projectCode,
+    auth.user,
+    auth.email,
+    params && params.deptCode
+  ));
 }
 
 function qltdDevApiGanttData_(projectCode) {

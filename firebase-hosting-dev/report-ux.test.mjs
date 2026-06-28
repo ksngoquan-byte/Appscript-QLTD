@@ -169,7 +169,10 @@ assert.equal((loader.match(/fetchBackendJson\(/g) || []).length, 2);
 assert.match(loader, /itemsResult\.data \|\| itemsResult/);
 assert.match(loader, /updatesResult\.data \|\| updatesResult/);
 assert.doesNotMatch(loader, /nextResult|getNextWeeklyPeriod/);
-assert.match(loader, /if \(filters\.force\) qltdWeeklyTaskCache\.delete\(key\)/);
+assert.match(loader, /qltdWeeklyTaskCache\.delete\(key\)/);
+assert.doesNotMatch(loader, /qltdWeeklyTaskCache\.get/);
+assert.equal((loader.match(/\{ auth: true \}/g) || []).length, 2);
+assert.match(loader, /accessDenied/);
 
 const weeklySave = latestFunction('saveWeeklyTaskUpdate()', 'showWeeklyToast');
 assert.match(weeklySave, /verifyWeeklyTaskUpdateSaved\(body\)/);

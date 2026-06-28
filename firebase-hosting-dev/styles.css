@@ -871,6 +871,113 @@ body.qltd-report-mode .pb-detail-panel { border-left: 4px solid var(--qltd-detai
 .weekly-target-toolbar .weekly-update-field { flex: 1 1 480px; }
 .master-plan-period { flex: 0 0 auto; padding: 10px 14px; border-radius: 10px; background: #e6f6f3; color: #0f766e; }
 .master-plan-period span { display: block; margin-bottom: 4px; color: #64748b; font-size: 11px; text-transform: uppercase; }
+.dept-objective-card {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid #cfe0ee;
+  border-left: 4px solid #0f766e;
+  border-radius: 14px;
+  background: #f8fbfd;
+}
+
+.dept-objective-selector {
+  min-width: 0;
+}
+
+.dept-objective-selector label {
+  display: block;
+  margin-bottom: 7px;
+  color: #17365d;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.dept-objective-selector select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 1px solid #b8cbd9;
+  border-radius: 10px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+  text-overflow: ellipsis;
+}
+
+.dept-objective-hierarchy {
+  display: grid;
+  grid-template-columns: minmax(90px, .7fr) repeat(2, minmax(125px, 1fr)) minmax(150px, 1.2fr) minmax(190px, 1.5fr);
+  gap: 10px;
+}
+
+.dept-objective-hierarchy > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.dept-objective-hierarchy span {
+  display: block;
+  margin-bottom: 5px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.dept-objective-hierarchy strong {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #17365d;
+  font-size: 14px;
+}
+
+.dept-objective-status {
+  display: inline-flex !important;
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px !important;
+}
+
+.dept-objective-status.is-completed { background: #dcfce7; color: #15803d; }
+.dept-objective-status.is-in-progress { background: #dbeafe; color: #1d4ed8; }
+.dept-objective-status.is-paused { background: #fef3c7; color: #b45309; }
+.dept-objective-status.is-not-started { background: #e2e8f0; color: #475569; }
+
+.dept-objective-progress-track {
+  height: 8px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.dept-objective-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+}
+
+.dept-access-denied {
+  padding: 20px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fff7f7;
+  color: #b91c1c;
+  font-weight: 700;
+  text-align: center;
+}
+
 .report-summary-section { margin-top: 22px; }
 .report-section-heading { margin-bottom: 10px; color: #17365d; font-size: 16px; font-weight: 800; }
 .report-master-row { cursor: pointer; transition: background .15s ease; }
@@ -952,6 +1059,8 @@ body.has-detail-status-popup { overflow: hidden; }
 @media (max-width: 900px) {
   .weekly-target-toolbar, .weekly-list-toolbar { align-items: stretch; flex-direction: column; }
   .weekly-target-toolbar .weekly-update-field { flex-basis: auto; }
+  .dept-objective-hierarchy { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dept-objective-progress { grid-column: 1 / -1; }
   .single-week-toolbar { flex-wrap: wrap; }
   .single-week-toolbar > div { flex-basis: calc(100% - 100px); }
   .weekly-list-toolbar input { flex-basis: auto; width: 100%; }
@@ -959,6 +1068,12 @@ body.has-detail-status-popup { overflow: hidden; }
   .detail-status-overlay { padding: 10px; }
   .detail-status-dialog { width: 100%; max-height: 94vh; }
   .detail-status-summary { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .dept-objective-card { padding: 12px; }
+  .dept-objective-hierarchy { grid-template-columns: 1fr; }
+  .dept-objective-progress { grid-column: auto; }
 }
 
 /* STEP 3B.2E4: scoped professional Weekly UX. Keep selectors under .weekly-update-panel to avoid leaking into Gantt/Dashboard/Plan tabs. */

@@ -149,12 +149,44 @@ function qltdWeeklyGetDeptReports_(params) {
 
   const role = qltdWorkNormalizeRole_(auth.user.role);
   const filters = qltdWeeklyBuildReportFilters_(params || {});
+  let scopeWarnings = [];
   if (!filters.deptCode && !qltdWorkIsAdminScope_(auth.user)) {
     filters.deptCode = qltdWorkNormalizeCode_(auth.user.deptCode);
   }
 
-  if (filters.deptCode && !qltdWorkCanReadDept_(auth.user, filters.deptCode)) {
-    return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'User cannot read this department reports.', {
+  if (filters.projectCode && filters.deptCode) {
+    const contextResult = qltdWorkResolveProjectDept_(action, filters, QLTD_WEEKLY_REPORT_SOURCE, {
+      requireDeptSpreadsheet: false,
+      actorUser: auth.user,
+      meta: {
+        email: auth.email
+      }
+    });
+    if (contextResult.error) {
+      const contextCode = contextResult.error.errors && contextResult.error.errors[0] && contextResult.error.errors[0].code;
+      if (contextCode === 'PROJECT_DEPT_NOT_ASSIGNED') {
+        return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'Bạn không được cấp quyền truy cập vào dữ liệu phòng/ban này.', {
+          email: auth.email,
+          role: role,
+          projectCode: filters.projectCode,
+          deptCode: filters.deptCode
+        });
+      }
+      return contextResult.error;
+    }
+    filters.projectCode = contextResult.projectCode;
+    filters.deptCode = contextResult.deptCode;
+    scopeWarnings = contextResult.warnings || [];
+    if (!qltdWorkCanReadDept_(auth.user, contextResult.deptCode, contextResult.dept)) {
+      return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'Bạn không được cấp quyền truy cập vào dữ liệu phòng/ban này.', {
+        email: auth.email,
+        role: role,
+        projectCode: filters.projectCode,
+        deptCode: filters.deptCode
+      }, scopeWarnings);
+    }
+  } else if (filters.deptCode && !qltdWorkCanReadDept_(auth.user, filters.deptCode)) {
+    return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'Bạn không được cấp quyền truy cập vào dữ liệu phòng/ban này.', {
       email: auth.email,
       role: role,
       deptCode: filters.deptCode
@@ -171,7 +203,7 @@ function qltdWeeklyGetDeptReports_(params) {
   return qltdWorkOk_(QLTD_WEEKLY_REPORT_SOURCE, action, {
     reports: reports.map(qltdWeeklyPublicReport_),
     count: reports.length
-  }, readResult.warnings, {
+  }, readResult.warnings.concat(scopeWarnings), {
     email: auth.email,
     role: role,
     projectCode: filters.projectCode,

@@ -49,9 +49,15 @@ function qltdWorkGetDetailTasks_(params) {
   if (auth.error) return auth.error;
 
   const context = qltdPbDetailResolveContext_(action, params || {}, meta, auth.user);
-  if (context.error) return context.error;
+  if (context.error) {
+    const contextCode = context.error.errors && context.error.errors[0] && context.error.errors[0].code;
+    if (contextCode === 'PROJECT_DEPT_NOT_ASSIGNED') {
+      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', meta);
+    }
+    return context.error;
+  }
   if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept)) {
-    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'PERMISSION_DENIED', 'User cannot read this dept.', context.meta, context.warnings);
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', context.meta, context.warnings);
   }
 
   const masterTaskCode = qltdPbDetailNormalizeTaskCode_((params || {}).masterTaskCode);
@@ -752,9 +758,15 @@ function qltdWorkAuditDetailTaskParentFinish_(params) {
   const auth = qltdWorkAuthUser_(params && params.email, action, QLTD_PB_DETAIL_TASK_SOURCE, meta);
   if (auth.error) return auth.error;
   const context = qltdPbDetailResolveContext_(action, params || {}, meta, auth.user);
-  if (context.error) return context.error;
+  if (context.error) {
+    const contextCode = context.error.errors && context.error.errors[0] && context.error.errors[0].code;
+    if (contextCode === 'PROJECT_DEPT_NOT_ASSIGNED') {
+      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', meta);
+    }
+    return context.error;
+  }
   if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept)) {
-    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'PERMISSION_DENIED', 'User cannot read this dept.', context.meta, context.warnings);
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', context.meta, context.warnings);
   }
   const sheetContext = qltdPbDetailBuildSheetContext_(action, context);
   if (sheetContext.error) return sheetContext.error;

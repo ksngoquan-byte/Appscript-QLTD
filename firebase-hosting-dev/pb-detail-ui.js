@@ -693,12 +693,6 @@ async function qltdPbDetailLoad(force = false, providedContext = null) {
   const context = providedContext || qltdPbDetailGetContext();
   if (!panel || !context.projectCode || !context.deptCode || !context.masterTaskCode || !context.email) return;
 
-  if (!force && qltdPbDetailState.contextKey === context.key) {
-    if (qltdPbDetailState.loading) return;
-    qltdPbDetailRender();
-    return;
-  }
-
   qltdPbDetailState.contextKey = context.key;
   qltdPbDetailState.loading = true;
   qltdPbDetailState.formMode = '';
@@ -928,6 +922,7 @@ function qltdPbDetailHandleDeptPlanRendered(event) {
   if (!context.projectCode || !context.deptCode || !context.masterTaskCode || !context.email) {
     qltdPbDetailState.requestSeq += 1;
     qltdPbDetailState.assigneeRequestSeq += 1;
+    qltdPbDetailAssigneeCache.clear();
     qltdPbDetailState.contextKey = '';
     qltdPbDetailState.assigneeKey = '';
     qltdPbDetailState.assignees = [];

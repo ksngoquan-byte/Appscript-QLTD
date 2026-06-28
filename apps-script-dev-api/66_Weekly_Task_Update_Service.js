@@ -675,8 +675,14 @@ function qltdWeeklyTaskUpdatesResolveScope_(action, input, auth) {
   const weekCode = qltdWorkNormalizeWeekCode_(input.weekCode);
   if (!weekCode) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WEEK_CODE_REQUIRED', 'weekCode is required.', { email: auth.email }) };
   const resolved = qltdWorkResolveProjectDept_(action, input, QLTD_WEEKLY_TASK_UPDATE_SOURCE, { requireDeptSpreadsheet: true, actorUser: auth.user, meta: { email: auth.email, weekCode: weekCode } });
-  if (resolved.error) return { error: resolved.error };
-  if (!qltdWorkCanReadDept_(auth.user, resolved.deptCode, resolved.dept)) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'User cannot access this department.', { email: auth.email, deptCode: resolved.deptCode }, resolved.warnings) };
+  if (resolved.error) {
+    const resolvedCode = resolved.error.errors && resolved.error.errors[0] && resolved.error.errors[0].code;
+    if (resolvedCode === 'PROJECT_DEPT_NOT_ASSIGNED') {
+      return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Bạn không được cấp quyền truy cập vào dữ liệu phòng/ban này.', { email: auth.email, deptCode: qltdWorkNormalizeCode_(input.deptCode) }) };
+    }
+    return { error: resolved.error };
+  }
+  if (!qltdWorkCanReadDept_(auth.user, resolved.deptCode, resolved.dept)) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Bạn không được cấp quyền truy cập vào dữ liệu phòng/ban này.', { email: auth.email, deptCode: resolved.deptCode }, resolved.warnings) };
   return Object.assign({}, resolved, {
     weekCode: weekCode,
     warnings: resolved.warnings || [],

@@ -132,7 +132,13 @@ function qltdWorkCanReadDept_(user, deptCode, dept) {
   const role = qltdWorkNormalizeRole_(user && user.role);
   if (qltdWorkIsAdminScope_(user)) return true;
   if (role === 'EDITOR' || role === 'REPORTER' || role === 'VIEWER') {
-    return qltdWorkSameDept_(user, deptCode, dept);
+    if (qltdWorkSameDept_(user, deptCode, dept)) return true;
+    if (user && !Object.prototype.hasOwnProperty.call(user, 'projectUnitCode')) {
+      user.projectUnitCode = qltdProjectDeptsGetUserProjectUnitCode_(user.email);
+    }
+    const userProjectUnitCode = qltdProjectDeptsNormalizeCode_(user && user.projectUnitCode);
+    const targetProjectUnitCode = qltdProjectDeptsNormalizeCode_(dept && dept.projectUnitCode);
+    return !!userProjectUnitCode && !!targetProjectUnitCode && userProjectUnitCode === targetProjectUnitCode;
   }
   return false;
 }
