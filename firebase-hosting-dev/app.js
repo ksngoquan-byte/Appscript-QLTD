@@ -3561,14 +3561,23 @@ function qltdWeeklyBuildWorkspaceModel(items, updates, context, week, filters, u
   const objectives = source.filter((item) => item.itemType === 'MASTER');
   const tasks = source.filter((item) => item.itemType === 'PB_DETAIL');
   const visibleTasks = qltdWeeklyFilterWorkItems(tasks, updates, context, week, filters, userEmail);
+  const objectiveOverdue = objectives.filter((item) => qltdWeeklyIsOverdue(item, findWeeklySavedUpdate(updates, item, context), week)).length;
+  const taskOverdue = tasks.filter((item) => qltdWeeklyIsOverdue(item, findWeeklySavedUpdate(updates, item, context), week)).length;
   return {
     objectives,
     tasks,
     visibleTasks,
     notUpdated: tasks.filter((item) => !findWeeklySavedUpdate(updates, item, context)).length,
-    overdue: tasks.filter((item) => qltdWeeklyIsOverdue(item, findWeeklySavedUpdate(updates, item, context), week)).length,
+    objectiveOverdue,
+    taskOverdue,
     pending: (updates || []).filter((update) => String(update.approvalStatus || '').toUpperCase() === 'PENDING').length
   };
+}
+
+function qltdWeeklyGetOverdueMetric(model, workspaceTab) {
+  return workspaceTab === 'tasks'
+    ? { label: 'Công việc quá hạn', count: Number(model?.taskOverdue || 0) }
+    : { label: 'Mục tiêu quá hạn', count: Number(model?.objectiveOverdue || 0) };
 }
 
 function renderWeeklyWorkflowBadges(item, saved, week) {
@@ -3601,6 +3610,7 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
   const weekInfo = qltdWeeklyGetIsoWeekInfo(week);
   const canUpdate = !!state.capabilities?.canUpdate;
   const roleLabel = formatRole(state.capabilities?.role || currentUserProfile?.role || '');
+  const overdueMetric = qltdWeeklyGetOverdueMetric(model, qltdWeeklyWorkspaceTab);
   return `<section class="weekly-update-panel" aria-label="Cập nhật kết quả tuần">
     <header class="weekly-page-header">
       <div>
@@ -3617,7 +3627,7 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
         <button id="weeklyExcelButton" type="button" ${state.loading || state.error ? 'disabled' : ''}>Xuất Excel</button>
       </div>
     </header>
-    <div class="weekly-summary-grid"><article><span>Mục tiêu</span><strong>${model.objectives.length}</strong></article><article><span>Công việc</span><strong>${model.tasks.length}</strong></article><article><span>Chưa cập nhật</span><strong>${model.notUpdated}</strong></article><article><span>Quá hạn</span><strong>${model.overdue}</strong></article><article><span>Chờ duyệt</span><strong>${model.pending}</strong></article></div>
+    <div class="weekly-summary-grid"><article><span>Mục tiêu</span><strong>${model.objectives.length}</strong></article><article><span>Công việc</span><strong>${model.tasks.length}</strong></article><article><span>Chưa cập nhật</span><strong>${model.notUpdated}</strong></article><article><span>${escapeHtml(overdueMetric.label)}</span><strong>${overdueMetric.count}</strong></article><article><span>Chờ duyệt</span><strong>${model.pending}</strong></article></div>
     <div class="weekly-workspace-tabs" role="tablist" aria-label="Không gian cập nhật tuần"><button type="button" role="tab" data-weekly-workspace-tab="objectives" aria-selected="${qltdWeeklyWorkspaceTab === 'objectives'}" class="${qltdWeeklyWorkspaceTab === 'objectives' ? 'is-active' : ''}">MỤC TIÊU <span>${model.objectives.length}</span></button><button type="button" role="tab" data-weekly-workspace-tab="tasks" aria-selected="${qltdWeeklyWorkspaceTab === 'tasks'}" class="${qltdWeeklyWorkspaceTab === 'tasks' ? 'is-active' : ''}">CÔNG VIỆC <span>${model.tasks.length}</span></button></div>
     ${state.loading ? '<div class="weekly-loading-state" role="status">Đang tải dữ liệu tuần mới...</div>' : ''}
     ${state.error ? `<div class="weekly-error-state" role="alert"><p>${escapeHtml(state.error)}</p><button type="button" class="secondary-button" data-weekly-retry>Tải lại</button></div>` : ''}
