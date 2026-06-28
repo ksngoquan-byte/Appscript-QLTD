@@ -2074,8 +2074,14 @@ function readMasterApprovalDecision(updateId) {
   return { dependencyDecision, recoveryPlan };
 }
 
-function formatApprovalStatus(status) {
+function formatApprovalStatus(status, compact = false) {
   const code = String(status || '').toUpperCase();
+  if (compact) {
+    if (code === 'PENDING') return 'Chờ duyệt';
+    if (code === 'APPROVED') return 'Đã duyệt';
+    if (code === 'REJECTED') return 'Bị trả lại';
+    return '';
+  }
   if (code === 'PENDING') return 'Chờ Admin duyệt';
   if (code === 'APPROVED') return 'Admin đã duyệt và cập nhật Cong_viec';
   if (code === 'REJECTED') return 'Không duyệt';
@@ -3988,72 +3994,218 @@ function bindWeeklyTaskUpdateControls() {
   const excel = document.getElementById('weeklyExcelButton'); if (excel) excel.onclick = exportWeeklyReportExcel;
 }
 
-function qltdWeeklyResultExportRows(updates, items) {
-  return (updates || []).map((update) => {
-    const item = (items || []).find((candidate) => candidate.itemType === update.itemType && candidate.itemId === update.itemId) || {};
-    return [
-      update.itemType || '',
-      item.wbs || '',
-      update.itemId || '',
-      item.taskName || update.itemId || '',
-      update.thisWeekResult || '',
-      Number(update.progressEnd || 0),
-      update.taskStatus || '',
-      formatIsoDateVi(update.actualStart) || '',
-      formatIsoDateVi(update.actualFinish) || '',
-      update.issue || '',
-      update.recommendation || '',
-      getWeeklySavedBudgetAmount(update, item),
-      update.approvalStatus ? formatApprovalStatus(update.approvalStatus) : '',
-      update.updatedBy || '',
-      formatWeeklyDateTime(update.updatedAt) || ''
-    ];
-  });
+const QLTD_WEEKLY_EXPORT_HEADERS = [
+  'STT', 'WBS', 'Loại', 'Mục tiêu/Công việc', 'Mục tiêu cha',
+  'Bắt đầu kế hoạch', 'Kết thúc kế hoạch', 'Chủ trì', 'Phối hợp',
+  'Kết quả tuần', 'Tiến độ cuối tuần', 'Trạng thái công việc',
+  'Tình trạng cập nhật', 'Trạng thái duyệt', 'Vướng mắc',
+  'Kiến nghị/Giải pháp', 'Lý do trả lại', 'Người cập nhật', 'Thời điểm cập nhật'
+];
+
+function qltdWeeklyExportItemKey(item) {
+  const type = String(item?.itemType || '').trim().toUpperCase();
+  const itemId = String(item?.itemId || '').trim();
+  return type && itemId ? `${type}:${itemId}` : '';
 }
 
-function qltdWeeklyNextPlanExportRows(items) {
-  const reasonLabels = {
-    OVERDUE: 'Quá hạn',
-    IN_PROGRESS: 'Tiếp tục thực hiện',
-    PLANNED: 'Bắt đầu trong tuần',
-    COMPLETED_THIS_WEEK: 'Hoàn thành trong tuần'
+function qltdWeeklyNaturalWbsCompare(left, right) {
+  const tokenize = (value) => String(value || '').trim().toLocaleUpperCase('vi-VN').match(/\d+|\D+/g) || [];
+  const leftTokens = tokenize(left);
+  const rightTokens = tokenize(right);
+  const length = Math.max(leftTokens.length, rightTokens.length);
+  for (let index = 0; index < length; index += 1) {
+    if (leftTokens[index] === undefined) return -1;
+    if (rightTokens[index] === undefined) return 1;
+    const leftNumber = /^\d+$/.test(leftTokens[index]) ? Number(leftTokens[index]) : null;
+    const rightNumber = /^\d+$/.test(rightTokens[index]) ? Number(rightTokens[index]) : null;
+    if (leftNumber !== null && rightNumber !== null && leftNumber !== rightNumber) return leftNumber - rightNumber;
+    const compared = leftTokens[index].localeCompare(rightTokens[index], 'vi', { sensitivity: 'base' });
+    if (compared) return compared;
+  }
+  return 0;
+}
+
+function qltdWeeklyExportDateValue(value, includeTime = false) {
+  const fromLocalClock = (date) => new Date(Date.UTC(
+    date.getFullYear(), date.getMonth(), date.getDate(),
+    includeTime ? date.getHours() : 0,
+    includeTime ? date.getMinutes() : 0,
+    includeTime ? date.getSeconds() : 0
+  ));
+  const fromParts = (year, month, day, hour = 0, minute = 0, second = 0) => {
+    const date = new Date(Date.UTC(year, month - 1, day, includeTime ? hour : 0, includeTime ? minute : 0, includeTime ? second : 0));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? date : '';
   };
-  return (items || []).map((item) => [
-    item.itemType || '',
-    item.wbs || '',
-    item.itemId || '',
-    item.taskName || item.itemId || '',
-    formatIsoDateVi(item.planStart) || '',
-    formatIsoDateVi(item.planFinish) || '',
-    getWeeklyPersonDisplay(item.owner),
-    Number(item.progress || 0),
-    item.status || '',
-    reasonLabels[item.eligibleReason] || item.eligibleReason || '',
-    Number(item.plannedBudget || 0)
-  ]);
+  if (value instanceof Date && !isNaN(value.getTime())) return fromLocalClock(value);
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$/);
+  if (iso) {
+    if (includeTime && text.includes('T') && (text.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(text))) {
+      const parsed = new Date(text);
+      if (!isNaN(parsed.getTime())) return fromLocalClock(parsed);
+    }
+    return fromParts(Number(iso[1]), Number(iso[2]), Number(iso[3]), Number(iso[4] || 0), Number(iso[5] || 0), Number(iso[6] || 0));
+  }
+  const vi = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (vi) return fromParts(Number(vi[3]), Number(vi[2]), Number(vi[1]), Number(vi[4] || 0), Number(vi[5] || 0), Number(vi[6] || 0));
+  const parsed = new Date(text);
+  return isNaN(parsed.getTime()) ? text : fromLocalClock(parsed);
 }
 
-function qltdWeeklyStyleExportSheet(sheet, metadata, headers, rows, widths, currencyColumns) {
-  metadata.forEach(([label, value]) => {
+function qltdWeeklyExportTimestamp(value) {
+  const parsed = qltdWeeklyExportDateValue(value, true);
+  return parsed instanceof Date && !isNaN(parsed.getTime()) ? parsed.getTime() : null;
+}
+
+function qltdWeeklyLatestExportUpdates(updates, context) {
+  const expected = {
+    projectCode: normalizeWeeklyUpdateMatchValue(context?.projectCode),
+    deptCode: normalizeWeeklyUpdateMatchValue(context?.deptCode),
+    weekCode: normalizeWeeklyUpdateMatchValue(context?.weekCode)
+  };
+  const selected = new Map();
+  (Array.isArray(updates) ? updates : []).forEach((update, sourceIndex) => {
+    if (normalizeWeeklyUpdateMatchValue(update?.projectCode) !== expected.projectCode ||
+        normalizeWeeklyUpdateMatchValue(update?.deptCode) !== expected.deptCode ||
+        normalizeWeeklyUpdateMatchValue(update?.weekCode) !== expected.weekCode) return;
+    const key = qltdWeeklyExportItemKey(update);
+    if (!key) return;
+    const timestamp = qltdWeeklyExportTimestamp(update.updatedAt);
+    const current = selected.get(key);
+    const shouldReplace = !current ||
+      timestamp !== null && (current.timestamp === null || timestamp >= current.timestamp) ||
+      timestamp === null && current.timestamp === null && sourceIndex > current.sourceIndex;
+    if (shouldReplace) selected.set(key, { update, timestamp, sourceIndex });
+  });
+  return new Map(Array.from(selected, ([key, entry]) => [key, entry.update]));
+}
+
+function qltdWeeklyBuildExportModel(items, updates, context, week) {
+  const uniqueItems = [];
+  const seen = new Set();
+  (Array.isArray(items) ? items : []).forEach((item, sourceIndex) => {
+    const key = qltdWeeklyExportItemKey(item);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    uniqueItems.push({ item, sourceIndex });
+  });
+  const latestUpdates = qltdWeeklyLatestExportUpdates(updates, context);
+  const masters = uniqueItems.filter((entry) => String(entry.item.itemType || '').toUpperCase() === 'MASTER');
+  const details = uniqueItems.filter((entry) => String(entry.item.itemType || '').toUpperCase() === 'PB_DETAIL');
+  const compareWbs = (left, right) => {
+    const leftWbs = String(left.item.wbs || '').trim();
+    const rightWbs = String(right.item.wbs || '').trim();
+    if (leftWbs && rightWbs) return qltdWeeklyNaturalWbsCompare(leftWbs, rightWbs) || left.sourceIndex - right.sourceIndex;
+    if (leftWbs) return -1;
+    if (rightWbs) return 1;
+    return left.sourceIndex - right.sourceIndex;
+  };
+  masters.sort(compareWbs);
+
+  const masterAliases = new Map();
+  masters.forEach((entry) => {
+    [entry.item.itemId, entry.item.masterTaskCode].forEach((value) => {
+      const key = normalizeWeeklyUpdateMatchValue(value);
+      if (key && !masterAliases.has(key)) masterAliases.set(key, entry);
+    });
+  });
+  const children = new Map(masters.map((entry) => [entry, []]));
+  const orphans = [];
+  details.forEach((entry) => {
+    const parentKey = normalizeWeeklyUpdateMatchValue(entry.item.parentMasterTaskCode || entry.item.masterTaskCode);
+    const parent = masterAliases.get(parentKey);
+    if (parent) children.get(parent).push(entry);
+    else orphans.push(entry);
+  });
+  const compareDetails = (left, right) => {
+    const leftWbs = String(left.item.wbs || '').trim();
+    const rightWbs = String(right.item.wbs || '').trim();
+    if (leftWbs && rightWbs) {
+      const byWbs = qltdWeeklyNaturalWbsCompare(leftWbs, rightWbs);
+      if (byWbs) return byWbs;
+    } else if (leftWbs) return -1;
+    else if (rightWbs) return 1;
+    const leftFinish = String(left.item.planFinish || '9999-12-31');
+    const rightFinish = String(right.item.planFinish || '9999-12-31');
+    return leftFinish.localeCompare(rightFinish) || left.sourceIndex - right.sourceIndex;
+  };
+  children.forEach((entries) => entries.sort(compareDetails));
+  orphans.sort(compareDetails);
+
+  const ordered = [];
+  masters.forEach((master) => {
+    ordered.push({ ...master, level: 0, parent: null, orphan: false });
+    children.get(master).forEach((detail) => ordered.push({ ...detail, level: 1, parent: master.item, orphan: false }));
+  });
+  orphans.forEach((detail) => ordered.push({ ...detail, level: 1, parent: null, orphan: true }));
+
+  const rows = ordered.map((entry, index) => {
+    const item = entry.item;
+    const update = latestUpdates.get(qltdWeeklyExportItemKey(item)) || null;
+    const effective = getWeeklyEffectiveTaskState(item, update);
+    const person = (value) => String(value || '').trim() ? getWeeklyPersonDisplay(value) : '';
+    const overdue = qltdWeeklyIsOverdue(item, update, week);
+    return {
+      item,
+      update,
+      level: entry.level,
+      orphan: entry.orphan,
+      overdue,
+      rejected: String(update?.approvalStatus || '').toUpperCase() === 'REJECTED',
+      values: [
+        index + 1,
+        String(item.wbs || ''),
+        String(item.itemType || '').toUpperCase() === 'MASTER' ? 'Mục tiêu' : 'Công việc',
+        item.taskName || '',
+        entry.orphan ? 'Chưa xác định mục tiêu cha' : entry.parent ? entry.parent.taskName || entry.parent.wbs || '' : '',
+        qltdWeeklyExportDateValue(item.planStart),
+        qltdWeeklyExportDateValue(item.planFinish),
+        person(item.owner),
+        person(item.coordinator),
+        update?.thisWeekResult || '',
+        Number.isFinite(Number(effective.progress)) ? Number(effective.progress) : 0,
+        effective.status || '',
+        `${update ? 'Đã cập nhật' : 'Chưa cập nhật'}${overdue ? '\nQuá hạn' : ''}`,
+        update?.approvalStatus ? formatApprovalStatus(update.approvalStatus, true) : '',
+        update?.issue || '',
+        update?.recommendation || '',
+        update?.reviewReason || '',
+        update?.updatedBy || '',
+        qltdWeeklyExportDateValue(update?.updatedAt, true)
+      ]
+    };
+  });
+  return {
+    rows,
+    warnings: orphans.map((entry) => `PB_DETAIL không tìm thấy MASTER cha: ${entry.item.itemId || entry.item.wbs || '(không mã)'}`)
+  };
+}
+
+function qltdWeeklyStyleReportSheet(sheet, metadata, reportRows) {
+  const columnCount = QLTD_WEEKLY_EXPORT_HEADERS.length;
+  const titleRow = sheet.addRow(['BÁO CÁO CẬP NHẬT KẾT QUẢ TUẦN']);
+  sheet.mergeCells(titleRow.number, 1, titleRow.number, columnCount);
+  titleRow.height = 30;
+  titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
+  titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+  titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+  metadata.forEach(([label, value, numberFormat]) => {
     const row = sheet.addRow([label, value]);
     row.getCell(1).font = { bold: true, color: { argb: 'FF17365D' } };
-    sheet.mergeCells(row.number, 2, row.number, headers.length);
+    row.getCell(2).alignment = { vertical: 'middle', wrapText: true };
+    if (numberFormat) row.getCell(2).numFmt = numberFormat;
+    sheet.mergeCells(row.number, 2, row.number, columnCount);
   });
   sheet.addRow([]);
-  const headerRow = sheet.addRow(headers);
+  const headerRow = sheet.addRow(QLTD_WEEKLY_EXPORT_HEADERS);
+  headerRow.height = 34;
   headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
   headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
   headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-  rows.forEach((values) => sheet.addRow(values));
-  sheet.views = [{ state: 'frozen', ySplit: headerRow.number }];
-  sheet.autoFilter = {
-    from: { row: headerRow.number, column: 1 },
-    to: { row: headerRow.number, column: headers.length }
-  };
-  widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
-  (currencyColumns || []).forEach((column) => { sheet.getColumn(column).numFmt = '#,##0 "₫"'; });
-  sheet.eachRow((row, rowNumber) => {
-    if (rowNumber <= metadata.length + 1) return;
+  reportRows.forEach((entry) => {
+    const row = sheet.addRow(entry.values);
+    row.height = entry.level === 0 ? 25 : 30;
     row.eachCell({ includeEmpty: true }, (cell) => {
       cell.alignment = { vertical: 'top', wrapText: true };
       cell.border = {
@@ -4063,7 +4215,29 @@ function qltdWeeklyStyleExportSheet(sheet, metadata, headers, rows, widths, curr
         right: { style: 'thin', color: { argb: 'FFD9E1EA' } }
       };
     });
+    if (entry.level === 0) {
+      row.font = { bold: true, color: { argb: 'FF17365D' } };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF2F8' } };
+    } else {
+      row.getCell(4).alignment = { vertical: 'top', wrapText: true, indent: 1 };
+    }
+    if (entry.orphan) row.getCell(5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+    if (entry.overdue) row.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+    if (entry.rejected) row.getCell(14).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
   });
+  sheet.views = [{ state: 'frozen', ySplit: headerRow.number }];
+  sheet.autoFilter = {
+    from: { row: headerRow.number, column: 1 },
+    to: { row: headerRow.number, column: columnCount }
+  };
+  [7, 14, 13, 38, 28, 16, 16, 22, 22, 38, 18, 23, 20, 18, 30, 30, 28, 24, 21]
+    .forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+  sheet.getColumn(2).numFmt = '@';
+  sheet.getColumn(6).numFmt = 'dd/mm/yyyy';
+  sheet.getColumn(7).numFmt = 'dd/mm/yyyy';
+  sheet.getColumn(11).numFmt = '0"%"';
+  sheet.getColumn(19).numFmt = 'dd/mm/yyyy hh:mm';
+  sheet.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
 }
 
 async function exportWeeklyReportExcel() {
@@ -4085,57 +4259,33 @@ async function exportWeeklyReportExcel() {
     const week = qltdGetSelectedWeekPeriod();
     if (!projectCode || !deptCode || !week) throw new Error('Chưa đủ dự án, phòng/ban hoặc kỳ tuần để xuất.');
 
-    const nextWeek = getNextWeeklyPeriod(week);
-    const nextResult = await fetchBackendJson('work_listweeklyitems', {
-      email: currentUserProfile?.email || '',
-      projectCode,
-      deptCode,
-      weekCode: nextWeek.weekId,
-      weekStart: nextWeek.weekStart,
-      weekEnd: nextWeek.weekEnd,
-      group: 'ALL'
-    }, { auth: true });
-    if (!nextResult.success) throw new Error(nextResult.message || nextResult.error?.message || 'Không tải được kế hoạch tuần tới.');
-    const nextData = nextResult.data || nextResult;
     const ExcelJS = await qltdWeb07LoadExcelJs();
     if (!ExcelJS) throw new Error('Thư viện ExcelJS chưa sẵn sàng.');
 
     const exportedAt = new Date();
+    const weekInfo = qltdWeeklyGetIsoWeekInfo(week);
     const metadata = [
       ['Dự án', payload.projectName || projectCode],
       ['Phòng/ban', dept.deptName || dept.displayName || dept.name || deptCode],
-      ['Kỳ báo cáo', `${formatIsoDateVi(week.weekStart)} – ${formatIsoDateVi(week.weekEnd)} (${week.weekId})`],
-      ['Người xuất', currentUserProfile?.fullName || currentUserProfile?.name || currentUserProfile?.email || ''],
-      ['Thời điểm xuất', exportedAt.toLocaleString('vi-VN')]
+      ['Tuần số / năm', `Tuần ${weekInfo.weekNo} / ${weekInfo.year}`],
+      ['Từ ngày – đến ngày', `${formatIsoDateVi(week.weekStart)} – ${formatIsoDateVi(week.weekEnd)}`],
+      ['Thời điểm xuất', qltdWeeklyExportDateValue(exportedAt, true), 'dd/mm/yyyy hh:mm'],
+      ['Người xuất', currentUserProfile?.fullName || currentUserProfile?.name || currentUserProfile?.email || '']
     ];
+    const report = qltdWeeklyBuildExportModel(
+      qltdWeeklyTaskView.items,
+      qltdWeeklyTaskView.updates,
+      { projectCode, deptCode, weekCode: week.weekId },
+      week
+    );
+    report.warnings.forEach((warning) => console.warn('[Weekly Excel]', warning));
     const workbook = new ExcelJS.Workbook();
     workbook.creator = currentUserProfile?.email || 'QLTD Firebase WebApp';
     workbook.created = exportedAt;
     workbook.modified = exportedAt;
 
-    const resultSheet = workbook.addWorksheet('Kết quả tuần');
-    qltdWeeklyStyleExportSheet(
-      resultSheet,
-      metadata,
-      ['Loại', 'WBS', 'Mã công việc', 'Công việc', 'Kết quả tuần', 'Tiến độ (%)', 'Trạng thái', 'Bắt đầu thực tế', 'Hoàn thành thực tế', 'Vướng mắc/Rủi ro', 'Giải pháp/Đề xuất', 'Ngân sách tuần (VND)', 'Trạng thái duyệt', 'Người cập nhật', 'Thời điểm cập nhật'],
-      qltdWeeklyResultExportRows(qltdWeeklyTaskView.updates, qltdWeeklyTaskView.items),
-      [14, 14, 18, 42, 48, 14, 20, 16, 18, 36, 36, 22, 20, 24, 22],
-      [12]
-    );
-
-    const nextSheet = workbook.addWorksheet('Kế hoạch tuần tới');
-    qltdWeeklyStyleExportSheet(
-      nextSheet,
-      metadata.slice(0, 2).concat([
-        ['Kỳ kế hoạch', `${formatIsoDateVi(nextWeek.weekStart)} – ${formatIsoDateVi(nextWeek.weekEnd)} (${nextWeek.weekId})`],
-        ['Người xuất', currentUserProfile?.fullName || currentUserProfile?.name || currentUserProfile?.email || ''],
-        ['Thời điểm xuất', exportedAt.toLocaleString('vi-VN')]
-      ]),
-      ['Loại', 'WBS', 'Mã công việc', 'Công việc', 'Bắt đầu KH', 'Kết thúc KH', 'Chủ trì', 'Tiến độ hiện tại (%)', 'Trạng thái', 'Phân loại kế hoạch', 'Ngân sách kế hoạch (VND)'],
-      qltdWeeklyNextPlanExportRows(nextData.items || []),
-      [14, 14, 18, 42, 16, 16, 24, 20, 20, 22, 24],
-      [11]
-    );
+    const reportSheet = workbook.addWorksheet('Báo cáo tuần');
+    qltdWeeklyStyleReportSheet(reportSheet, metadata, report.rows);
 
     const buffer = await workbook.xlsx.writeBuffer();
     const filename = `Bao_cao_tuan_${qltdWeb07SafeFilename(projectCode)}_${qltdWeb07SafeFilename(deptCode)}_${qltdWeb07SafeFilename(week.weekId)}.xlsx`;
