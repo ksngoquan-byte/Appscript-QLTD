@@ -36,6 +36,8 @@ assert.match(weeklyPanel, /DANH SÁCH CÔNG VIỆC/);
 assert.doesNotMatch(weeklyPanel, /renderWeekPeriodsHtml|renderWeeklyNextItems/);
 assert.match(weeklyPanel, /findWeeklySavedUpdate/);
 assert.match(weeklyPanel, /updateContext/);
+assert.match(weeklyPanel, /weeklyExcelButton/);
+assert.ok(weeklyPanel.includes('Xuất Excel'));
 assert.ok(weeklyPanel.indexOf('renderWeeklySelectedForm') < weeklyPanel.indexOf('renderStandaloneBudgetWeeklyBlock'));
 assert.ok(weeklyPanel.indexOf('renderStandaloneBudgetWeeklyBlock') < weeklyPanel.indexOf('renderWeeklySaveActions'));
 assert.ok(weeklyPanel.indexOf('renderWeeklySaveActions') < weeklyPanel.indexOf('renderWeeklySavedUpdates'));
@@ -79,6 +81,41 @@ const savedMultiTaskBudgetHtml = savedUpdatesContext.renderSavedUpdates([
   { itemType: 'MASTER', itemId: 'D5-036', thisWeekResult: 'Done', progressEnd: 10, taskStatus: 'Doing', updatedBy: 'u', updatedAt: 't' }
 ], [{ itemType: 'MASTER', itemId: 'D5-036', taskName: 'Task', taskLinkedBudgetItems: [{ actualThisWeek: 400000 }, { actualThisWeek: 600000 }] }]);
 assert.match(savedMultiTaskBudgetHtml, /1\.000\.000/);
+
+const weeklyExportStart = app.indexOf('function qltdWeeklyResultExportRows');
+const weeklyExportEnd = app.indexOf('function qltdWeeklyStyleExportSheet', weeklyExportStart);
+const weeklyExportSource = app.slice(weeklyExportStart, weeklyExportEnd);
+const weeklyExportContext = {
+  formatIsoDateVi: (value) => value ? value.split('-').reverse().join('/') : '',
+  getWeeklySavedBudgetAmount: (update) => update.budgetThisWeek ?? null,
+  formatApprovalStatus: (value) => value,
+  formatWeeklyDateTime: (value) => value,
+  getWeeklyPersonDisplay: (value) => value || '—'
+};
+vm.createContext(weeklyExportContext);
+vm.runInContext(`${weeklyExportSource}\nthis.resultRows = qltdWeeklyResultExportRows; this.nextRows = qltdWeeklyNextPlanExportRows;`, weeklyExportContext);
+const resultExportRows = weeklyExportContext.resultRows([
+  { itemType: 'MASTER', itemId: 'CV-1', thisWeekResult: 'Hoàn thành hồ sơ', progressEnd: 75, taskStatus: 'Đang thực hiện', actualStart: '2026-06-01', actualFinish: '', budgetThisWeek: 500000, approvalStatus: '', updatedBy: 'user@example.com', updatedAt: '28/06/2026' }
+], [{ itemType: 'MASTER', itemId: 'CV-1', wbs: '1.1', taskName: 'Hồ sơ' }]);
+assert.equal(resultExportRows.length, 1);
+assert.equal(resultExportRows[0][4], 'Hoàn thành hồ sơ');
+assert.equal(resultExportRows[0][7], '01/06/2026');
+assert.equal(resultExportRows[0][11], 500000);
+const nextExportRows = weeklyExportContext.nextRows([
+  { itemType: 'PB_DETAIL', itemId: 'DT-1', wbs: '1.1.1', taskName: 'Việc tuần tới', planStart: '2026-06-29', planFinish: '2026-07-03', owner: 'Nguyễn A', progress: 10, status: 'Đang thực hiện', eligibleReason: 'PLANNED', plannedBudget: 1000000 }
+]);
+assert.equal(nextExportRows.length, 1);
+assert.equal(nextExportRows[0][4], '29/06/2026');
+assert.equal(nextExportRows[0][9], 'Bắt đầu trong tuần');
+assert.equal(nextExportRows[0][10], 1000000);
+
+const weeklyExcel = latestFunction('exportWeeklyReportExcel()', 'getTodayIsoLocal');
+assert.match(weeklyExcel, /work_listweeklyitems/);
+assert.ok(weeklyExcel.includes("'Kết quả tuần'"));
+assert.ok(weeklyExcel.includes("'Kế hoạch tuần tới'"));
+assert.match(weeklyExcel, /Bao_cao_tuan_/);
+assert.match(weeklyExcel, /qltdWeb07LoadExcelJs/);
+assert.match(weeklyExcel, /qltdWeb07DownloadBlob/);
 
 const weeklyForm = latestFunction('renderWeeklySelectedForm', 'bindWeeklyTaskUpdateControls');
 assert.match(weeklyForm, /THÔNG TIN CÔNG VIỆC/);

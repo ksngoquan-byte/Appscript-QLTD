@@ -2971,13 +2971,18 @@ function renderWeeklySavedUpdates(updates, items) {
 }
 
 function renderWeeklySavedBudgetCell(update, item) {
+  const amount = getWeeklySavedBudgetAmount(update, item);
+  return amount === null ? '—' : formatWeeklyCurrency(amount);
+}
+
+function getWeeklySavedBudgetAmount(update, item) {
   const taskLinkedItems = Array.isArray(item?.taskLinkedBudgetItems) ? item.taskLinkedBudgetItems : [];
   if (taskLinkedItems.length) {
-    return formatWeeklyCurrency(taskLinkedItems.reduce((total, budgetItem) => total + Number(budgetItem.actualThisWeek || 0), 0));
+    return taskLinkedItems.reduce((total, budgetItem) => total + Number(budgetItem.actualThisWeek || 0), 0);
   }
   const hasTaskLinkedBudget = String(item?.budgetType || '').trim().toUpperCase() === 'TASK_LINKED' && String(item?.budgetItemCode || '').trim();
-  if (!hasTaskLinkedBudget) return '—';
-  return formatWeeklyCurrency(update?.budgetThisWeek || 0);
+  if (!hasTaskLinkedBudget) return null;
+  return Number(update?.budgetThisWeek || 0);
 }
 
 function renderWeeklyNextItems(items) {
@@ -3309,6 +3314,7 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
         <div><span>Tuần</span><strong>${escapeHtml(formatIsoDateVi(week.weekStart))} – ${escapeHtml(formatIsoDateVi(week.weekEnd))}</strong><small>Thứ Hai – Chủ nhật</small></div>
         <button type="button" data-week-nav="today">Tuần hiện tại</button>
         <button type="button" data-week-nav="next" aria-label="Tuần sau">Tuần sau →</button>
+        <button id="weeklyExcelButton" type="button" ${state.loading || state.error ? 'disabled' : ''}>Xuất Excel</button>
       </div>
     </header>
     ${state.error ? `<p class="weekly-update-note is-error">${escapeHtml(state.error)}</p>` : ''}
@@ -3636,6 +3642,173 @@ function bindWeeklyTaskUpdateControls() {
   syncWeeklyActualDateLifecycle();
   syncWeeklyBudgetValidation();
   const save = document.getElementById('saveWeeklyTaskUpdateButton'); if (save) save.onclick = saveWeeklyTaskUpdate;
+  const excel = document.getElementById('weeklyExcelButton'); if (excel) excel.onclick = exportWeeklyReportExcel;
+}
+
+function qltdWeeklyResultExportRows(updates, items) {
+  return (updates || []).map((update) => {
+    const item = (items || []).find((candidate) => candidate.itemType === update.itemType && candidate.itemId === update.itemId) || {};
+    return [
+      update.itemType || '',
+      item.wbs || '',
+      update.itemId || '',
+      item.taskName || update.itemId || '',
+      update.thisWeekResult || '',
+      Number(update.progressEnd || 0),
+      update.taskStatus || '',
+      formatIsoDateVi(update.actualStart) || '',
+      formatIsoDateVi(update.actualFinish) || '',
+      update.issue || '',
+      update.recommendation || '',
+      getWeeklySavedBudgetAmount(update, item),
+      update.approvalStatus ? formatApprovalStatus(update.approvalStatus) : '',
+      update.updatedBy || '',
+      formatWeeklyDateTime(update.updatedAt) || ''
+    ];
+  });
+}
+
+function qltdWeeklyNextPlanExportRows(items) {
+  const reasonLabels = {
+    OVERDUE: 'Quá hạn',
+    IN_PROGRESS: 'Tiếp tục thực hiện',
+    PLANNED: 'Bắt đầu trong tuần',
+    COMPLETED_THIS_WEEK: 'Hoàn thành trong tuần'
+  };
+  return (items || []).map((item) => [
+    item.itemType || '',
+    item.wbs || '',
+    item.itemId || '',
+    item.taskName || item.itemId || '',
+    formatIsoDateVi(item.planStart) || '',
+    formatIsoDateVi(item.planFinish) || '',
+    getWeeklyPersonDisplay(item.owner),
+    Number(item.progress || 0),
+    item.status || '',
+    reasonLabels[item.eligibleReason] || item.eligibleReason || '',
+    Number(item.plannedBudget || 0)
+  ]);
+}
+
+function qltdWeeklyStyleExportSheet(sheet, metadata, headers, rows, widths, currencyColumns) {
+  metadata.forEach(([label, value]) => {
+    const row = sheet.addRow([label, value]);
+    row.getCell(1).font = { bold: true, color: { argb: 'FF17365D' } };
+    sheet.mergeCells(row.number, 2, row.number, headers.length);
+  });
+  sheet.addRow([]);
+  const headerRow = sheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+  rows.forEach((values) => sheet.addRow(values));
+  sheet.views = [{ state: 'frozen', ySplit: headerRow.number }];
+  sheet.autoFilter = {
+    from: { row: headerRow.number, column: 1 },
+    to: { row: headerRow.number, column: headers.length }
+  };
+  widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+  (currencyColumns || []).forEach((column) => { sheet.getColumn(column).numFmt = '#,##0 "₫"'; });
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber <= metadata.length + 1) return;
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.alignment = { vertical: 'top', wrapText: true };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFD9E1EA' } },
+        left: { style: 'thin', color: { argb: 'FFD9E1EA' } },
+        bottom: { style: 'thin', color: { argb: 'FFD9E1EA' } },
+        right: { style: 'thin', color: { argb: 'FFD9E1EA' } }
+      };
+    });
+  });
+}
+
+async function exportWeeklyReportExcel() {
+  if (!canExportExcel()) {
+    alert('Bạn cần đăng nhập để xuất Excel.');
+    return;
+  }
+  const button = document.getElementById('weeklyExcelButton');
+  const previousText = button ? button.textContent : '';
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Đang xuất...';
+  }
+  try {
+    const payload = qltdDeptPlanPayload || {};
+    const dept = (payload.departments || []).find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || {};
+    const projectCode = String(payload.projectCode || '').trim();
+    const deptCode = String(dept.deptCode || dept.sheetName || '').trim();
+    const week = qltdGetSelectedWeekPeriod();
+    if (!projectCode || !deptCode || !week) throw new Error('Chưa đủ dự án, phòng/ban hoặc kỳ tuần để xuất.');
+
+    const nextWeek = getNextWeeklyPeriod(week);
+    const nextResult = await fetchBackendJson('work_listweeklyitems', {
+      email: currentUserProfile?.email || '',
+      projectCode,
+      deptCode,
+      weekCode: nextWeek.weekId,
+      weekStart: nextWeek.weekStart,
+      weekEnd: nextWeek.weekEnd,
+      group: 'ALL'
+    });
+    if (!nextResult.success) throw new Error(nextResult.message || nextResult.error?.message || 'Không tải được kế hoạch tuần tới.');
+    const nextData = nextResult.data || nextResult;
+    const ExcelJS = await qltdWeb07LoadExcelJs();
+    if (!ExcelJS) throw new Error('Thư viện ExcelJS chưa sẵn sàng.');
+
+    const exportedAt = new Date();
+    const metadata = [
+      ['Dự án', payload.projectName || projectCode],
+      ['Phòng/ban', dept.deptName || dept.displayName || dept.name || deptCode],
+      ['Kỳ báo cáo', `${formatIsoDateVi(week.weekStart)} – ${formatIsoDateVi(week.weekEnd)} (${week.weekId})`],
+      ['Người xuất', currentUserProfile?.fullName || currentUserProfile?.name || currentUserProfile?.email || ''],
+      ['Thời điểm xuất', exportedAt.toLocaleString('vi-VN')]
+    ];
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = currentUserProfile?.email || 'QLTD Firebase WebApp';
+    workbook.created = exportedAt;
+    workbook.modified = exportedAt;
+
+    const resultSheet = workbook.addWorksheet('Kết quả tuần');
+    qltdWeeklyStyleExportSheet(
+      resultSheet,
+      metadata,
+      ['Loại', 'WBS', 'Mã công việc', 'Công việc', 'Kết quả tuần', 'Tiến độ (%)', 'Trạng thái', 'Bắt đầu thực tế', 'Hoàn thành thực tế', 'Vướng mắc/Rủi ro', 'Giải pháp/Đề xuất', 'Ngân sách tuần (VND)', 'Trạng thái duyệt', 'Người cập nhật', 'Thời điểm cập nhật'],
+      qltdWeeklyResultExportRows(qltdWeeklyTaskView.updates, qltdWeeklyTaskView.items),
+      [14, 14, 18, 42, 48, 14, 20, 16, 18, 36, 36, 22, 20, 24, 22],
+      [12]
+    );
+
+    const nextSheet = workbook.addWorksheet('Kế hoạch tuần tới');
+    qltdWeeklyStyleExportSheet(
+      nextSheet,
+      metadata.slice(0, 2).concat([
+        ['Kỳ kế hoạch', `${formatIsoDateVi(nextWeek.weekStart)} – ${formatIsoDateVi(nextWeek.weekEnd)} (${nextWeek.weekId})`],
+        ['Người xuất', currentUserProfile?.fullName || currentUserProfile?.name || currentUserProfile?.email || ''],
+        ['Thời điểm xuất', exportedAt.toLocaleString('vi-VN')]
+      ]),
+      ['Loại', 'WBS', 'Mã công việc', 'Công việc', 'Bắt đầu KH', 'Kết thúc KH', 'Chủ trì', 'Tiến độ hiện tại (%)', 'Trạng thái', 'Phân loại kế hoạch', 'Ngân sách kế hoạch (VND)'],
+      qltdWeeklyNextPlanExportRows(nextData.items || []),
+      [14, 14, 18, 42, 16, 16, 24, 20, 20, 22, 24],
+      [11]
+    );
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const filename = `Bao_cao_tuan_${qltdWeb07SafeFilename(projectCode)}_${qltdWeb07SafeFilename(deptCode)}_${qltdWeb07SafeFilename(week.weekId)}.xlsx`;
+    qltdWeb07DownloadBlob(
+      new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      filename
+    );
+  } catch (error) {
+    console.error('Cannot export weekly report Excel', error);
+    alert(`Không xuất được Excel báo cáo tuần: ${error.message || error}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousText || 'Xuất Excel';
+    }
+  }
 }
 
 function getTodayIsoLocal() {
