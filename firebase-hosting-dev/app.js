@@ -4296,6 +4296,16 @@ function qltdWeeklyStyleReportSheet(sheet, metadata, reportRows, options = {}) {
     if (entry.orphan) row.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
     if (entry.overdue) row.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
   });
+  const dataStartRow = headerRow.number + 1;
+  const dataEndRow = sheet.rowCount;
+  if (dataEndRow >= dataStartRow) {
+    for (let rowNumber = dataStartRow; rowNumber <= dataEndRow; rowNumber += 1) {
+      sheet.getCell(rowNumber, 2).numFmt = '@';
+      sheet.getCell(rowNumber, 6).numFmt = 'dd/mm/yyyy';
+      sheet.getCell(rowNumber, 7).numFmt = 'dd/mm/yyyy';
+      sheet.getCell(rowNumber, options.progressColumn || 9).numFmt = '0"%"';
+    }
+  }
   sheet.views = [{ state: 'frozen', ySplit: headerRow.number, showGridLines: false }];
   sheet.autoFilter = {
     from: { row: headerRow.number, column: 1 },
@@ -4303,10 +4313,6 @@ function qltdWeeklyStyleReportSheet(sheet, metadata, reportRows, options = {}) {
   };
   (options.widths || [7, 14, 44, 22, 22, 16, 16, 38, 18, 22, 32, 32])
     .forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
-  sheet.getColumn(2).numFmt = '@';
-  sheet.getColumn(6).numFmt = 'dd/mm/yyyy';
-  sheet.getColumn(7).numFmt = 'dd/mm/yyyy';
-  sheet.getColumn(options.progressColumn || 9).numFmt = '0"%"';
   sheet.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
 }
 

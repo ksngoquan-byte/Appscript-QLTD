@@ -385,21 +385,39 @@ class MockSheet {
   constructor() { this.rows = []; this.columns = Array.from({ length: 12 }, () => ({})); }
   addRow(values) { const row = new MockRow(this.rows.length + 1, values); this.rows.push(row); return row; }
   mergeCells() {}
+  get rowCount() { return this.rows.length; }
+  getCell(row, column) { return this.rows[row - 1].getCell(column); }
   getColumn(index) { return this.columns[index - 1]; }
 }
+const exportMetadata = [
+  ['Dự án', 'P1'],
+  ['Phòng/ban', 'D1'],
+  ['Tuần số / năm', 'Tuần 26 / 2026'],
+  ['Từ ngày – đến ngày', '22/06/2026 – 28/06/2026'],
+  ['Thời điểm xuất', new Date(), 'dd/mm/yyyy hh:mm'],
+  ['Người xuất', 'User']
+];
 const mockSheet = new MockSheet();
-weeklyExportContext.styleReport(mockSheet, [['Dự án', 'P1'], ['Thời điểm xuất', new Date(), 'dd/mm/yyyy hh:mm']], exportModel.rows);
-assert.equal(mockSheet.views[0].ySplit, 5);
-assert.deepEqual({ ...mockSheet.autoFilter.from }, { row: 5, column: 1 });
-assert.deepEqual({ ...mockSheet.autoFilter.to }, { row: 5, column: 12 });
-assert.equal(mockSheet.columns[1].numFmt, '@');
-assert.equal(mockSheet.columns[5].numFmt, 'dd/mm/yyyy');
-assert.equal(mockSheet.columns[6].numFmt, 'dd/mm/yyyy');
-assert.equal(mockSheet.columns[8].numFmt, '0"%"');
-assert.equal(mockSheet.rows[6].getCell(3).alignment.indent, 1);
+weeklyExportContext.styleReport(mockSheet, exportMetadata, exportModel.rows);
+assert.equal(mockSheet.views[0].ySplit, 9);
+assert.deepEqual({ ...mockSheet.autoFilter.from }, { row: 9, column: 1 });
+assert.deepEqual({ ...mockSheet.autoFilter.to }, { row: 9, column: 12 });
+assert.equal(mockSheet.getCell(6, 2).numFmt, 'dd/mm/yyyy hh:mm');
+assert.notEqual(mockSheet.getCell(6, 2).numFmt, '0"%"');
+assert.equal(mockSheet.getCell(10, 2).numFmt, '@');
+assert.equal(mockSheet.getCell(10, 6).numFmt, 'dd/mm/yyyy');
+assert.equal(mockSheet.getCell(10, 7).numFmt, 'dd/mm/yyyy');
+assert.equal(mockSheet.getCell(10, 9).numFmt, '0"%"');
+assert.equal(mockSheet.getCell(9, 9).numFmt, undefined);
+assert.equal(mockSheet.rows[10].getCell(3).alignment.indent, 1);
 const mockNextSheet = new MockSheet();
-weeklyExportContext.styleReport(mockNextSheet, [], nextExportModel.rows, { headers: weeklyExportContext.nextExportHeaders, progressColumn: 8 });
-assert.equal(mockNextSheet.columns[7].numFmt, '0"%"');
+weeklyExportContext.styleReport(mockNextSheet, exportMetadata, nextExportModel.rows, { headers: weeklyExportContext.nextExportHeaders, progressColumn: 8 });
+assert.equal(mockNextSheet.getCell(6, 2).numFmt, 'dd/mm/yyyy hh:mm');
+assert.equal(mockNextSheet.getCell(10, 8).numFmt, '0"%"');
+assert.equal(mockNextSheet.getCell(9, 8).numFmt, undefined);
+const expectedExportWidths = [7, 14, 44, 22, 22, 16, 16, 38, 18, 22, 32, 32];
+assert.deepEqual(mockSheet.columns.map((column) => column.width), expectedExportWidths);
+assert.deepEqual(mockNextSheet.columns.map((column) => column.width), expectedExportWidths);
 
 const weeklyExcel = latestFunction('exportWeeklyReportExcel()', 'getTodayIsoLocal');
 assert.match(weeklyExcel, /fetchBackendJson\('work_listweeklyitems'/);
