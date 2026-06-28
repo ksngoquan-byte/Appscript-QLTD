@@ -249,12 +249,12 @@ assert.ok(cardHtml.includes(longName));
 
 const resetSource = extractFunction(appSource, 'resetDeptScopedSelectionState');
 assert.match(resetSource, /qltdWeeklyTaskView =/);
-assert.match(resetSource, /qltdWeeklyTaskCache\.clear\(\)/);
+assert.doesNotMatch(resetSource, /qltdWeeklyTaskCache\.clear\(\)/);
 assert.match(resetSource, /qltdDetailPopupCache\.clear\(\)/);
 assert.match(resetSource, /qltd:dept-plan-rendered/);
 const weeklyLoader = extractFunction(appSource, 'loadWeeklyTaskData');
 assert.match(weeklyLoader, /\{ auth: true \}/);
-assert.doesNotMatch(weeklyLoader, /qltdWeeklyTaskCache\.get/);
+assert.match(weeklyLoader, /qltdWeeklyTaskCache\.get/);
 assert.match(weeklyLoader, /accessDenied/);
 const planLoader = extractFunction(appSource, 'loadDeptPlansForSelectedProject');
 assert.match(planLoader, /resetDeptScopedClientState\(\)/);

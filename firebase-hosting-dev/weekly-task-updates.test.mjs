@@ -382,6 +382,7 @@ assert.doesNotMatch(source.match(/function qltdWeeklyMasterProgressWriteback_[\s
 assert.match(source, /ganttRefreshRequired:\s*!!\(sync\.masterWriteback && sync\.masterWriteback\.applied\)/);
 assert.match(appSource, /requestId:\s*getWeeklySaveRequestId\(\)/);
 assert.match(appSource, /\['TASK_SYNC_PARTIAL', 'MASTER_WRITEBACK_PARTIAL'\]\.includes\(warning\?\.code\)/);
-assert.match(appSource, /if \(data\.ganttRefreshRequired && projectCode\) await loadGanttDataForSelectedProject\(projectCode\)/);
+assert.match(appSource, /if \(data\.ganttRefreshRequired && projectCode\) await markWeeklyGanttRefreshRequired\(projectCode\)/);
+assert.match(appSource, /qltdGanttDirtyProjects\.add\(projectCode\)/);
 
 console.log('weekly-task-updates tests: PASS');

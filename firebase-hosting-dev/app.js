@@ -92,11 +92,16 @@ let qltdDepartmentDashboardProjectCode = '';
 const qltdDepartmentDashboardCache = new Map();
 const qltdWeeklyDrafts = {};
 const qltdWeeklyTaskCache = new Map();
+const qltdWeeklyTaskInFlight = new Map();
+const qltdWeeklyTaskCacheVersions = new Map();
+const qltdGanttDirtyProjects = new Set();
 const MASTER_APPROVAL_DEPENDENCY_OPTIONS = {
   KEEP_CURRENT: 'Giữ nguyên tiến độ các công việc liên quan — có biện pháp bù',
   RECALCULATE_DEPENDENCIES: 'Điều chỉnh tự động các công việc phụ thuộc'
 };
 let qltdWeeklyTaskRequestSeq = 0;
+let qltdWeeklyTaskSessionVersion = 0;
+let qltdWeeklyTaskCacheIdentity = '';
 let qltdWeeklyTaskView = { key: '', items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: {}, capabilities: { canUpdate: false, canReviewWeekly: false, role: '' }, loading: false, error: '' };
 let qltdWeeklySaveRequestId = '';
 let qltdSelectedWeeklyItemKey = '';
@@ -116,9 +121,7 @@ document.addEventListener('qltd:pb-detail-changed', (event) => {
   const detail = event.detail || {};
   const cacheKey = [detail.projectCode || '', detail.deptCode || '', detail.masterTaskCode || ''].join('::');
   qltdDetailPopupCache.delete(cacheKey);
-  Array.from(qltdWeeklyTaskCache.keys()).forEach((key) => {
-    if (key.startsWith(`${detail.projectCode || ''}::${detail.deptCode || ''}::`)) qltdWeeklyTaskCache.delete(key);
-  });
+  invalidateWeeklyTaskCachePrefix(`${detail.projectCode || ''}::${detail.deptCode || ''}::`);
   const dept = (qltdDeptPlanPayload?.departments || []).find((item) => (item.deptCode || item.sheetName) === detail.deptCode);
   const master = (dept?.masters || []).find((item) => item.masterCode === detail.masterTaskCode);
   if (master && Array.isArray(detail.detailTasks)) master.details = detail.detailTasks;
@@ -195,6 +198,7 @@ function showOnly(view) {
 }
 
 function renderSignedOut() {
+  clearWeeklyTaskSessionState();
   currentUserProfile = null;
   currentPermissions = { ...DEFAULT_PERMISSIONS };
   lastAuthenticatedUser = null;
@@ -304,6 +308,13 @@ function setNavVisibility(label, allowed) {
 
 function applyPermissions(profile = {}) {
   ensureTopNavigation();
+  const nextWeeklyIdentity = [
+    String(profile.email || '').trim().toLowerCase(),
+    normalizeRoleKey(profile.role),
+    JSON.stringify(profile.permissions || {})
+  ].join('::');
+  if (qltdWeeklyTaskCacheIdentity !== nextWeeklyIdentity) clearWeeklyTaskSessionState();
+  qltdWeeklyTaskCacheIdentity = nextWeeklyIdentity;
   currentUserProfile = profile;
   currentPermissions = normalizePermissions(profile.permissions || DEFAULT_PERMISSIONS, profile.role);
 
@@ -1435,6 +1446,11 @@ function showWeb07View(viewName) {
     ));
   });
 
+  if (viewName === 'dashboard' || viewName === 'gantt') {
+    const projectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+    if (projectCode && qltdGanttDirtyProjects.has(projectCode)) loadGanttDataForSelectedProject(projectCode);
+  }
+
   if (viewName === 'gantt') {
     setTimeout(() => {
       const gantt = getDhtmlxGanttInstance();
@@ -2136,10 +2152,8 @@ async function refreshAfterMasterApproval(result) {
   const projectCode = result?.affectedProjectCode || approval.projectCode || document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
   const deptCode = approval.deptCode || '';
   const weekCode = approval.weekCode || '';
-  if (projectCode && deptCode && weekCode) qltdWeeklyTaskCache.delete(getWeeklyTaskCacheKey(projectCode, deptCode, weekCode));
-  Array.from(qltdWeeklyTaskCache.keys()).forEach((key) => {
-    if (projectCode && deptCode && key.startsWith(`${projectCode}::${deptCode}::`)) qltdWeeklyTaskCache.delete(key);
-  });
+  if (projectCode && deptCode && weekCode) invalidateWeeklyTaskCacheKey(getWeeklyTaskCacheKey(projectCode, deptCode, weekCode));
+  if (projectCode && deptCode) invalidateWeeklyTaskCachePrefix(`${projectCode}::${deptCode}::`);
   await loadWeeklyTaskDataForCurrent({ force: true });
   if (projectCode) await loadGanttDataForSelectedProject(projectCode);
 }
@@ -2579,7 +2593,6 @@ function resetDeptScopedSelectionState() {
     error: '',
     accessDenied: false
   };
-  qltdWeeklyTaskCache.clear();
   qltdDetailPopupCache.clear();
   Object.keys(qltdWeeklyDrafts).forEach((key) => delete qltdWeeklyDrafts[key]);
   closeDetailStatusPopup();
@@ -3031,6 +3044,55 @@ function getWeeklyTaskCacheKey(projectCode, deptCode, weekCode) {
   return [projectCode || '', deptCode || '', weekCode || ''].join('::');
 }
 
+function cloneWeeklyTaskState(state = {}) {
+  return JSON.parse(JSON.stringify(state));
+}
+
+function getWeeklyTaskCacheVersion(key) {
+  return Number(qltdWeeklyTaskCacheVersions.get(key) || 0);
+}
+
+function invalidateWeeklyTaskCacheKey(key) {
+  if (!key) return;
+  qltdWeeklyTaskCache.delete(key);
+  qltdWeeklyTaskCacheVersions.set(key, getWeeklyTaskCacheVersion(key) + 1);
+}
+
+function invalidateWeeklyTaskCachePrefix(prefix) {
+  const keys = new Set([...qltdWeeklyTaskCache.keys(), ...qltdWeeklyTaskInFlight.keys()]);
+  keys.forEach((key) => {
+    if (key.startsWith(prefix)) invalidateWeeklyTaskCacheKey(key);
+  });
+}
+
+function clearWeeklyTaskSessionState() {
+  qltdWeeklyTaskSessionVersion += 1;
+  qltdWeeklyTaskRequestSeq += 1;
+  qltdWeeklyTaskCache.clear();
+  qltdWeeklyTaskInFlight.clear();
+  qltdWeeklyTaskCacheVersions.clear();
+  qltdWeeklyTaskCacheIdentity = '';
+  qltdSelectedWeeklyItemKey = '';
+  qltdWeeklyWorkspaceTab = 'objectives';
+  qltdWeeklyTaskFilters = { search: '', ownership: 'ALL', statuses: [] };
+  qltdWeeklySaveRequestId = '';
+  qltdWeeklyForcedItem = null;
+  qltdWeeklyTaskView = {
+    key: '',
+    items: [],
+    updates: [],
+    nextItems: [],
+    standaloneBudgetItems: [],
+    budgetDrafts: {},
+    capabilities: { canUpdate: false, canReviewWeekly: false, role: '' },
+    loading: false,
+    refreshing: false,
+    error: '',
+    refreshWarning: '',
+    accessDenied: false
+  };
+}
+
 function renderWeeklyTaskUpdatePanelLegacy(payload, dept, master, week, periods = []) {
   if (!master || !week) return '<p class="empty-state">Chưa đủ dữ liệu để mở khung cập nhật tuần.</p>';
   const deptCode = dept.deptCode || dept.sheetName || '';
@@ -3408,7 +3470,7 @@ function renderDetailStatusPopup(payload, dept, masterCode, result) {
       const deptCode = dept.deptCode || dept.sheetName || '';
       const selectedWeek = qltdGetSelectedWeekPeriod();
       qltdWeeklyForcedItem = { projectCode: payload.projectCode, deptCode, weekCode: selectedWeek.weekId, itemType: 'PB_DETAIL', itemId: task.detailTaskId, detailTaskId: task.detailTaskId, masterTaskCode: task.masterTaskCode || masterCode, parentMasterTaskCode: task.masterTaskCode || masterCode, wbs: task.wbs || '', taskName: task.taskName || '', planStart: task.planStart || '', planFinish: task.planFinish || '', actualStart: task.actualStart || '', actualFinish: task.actualFinish || '', progress: Number(task.progress || 0), status: task.status || '', owner: task.owner || '', plannedBudget: Number(task.budgetPlan || 0), actualBudget: Number(task.budgetActual || 0), hasBudget: Number(task.budgetPlan || 0) > 0 || Number(task.budgetActual || 0) > 0, hasDetails: false, progressReadonly: false, eligibleReason: 'PLANNED', eligible: true };
-      qltdWeeklyTaskCache.delete(getWeeklyTaskCacheKey(payload.projectCode, deptCode, selectedWeek.weekId));
+      invalidateWeeklyTaskCacheKey(getWeeklyTaskCacheKey(payload.projectCode, deptCode, selectedWeek.weekId));
       qltdSelectedWeeklyItemKey = `PB_DETAIL:${task.detailTaskId}`;
       qltdSelectedMasterCode = task.masterTaskCode || masterCode;
       qltdReportSubTab = 'weekly';
@@ -3636,6 +3698,8 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
     <div class="weekly-summary-grid"><article><span>Mục tiêu</span><strong>${model.objectives.length}</strong></article><article><span>Công việc</span><strong>${model.tasks.length}</strong></article><article><span>Chưa cập nhật</span><strong>${model.notUpdated}</strong></article><article><span>${escapeHtml(overdueMetric.label)}</span><strong>${overdueMetric.count}</strong></article><article><span>Chờ duyệt</span><strong>${model.pending}</strong></article></div>
     <div class="weekly-workspace-tabs" role="tablist" aria-label="Không gian cập nhật tuần"><button type="button" role="tab" data-weekly-workspace-tab="objectives" aria-selected="${qltdWeeklyWorkspaceTab === 'objectives'}" class="${qltdWeeklyWorkspaceTab === 'objectives' ? 'is-active' : ''}">MỤC TIÊU <span>${model.objectives.length}</span></button><button type="button" role="tab" data-weekly-workspace-tab="tasks" aria-selected="${qltdWeeklyWorkspaceTab === 'tasks'}" class="${qltdWeeklyWorkspaceTab === 'tasks' ? 'is-active' : ''}">CÔNG VIỆC <span>${model.tasks.length}</span></button></div>
     ${state.loading ? '<div class="weekly-loading-state" role="status">Đang tải dữ liệu tuần mới...</div>' : ''}
+    ${state.refreshing ? '<div class="weekly-loading-state" role="status">Đang làm mới dữ liệu tuần...</div>' : ''}
+    ${state.refreshWarning ? `<div class="weekly-error-state" role="alert"><p>${escapeHtml(state.refreshWarning)}</p><button type="button" class="secondary-button" data-weekly-retry>Thử lại</button></div>` : ''}
     ${state.error ? `<div class="weekly-error-state" role="alert"><p>${escapeHtml(state.error)}</p><button type="button" class="secondary-button" data-weekly-retry>Tải lại</button></div>` : ''}
     ${!state.loading && !state.error ? `${qltdWeeklyWorkspaceTab === 'tasks' ? renderWeeklyTaskFilters(model) : ''}<div class="weekly-split-view"><aside class="weekly-list-panel" aria-label="${qltdWeeklyWorkspaceTab === 'objectives' ? 'Danh sách mục tiêu' : 'Danh sách công việc'}"><div class="weekly-list-toolbar"><div><h3>${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</h3><span>${qltdWeeklyWorkspaceTab === 'objectives' ? `${model.objectives.length} mục tiêu` : `Hiển thị ${model.visibleTasks.length}/${model.tasks.length} công việc`}</span></div></div>${qltdWeeklyWorkspaceTab === 'objectives' ? renderWeeklyObjectiveList(model.objectives, state.updates, updateContext, week, canUpdate) : renderWeeklyTaskList(model.visibleTasks, state.updates, updateContext, week, { canUpdate, objectives: model.objectives, filtered: model.visibleTasks.length !== model.tasks.length })}</aside><main class="weekly-detail-panel" aria-label="Chi tiết cập nhật">${selected && canUpdate ? renderWeeklySelectedForm(selected, saved) : selected ? renderWeeklyReadonlySelection(selected, saved, week) : `<div class="weekly-form-placeholder"><strong>CHI TIẾT ${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</strong><span>${canUpdate ? 'Chọn “Cập nhật” để mở biểu mẫu.' : 'Tài khoản hiện tại chỉ có quyền xem.'}</span></div>`}${renderStandaloneBudgetWeeklyBlock(canUpdate ? state.standaloneBudgetItems || [] : [])}${selected && canUpdate ? renderWeeklySaveActions() : ''}</main></div><details class="weekly-history"><summary>Các cập nhật đã lưu trong tuần (${state.updates.length})</summary>${renderWeeklySavedUpdates(state.updates, state.items, canUpdate)}</details>` : ''}
   </section>`;
@@ -4516,43 +4580,76 @@ function renderWeeklyTaskRegion() {
 async function loadWeeklyTaskData(payload, dept, week, periods, filters = {}) {
   if (!payload?.projectCode || !dept || !week) return;
   const deptCode = dept.deptCode || dept.sheetName || ''; const key = getWeeklyTaskCacheKey(payload.projectCode, deptCode, week.weekId);
-  qltdWeeklyTaskCache.delete(key);
-  const previousDrafts = qltdWeeklyTaskView.key === key ? (qltdWeeklyTaskView.budgetDrafts || {}) : {};
-  const seq = ++qltdWeeklyTaskRequestSeq; qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: previousDrafts, capabilities: { canUpdate: false, canReviewWeekly: false, role: '' }, loading: true, error: '', accessDenied: false }; renderWeeklyTaskRegion();
-  const common = { email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode, weekCode: week.weekId };
-  try {
-    const [itemsResult, updatesResult] = await Promise.all([
-      fetchBackendJson('work_listweeklyitems', { ...common, weekStart: week.weekStart, weekEnd: week.weekEnd, search: filters.search || '', group: filters.group || 'ALL' }, { auth: true }),
-      fetchBackendJson('weekly_taskupdates_get', common, { auth: true })
-    ]);
-    if (seq !== qltdWeeklyTaskRequestSeq) return;
-    if (!itemsResult.success || !updatesResult.success) {
-      const failedResult = !itemsResult.success ? itemsResult : updatesResult;
-      const backendError = new Error(getBackendErrorMessage(failedResult, 'Không tải được dữ liệu Weekly.'));
-      backendError.backendResult = failedResult;
-      throw backendError;
-    }
-    const itemData = itemsResult.data || itemsResult; const updateData = updatesResult.data || updatesResult;
-    const items = Array.isArray(itemData.items) ? itemData.items.slice() : [];
-    if (qltdWeeklyForcedItem && qltdWeeklyForcedItem.projectCode === payload.projectCode && qltdWeeklyForcedItem.deptCode === deptCode && qltdWeeklyForcedItem.weekCode === week.weekId && !items.some((item) => item.itemType === qltdWeeklyForcedItem.itemType && item.itemId === qltdWeeklyForcedItem.itemId)) items.push(qltdWeeklyForcedItem);
-    qltdWeeklyTaskView = { key, items, updates: updateData.updates || [], nextItems: [], standaloneBudgetItems: itemData.standaloneBudgetItems || [], budgetDrafts: previousDrafts, capabilities: itemData.capabilities || { canUpdate: false, canReviewWeekly: false, role: '' }, loading: false, error: '', accessDenied: false };
-  } catch (error) {
-    if (seq !== qltdWeeklyTaskRequestSeq) return;
-    const accessDenied = isDeptAccessDenied(error.backendResult);
-    qltdWeeklyTaskView = {
-      key,
-      items: [],
-      updates: [],
-      nextItems: [],
-      standaloneBudgetItems: [],
-      budgetDrafts: {},
-      capabilities: { canUpdate: false, canReviewWeekly: false, role: '' },
-      loading: false,
-      error: accessDenied ? QLTD_WEEKLY_DEPT_ACCESS_MESSAGE : error.message || 'Không tải được dữ liệu Weekly.',
-      accessDenied
-    };
+  const cached = qltdWeeklyTaskCache.get(key);
+  const currentForKey = qltdWeeklyTaskView.key === key ? qltdWeeklyTaskView : null;
+  const previousDrafts = currentForKey?.budgetDrafts || cached?.budgetDrafts || {};
+  qltdWeeklyTaskRequestSeq += 1;
+  if (cached && !filters.force) {
+    qltdWeeklyTaskView = { ...cloneWeeklyTaskState(cached), loading: false, refreshing: false, error: '', refreshWarning: cached.refreshWarning || '', accessDenied: false };
+    renderWeeklyTaskRegion();
+    return qltdWeeklyTaskView;
   }
+  const pending = qltdWeeklyTaskInFlight.get(key);
+  if (pending) {
+    if (qltdWeeklyTaskView.key !== key) {
+      qltdWeeklyTaskView = cached
+        ? { ...cloneWeeklyTaskState(cached), loading: false, refreshing: true, error: '', refreshWarning: '', accessDenied: false }
+        : { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: previousDrafts, capabilities: { canUpdate: false, canReviewWeekly: false, role: '' }, loading: true, refreshing: false, error: '', refreshWarning: '', accessDenied: false };
+      renderWeeklyTaskRegion();
+    }
+    return pending;
+  }
+  const retained = cached || currentForKey;
+  qltdWeeklyTaskView = retained
+    ? { ...cloneWeeklyTaskState(retained), key, budgetDrafts: cloneWeeklyTaskState(previousDrafts), loading: false, refreshing: true, error: '', refreshWarning: '', accessDenied: false }
+    : { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: previousDrafts, capabilities: { canUpdate: false, canReviewWeekly: false, role: '' }, loading: true, refreshing: false, error: '', refreshWarning: '', accessDenied: false };
   renderWeeklyTaskRegion();
+  const common = { email: currentUserProfile?.email || '', projectCode: payload.projectCode, deptCode, weekCode: week.weekId };
+  const requestSessionVersion = qltdWeeklyTaskSessionVersion;
+  const requestCacheVersion = getWeeklyTaskCacheVersion(key);
+  let requestPromise;
+  requestPromise = (async () => {
+    try {
+      const [itemsResult, updatesResult] = await Promise.all([
+        fetchBackendJson('work_listweeklyitems', { ...common, weekStart: week.weekStart, weekEnd: week.weekEnd }, { auth: true }),
+        fetchBackendJson('weekly_taskupdates_get', common, { auth: true })
+      ]);
+      if (!itemsResult.success || !updatesResult.success) {
+        const failedResult = !itemsResult.success ? itemsResult : updatesResult;
+        const backendError = new Error(getBackendErrorMessage(failedResult, 'Không tải được dữ liệu Weekly.'));
+        backendError.backendResult = failedResult;
+        throw backendError;
+      }
+      if (requestSessionVersion !== qltdWeeklyTaskSessionVersion || requestCacheVersion !== getWeeklyTaskCacheVersion(key)) return null;
+      const itemData = itemsResult.data || itemsResult; const updateData = updatesResult.data || updatesResult;
+      const items = Array.isArray(itemData.items) ? itemData.items.slice() : [];
+      if (qltdWeeklyForcedItem && qltdWeeklyForcedItem.projectCode === payload.projectCode && qltdWeeklyForcedItem.deptCode === deptCode && qltdWeeklyForcedItem.weekCode === week.weekId && !items.some((item) => item.itemType === qltdWeeklyForcedItem.itemType && item.itemId === qltdWeeklyForcedItem.itemId)) items.push(qltdWeeklyForcedItem);
+      const nextState = { key, items, updates: updateData.updates || [], nextItems: [], standaloneBudgetItems: itemData.standaloneBudgetItems || [], budgetDrafts: previousDrafts, capabilities: itemData.capabilities || { canUpdate: false, canReviewWeekly: false, role: '' }, loading: false, refreshing: false, error: '', refreshWarning: '', accessDenied: false };
+      qltdWeeklyTaskCache.set(key, cloneWeeklyTaskState(nextState));
+      if (qltdWeeklyTaskView.key === key) {
+        qltdWeeklyTaskView = cloneWeeklyTaskState(nextState);
+        renderWeeklyTaskRegion();
+      }
+      return cloneWeeklyTaskState(nextState);
+    } catch (error) {
+      if (requestSessionVersion !== qltdWeeklyTaskSessionVersion || requestCacheVersion !== getWeeklyTaskCacheVersion(key)) return null;
+      const accessDenied = isDeptAccessDenied(error.backendResult);
+      if (accessDenied) invalidateWeeklyTaskCacheKey(key);
+      if (qltdWeeklyTaskView.key === key) {
+        if (!accessDenied && retained) {
+          qltdWeeklyTaskView = { ...cloneWeeklyTaskState(retained), key, budgetDrafts: cloneWeeklyTaskState(previousDrafts), loading: false, refreshing: false, error: '', refreshWarning: error.message || 'Không làm mới được dữ liệu Weekly.', accessDenied: false };
+        } else {
+          qltdWeeklyTaskView = { key, items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: {}, capabilities: { canUpdate: false, canReviewWeekly: false, role: '' }, loading: false, refreshing: false, error: accessDenied ? QLTD_WEEKLY_DEPT_ACCESS_MESSAGE : error.message || 'Không tải được dữ liệu Weekly.', refreshWarning: '', accessDenied };
+        }
+        renderWeeklyTaskRegion();
+      }
+      return null;
+    } finally {
+      if (qltdWeeklyTaskInFlight.get(key) === requestPromise) qltdWeeklyTaskInFlight.delete(key);
+    }
+  })();
+  qltdWeeklyTaskInFlight.set(key, requestPromise);
+  return requestPromise;
 }
 
 function loadWeeklyTaskDataForCurrent(filters = {}) {
@@ -4597,17 +4694,66 @@ function getWeeklySyncWarning(result) {
   return warnings.find((warning) => ['TASK_SYNC_PARTIAL', 'MASTER_WRITEBACK_PARTIAL'].includes(warning?.code)) || null;
 }
 
-function applyWeeklySavedUpdateToView(payload, update) {
+function patchWeeklyBudgetItemFromResult(item, result) {
+  const metrics = result?.metrics;
+  if (!metrics) return item;
+  return {
+    ...item,
+    actualThisWeek: Number(metrics.actualThisWeek ?? item.actualThisWeek ?? 0),
+    actualCumulative: Number(metrics.cumulative ?? item.actualCumulative ?? 0),
+    cumulativeActual: Number(metrics.cumulative ?? item.cumulativeActual ?? 0),
+    remainingBudget: Number(metrics.remaining ?? item.remainingBudget ?? 0),
+    remaining: Number(metrics.remaining ?? item.remaining ?? 0),
+    approvedBudget: Number(metrics.approvedBudget ?? item.approvedBudget ?? 0),
+    allocationRemaining: Number(metrics.allocationRemaining ?? item.allocationRemaining ?? 0)
+  };
+}
+
+function patchWeeklyBudgetState(state, budgetResults = []) {
+  const resultByCode = new Map((budgetResults || []).filter((result) => result?.metrics).map((result) => [String(result.budgetItemCode || '').trim(), result]));
+  const patchItem = (item) => {
+    const result = resultByCode.get(String(item?.budgetItemCode || '').trim());
+    if (!result) return item;
+    const patched = patchWeeklyBudgetItemFromResult(item, result);
+    if (Array.isArray(item.taskLinkedBudgetItems)) patched.taskLinkedBudgetItems = item.taskLinkedBudgetItems.map(patchItem);
+    if (String(item.budgetType || '').trim().toUpperCase() === 'TASK_LINKED') {
+      patched.taskLinkedBudgetThisWeek = patched.actualThisWeek;
+      patched.taskLinkedBudgetCumulative = patched.actualCumulative;
+      patched.actualBudget = patched.actualCumulative;
+      patched.plannedBudget = patched.approvedBudget || item.plannedBudget;
+    }
+    return patched;
+  };
+  return {
+    ...state,
+    items: (state.items || []).map((item) => {
+      const patched = patchItem(item);
+      if (patched === item && Array.isArray(item.taskLinkedBudgetItems)) return { ...item, taskLinkedBudgetItems: item.taskLinkedBudgetItems.map(patchItem) };
+      return patched;
+    }),
+    standaloneBudgetItems: (state.standaloneBudgetItems || []).map(patchItem)
+  };
+}
+
+function applyWeeklySavedUpdateToView(payload, update, options = {}) {
   const key = getWeeklyTaskCacheKey(payload.projectCode, payload.deptCode, payload.weekCode);
-  qltdWeeklyTaskCache.delete(key);
-  if (!update || qltdWeeklyTaskView.key !== key) return;
-  const updates = (qltdWeeklyTaskView.updates || []).filter((item) => !(
+  if (!update) return { applied: false, budgetComplete: !(options.budgetUpdates || []).length };
+  const source = qltdWeeklyTaskView.key === key ? qltdWeeklyTaskView : qltdWeeklyTaskCache.get(key);
+  if (!source) return { applied: false, budgetComplete: !(options.budgetUpdates || []).length };
+  const updates = (source.updates || []).filter((item) => !(
     item.itemType === update.itemType && item.itemId === update.itemId &&
     normalizeWeeklyUpdateMatchValue(item.projectCode) === normalizeWeeklyUpdateMatchValue(update.projectCode) &&
     normalizeWeeklyUpdateMatchValue(item.deptCode) === normalizeWeeklyUpdateMatchValue(update.deptCode) &&
     normalizeWeeklyUpdateMatchValue(item.weekCode) === normalizeWeeklyUpdateMatchValue(update.weekCode)
   ));
-  qltdWeeklyTaskView = { ...qltdWeeklyTaskView, updates: updates.concat([update]) };
+  const requestedBudgetCodes = new Set((options.budgetUpdates || []).map((item) => String(item.budgetItemCode || '').trim()).filter(Boolean));
+  const returnedBudgetCodes = new Set((options.budgetResults || []).filter((item) => item?.metrics).map((item) => String(item.budgetItemCode || '').trim()));
+  const budgetComplete = Array.from(requestedBudgetCodes).every((code) => returnedBudgetCodes.has(code));
+  let nextState = { ...cloneWeeklyTaskState(source), updates: updates.concat([cloneWeeklyTaskState(update)]), budgetDrafts: options.clearBudgetDrafts ? {} : cloneWeeklyTaskState(source.budgetDrafts || {}), loading: false, refreshing: false, error: '', refreshWarning: budgetComplete ? '' : 'Dữ liệu ngân sách cần được làm mới để xác nhận số lũy kế.', accessDenied: false };
+  if (options.budgetResults?.length) nextState = patchWeeklyBudgetState(nextState, options.budgetResults);
+  qltdWeeklyTaskCache.set(key, cloneWeeklyTaskState(nextState));
+  if (qltdWeeklyTaskView.key === key) qltdWeeklyTaskView = cloneWeeklyTaskState(nextState);
+  return { applied: true, budgetComplete };
 }
 
 async function saveWeeklyTaskUpdate() {
@@ -4622,8 +4768,10 @@ async function saveWeeklyTaskUpdate() {
   const deptCode = dept.deptCode || dept.sheetName || '';
   const budgetPayload = buildWeeklyBudgetUpdates(projectCode, deptCode, qltdSelectedWeekId, item);
   if (budgetPayload.error) { if (status) status.textContent = budgetPayload.error; return; }
+  const currentUpdate = findWeeklySavedUpdate(qltdWeeklyTaskView.updates, item, { projectCode, deptCode, weekCode: qltdSelectedWeekId });
+  const currentEffectiveState = getWeeklyEffectiveTaskState(item, currentUpdate);
   const progressEnd = validation.progressEnd; let confirmProgressDecrease = false;
-  if (progressEnd < Number(item.progress || 0)) { confirmProgressDecrease = window.confirm(`Tiến độ mới ${progressEnd}% thấp hơn tiến độ hiện tại ${item.progress}%. Bạn có xác nhận?`); if (!confirmProgressDecrease) return; }
+  if (progressEnd < Number(currentEffectiveState.progress || 0)) { confirmProgressDecrease = window.confirm(`Tiến độ mới ${progressEnd}% thấp hơn tiến độ hiện tại ${currentEffectiveState.progress}%. Bạn có xác nhận?`); if (!confirmProgressDecrease) return; }
   const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode, deptCode, weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: validation.status || '', actualStart: validation.dates.actualStart || '', actualFinish: validation.dates.actualFinish || '', actualStartEdit: validation.dates.actualStartEdit || '', actualFinishEdit: validation.dates.actualFinishEdit || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease, budgetUpdates: budgetPayload.updates, requestId: getWeeklySaveRequestId() };
   if (button) { button.disabled = true; button.dataset.saving = '1'; button.textContent = 'Đang lưu...'; }
   if (status) status.textContent = 'Đang lưu...';
@@ -4636,16 +4784,18 @@ async function saveWeeklyTaskUpdate() {
     }
     const data = result.data || result;
     qltdWeeklyForcedItem = null;
-    applyWeeklySavedUpdateToView(body, data.update);
+    const localRefresh = applyWeeklySavedUpdateToView(body, data.update, { budgetUpdates: budgetPayload.updates, budgetResults: data.budget?.results || [], clearBudgetDrafts: true });
     const syncWarning = getWeeklySyncWarning(result);
     const budgetSaved = Number(data.budget?.savedCount || 0);
     const message = syncWarning ? `Công việc đã lưu; ${budgetSaved} khoản ngân sách đã lưu, nhưng đồng bộ trạng thái nguồn chưa hoàn tất.` : data.update?.approvalStatus === 'PENDING' ? `Đã gửi Admin phê duyệt cập nhật hoàn thành MASTER; ${budgetSaved} khoản ngân sách đã lưu.` : `Công việc đã lưu; ${budgetSaved} khoản ngân sách đã lưu.`;
     if (status) status.textContent = message;
     showWeeklyToast(message);
     qltdWeeklySaveRequestId = '';
-    qltdWeeklyTaskView.budgetDrafts = {};
-    await loadWeeklyTaskDataForCurrent({ force: true });
-    if (data.ganttRefreshRequired && projectCode) await loadGanttDataForSelectedProject(projectCode);
+    renderWeeklyTaskRegion();
+    if (budgetPayload.updates.length && !localRefresh.budgetComplete) await loadWeeklyTaskDataForCurrent({ force: true });
+    const renderedStatus = document.getElementById('weeklyTaskSaveStatus');
+    if (renderedStatus) renderedStatus.textContent = message;
+    if (data.ganttRefreshRequired && projectCode) await markWeeklyGanttRefreshRequired(projectCode);
   } catch (error) {
     if (error.backendResult) {
       if (status) status.textContent = error.message;
@@ -4655,13 +4805,15 @@ async function saveWeeklyTaskUpdate() {
     const verified = await verifyWeeklyTaskUpdateSaved(body);
     if (verified) {
       qltdWeeklyForcedItem = null;
-      applyWeeklySavedUpdateToView(body, verified);
+      applyWeeklySavedUpdateToView(body, verified, { budgetUpdates: budgetPayload.updates, budgetResults: [], clearBudgetDrafts: true });
       const message = 'Đã lưu cập nhật tuần, nhưng phản hồi kết nối bị gián đoạn.';
       if (status) status.textContent = message;
       showWeeklyToast(message);
       qltdWeeklySaveRequestId = '';
-      qltdWeeklyTaskView.budgetDrafts = {};
-      await loadWeeklyTaskDataForCurrent({ force: true });
+      renderWeeklyTaskRegion();
+      const renderedStatus = document.getElementById('weeklyTaskSaveStatus');
+      if (renderedStatus) renderedStatus.textContent = message;
+      if (projectCode) qltdGanttDirtyProjects.add(projectCode);
       return;
     }
     if (status) status.textContent = 'Không thể xác nhận kết quả lưu. Vui lòng kiểm tra kết nối và tải lại dữ liệu.';
@@ -4712,8 +4864,17 @@ function getNextWeeklyPeriod(week) { const start = new Date(`${week.weekStart}T1
 function formatWeeklyCurrency(value) { return Number(value || 0).toLocaleString('vi-VN') + ' ₫'; }
 function formatWeeklyDateTime(value) { if (!value) return ''; const date = new Date(value); return isNaN(date.getTime()) ? String(value) : date.toLocaleString('vi-VN'); }
 
-async function loadGanttDataForSelectedProject(projectCode) {
+async function markWeeklyGanttRefreshRequired(projectCode) {
   if (!projectCode) return;
+  qltdGanttDirtyProjects.add(projectCode);
+  const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+  if (selectedProjectCode === projectCode && (qltdActiveView === 'dashboard' || qltdActiveView === 'gantt')) {
+    await loadGanttDataForSelectedProject(projectCode);
+  }
+}
+
+async function loadGanttDataForSelectedProject(projectCode) {
+  if (!projectCode) return null;
   ensureWeb07Panels();
   renderGanttLoading(projectCode);
   renderDashboardLoading(projectCode);
@@ -4725,11 +4886,14 @@ async function loadGanttDataForSelectedProject(projectCode) {
     await loadMainMilestonesForProject(projectCode, payload);
     renderDashboardFromGanttData(payload);
     renderGanttPanel(payload);
+    qltdGanttDirtyProjects.delete(projectCode);
+    return payload;
   } catch (error) {
     console.error('Cannot load gantt data', error);
     qltdGanttPayload = null;
     renderDashboardError(error);
     renderGanttError(error);
+    return null;
   }
 }
 

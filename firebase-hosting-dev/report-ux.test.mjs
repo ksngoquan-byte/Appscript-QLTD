@@ -542,10 +542,111 @@ assert.equal((loader.match(/fetchBackendJson\(/g) || []).length, 2);
 assert.match(loader, /itemsResult\.data \|\| itemsResult/);
 assert.match(loader, /updatesResult\.data \|\| updatesResult/);
 assert.doesNotMatch(loader, /nextResult|getNextWeeklyPeriod/);
-assert.match(loader, /qltdWeeklyTaskCache\.delete\(key\)/);
-assert.doesNotMatch(loader, /qltdWeeklyTaskCache\.get/);
+assert.doesNotMatch(loader, /qltdWeeklyTaskCache\.delete\(key\)/);
+assert.match(loader, /qltdWeeklyTaskCache\.get\(key\)/);
+assert.match(loader, /qltdWeeklyTaskInFlight\.get\(key\)/);
+assert.match(loader, /qltdWeeklyTaskInFlight\.set\(key, requestPromise\)/);
+assert.match(loader, /qltdWeeklyTaskInFlight\.delete\(key\)/);
+assert.match(loader, /filters\.force/);
+assert.doesNotMatch(loader, /search:|group:|ownership|statuses/);
 assert.equal((loader.match(/\{ auth: true \}/g) || []).length, 2);
 assert.match(loader, /accessDenied/);
+
+const weeklyLoaderContext = {
+  qltdWeeklyTaskCache: new Map(),
+  qltdWeeklyTaskInFlight: new Map(),
+  qltdWeeklyTaskCacheVersions: new Map(),
+  qltdWeeklyTaskRequestSeq: 0,
+  qltdWeeklyTaskSessionVersion: 1,
+  qltdWeeklyTaskView: { key: '', items: [], updates: [], budgetDrafts: {} },
+  qltdWeeklyForcedItem: null,
+  currentUserProfile: { email: 'user@example.com' },
+  QLTD_WEEKLY_DEPT_ACCESS_MESSAGE: 'Không có quyền',
+  renderCount: 0,
+  apiCalls: [],
+  renderWeeklyTaskRegion: () => { weeklyLoaderContext.renderCount += 1; },
+  getBackendErrorMessage: (result, fallback) => result.message || fallback,
+  isDeptAccessDenied: (result) => result?.code === 'ACCESS_DENIED',
+  fetchBackendJson: async (action, params) => {
+    weeklyLoaderContext.apiCalls.push({ action, params });
+    if (weeklyLoaderContext.denied) return { success: false, code: 'ACCESS_DENIED', message: 'Không có quyền' };
+    if (weeklyLoaderContext.failRefresh) return { success: false, code: 'TEMPORARY', message: 'Lỗi tạm thời' };
+    if (action === 'work_listweeklyitems') return { success: true, data: { items: [{ itemType: 'PB_DETAIL', itemId: `${params.projectCode}-${params.deptCode}-${params.weekCode}` }], standaloneBudgetItems: [], capabilities: { canUpdate: true } } };
+    return { success: true, data: { updates: [] } };
+  }
+};
+vm.createContext(weeklyLoaderContext);
+vm.runInContext([
+  extractFunction(app, 'getWeeklyTaskCacheKey'),
+  extractFunction(app, 'cloneWeeklyTaskState'),
+  extractFunction(app, 'getWeeklyTaskCacheVersion'),
+  extractFunction(app, 'invalidateWeeklyTaskCacheKey'),
+  `async ${loader}`
+].join('\n'), weeklyLoaderContext);
+const weeklyPayload = (projectCode) => ({ projectCode });
+const weeklyDept = (deptCode) => ({ deptCode });
+const weeklyPeriod = (weekId) => ({ weekId, weekStart: '2026-06-22', weekEnd: '2026-06-28' });
+await weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P1'), weeklyDept('D1'), weeklyPeriod('W1'), []);
+assert.deepEqual(weeklyLoaderContext.apiCalls.map((call) => call.action), ['work_listweeklyitems', 'weekly_taskupdates_get']);
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskInFlight.size, 0);
+await weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P1'), weeklyDept('D1'), weeklyPeriod('W1'), []);
+assert.equal(weeklyLoaderContext.apiCalls.length, 2);
+const forceA = weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P1'), weeklyDept('D1'), weeklyPeriod('W1'), [], { force: true });
+const forceB = weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P1'), weeklyDept('D1'), weeklyPeriod('W1'), [], { force: true });
+await Promise.all([forceA, forceB]);
+assert.equal(weeklyLoaderContext.apiCalls.length, 4);
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskInFlight.size, 0);
+await weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P1'), weeklyDept('D1'), weeklyPeriod('W2'), []);
+await weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P1'), weeklyDept('D2'), weeklyPeriod('W2'), []);
+await weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P2'), weeklyDept('D2'), weeklyPeriod('W2'), []);
+assert.equal(weeklyLoaderContext.apiCalls.length, 10);
+await weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P1'), weeklyDept('D1'), weeklyPeriod('W2'), []);
+assert.equal(weeklyLoaderContext.apiCalls.length, 10);
+assert.equal(weeklyLoaderContext.apiCalls.some((call) => 'search' in call.params || 'group' in call.params), false);
+weeklyLoaderContext.denied = true;
+await weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P1'), weeklyDept('D1'), weeklyPeriod('W1'), [], { force: true });
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskView.accessDenied, true);
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskCache.has('P1::D1::W1'), false);
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskInFlight.size, 0);
+weeklyLoaderContext.denied = false;
+weeklyLoaderContext.failRefresh = true;
+await weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('P1'), weeklyDept('D1'), weeklyPeriod('W2'), [], { force: true });
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskView.items.length, 1);
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskView.refreshWarning, 'Lỗi tạm thời');
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskView.accessDenied, false);
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskInFlight.size, 0);
+weeklyLoaderContext.failRefresh = false;
+
+const staleResolvers = [];
+weeklyLoaderContext.fetchBackendJson = (action, params) => {
+  weeklyLoaderContext.apiCalls.push({ action, params });
+  if (params.projectCode === 'STALE') return new Promise((resolve) => staleResolvers.push(() => resolve(action === 'work_listweeklyitems' ? { success: true, data: { items: [{ itemId: 'STALE' }], capabilities: {} } } : { success: true, data: { updates: [] } })));
+  return Promise.resolve(action === 'work_listweeklyitems' ? { success: true, data: { items: [{ itemId: 'CURRENT' }], capabilities: {} } } : { success: true, data: { updates: [] } });
+};
+const staleLoad = weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('STALE'), weeklyDept('D1'), weeklyPeriod('W3'), []);
+await weeklyLoaderContext.loadWeeklyTaskData(weeklyPayload('CURRENT'), weeklyDept('D1'), weeklyPeriod('W3'), []);
+staleResolvers.forEach((resolve) => resolve());
+await staleLoad;
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskView.key, 'CURRENT::D1::W3');
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskView.items[0].itemId, 'CURRENT');
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskInFlight.size, 0);
+weeklyLoaderContext.qltdWeeklyTaskCache.set('TEMP', { key: 'TEMP' });
+weeklyLoaderContext.qltdWeeklyTaskInFlight.set('TEMP', Promise.resolve());
+vm.runInContext(extractFunction(app, 'clearWeeklyTaskSessionState'), weeklyLoaderContext);
+weeklyLoaderContext.clearWeeklyTaskSessionState();
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskCache.size, 0);
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskInFlight.size, 0);
+assert.equal(weeklyLoaderContext.qltdWeeklyTaskView.key, '');
+const permissionsSource = latestFunction('applyPermissions', 'getStoredProjectCode');
+assert.match(permissionsSource, /qltdWeeklyTaskCacheIdentity !== nextWeeklyIdentity/);
+assert.match(permissionsSource, /clearWeeklyTaskSessionState\(\)/);
+const signedOutSource = latestFunction('renderSignedOut', 'renderDenied');
+assert.match(signedOutSource, /clearWeeklyTaskSessionState\(\)/);
+const weeklyBinding = latestFunction('bindWeeklyTaskUpdateControls()', 'qltdWeeklyExportItemKey');
+assert.equal((weeklyBinding.match(/data-weekly-retry/g) || []).length, 1);
+assert.equal((weeklyBinding.match(/loadWeeklyTaskDataForCurrent\(\{ force: true \}\)/g) || []).length, 1);
+assert.doesNotMatch(weeklyBinding.slice(weeklyBinding.indexOf("data-weekly-workspace-tab"), weeklyBinding.indexOf("data-weekly-master-details")), /loadWeeklyTaskData/);
+assert.doesNotMatch(weeklyBinding.slice(weeklyBinding.indexOf("weeklyTaskSearch"), weeklyBinding.indexOf("const retry")), /loadWeeklyTaskData/);
 
 const weeklySave = latestFunction('saveWeeklyTaskUpdate()', 'showWeeklyToast');
 assert.match(weeklySave, /verifyWeeklyTaskUpdateSaved\(body\)/);
@@ -553,6 +654,83 @@ assert.match(weeklySave, /Đã lưu cập nhật tuần, nhưng phản hồi k�
 assert.match(weeklySave, /error\.backendResult/);
 assert.match(weeklySave, /button\?\.dataset\.saving === '1'/);
 assert.match(weeklySave, /budgetUpdates: budgetPayload\.updates/);
+assert.match(weeklySave, /getWeeklyEffectiveTaskState\(item, currentUpdate\)/);
+assert.match(weeklySave, /applyWeeklySavedUpdateToView\(body, data\.update/);
+assert.match(weeklySave, /renderWeeklyTaskRegion\(\)/);
+assert.equal((weeklySave.match(/loadWeeklyTaskDataForCurrent\(\{ force: true \}\)/g) || []).length, 1);
+assert.match(weeklySave, /budgetPayload\.updates\.length && !localRefresh\.budgetComplete/);
+const verifiedSaveBranch = weeklySave.slice(weeklySave.indexOf('if (verified)'));
+assert.doesNotMatch(verifiedSaveBranch, /loadWeeklyTaskDataForCurrent/);
+assert.match(verifiedSaveBranch, /qltdGanttDirtyProjects\.add\(projectCode\)/);
+
+const localApplyContext = {
+  qltdWeeklyTaskCache: new Map(),
+  qltdWeeklyTaskView: {
+    key: 'P1::D1::W1',
+    items: [{ itemType: 'PB_DETAIL', itemId: 'T1', progress: 10, status: 'Đang làm', taskLinkedBudgetItems: [{ budgetItemCode: 'TL-1', actualThisWeek: 100, actualCumulative: 500, remainingBudget: 500 }] }],
+    updates: [{ projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', itemType: 'PB_DETAIL', itemId: 'T1', progressEnd: 20 }],
+    standaloneBudgetItems: [{ budgetItemCode: 'ST-1', actualThisWeek: 50, actualCumulative: 200, remainingBudget: 800 }],
+    budgetDrafts: { 'TL-1': { amount: '300', dirty: true } },
+    capabilities: { canUpdate: true }
+  },
+  normalizeWeeklyUpdateMatchValue: (value) => String(value || '').trim().toUpperCase()
+};
+vm.createContext(localApplyContext);
+vm.runInContext([
+  extractFunction(app, 'getWeeklyTaskCacheKey'),
+  extractFunction(app, 'cloneWeeklyTaskState'),
+  extractFunction(app, 'patchWeeklyBudgetItemFromResult'),
+  extractFunction(app, 'patchWeeklyBudgetState'),
+  extractFunction(app, 'applyWeeklySavedUpdateToView')
+].join('\n'), localApplyContext);
+const localPayload = { projectCode: 'P1', deptCode: 'D1', weekCode: 'W1' };
+const localSaved = { ...localPayload, itemType: 'PB_DETAIL', itemId: 'T1', progressEnd: 60, taskStatus: 'Đang thực hiện', approvalStatus: 'PENDING', actualStart: '2026-06-22' };
+const localResult = localApplyContext.applyWeeklySavedUpdateToView(localPayload, localSaved, {
+  budgetUpdates: [{ budgetItemCode: 'TL-1' }, { budgetItemCode: 'ST-1' }],
+  budgetResults: [
+    { budgetItemCode: 'TL-1', metrics: { actualThisWeek: 300, cumulative: 700, remaining: 300, approvedBudget: 1000 } },
+    { budgetItemCode: 'ST-1', metrics: { actualThisWeek: 80, cumulative: 230, remaining: 770, approvedBudget: 1000 } }
+  ],
+  clearBudgetDrafts: true
+});
+assert.deepEqual({ ...localResult }, { applied: true, budgetComplete: true });
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates.length, 1);
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates[0].progressEnd, 60);
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates[0].approvalStatus, 'PENDING');
+assert.equal(localApplyContext.qltdWeeklyTaskView.items[0].taskLinkedBudgetItems[0].actualCumulative, 700);
+assert.equal(localApplyContext.qltdWeeklyTaskView.standaloneBudgetItems[0].remainingBudget, 770);
+assert.deepEqual({ ...localApplyContext.qltdWeeklyTaskView.budgetDrafts }, {});
+assert.deepEqual(localApplyContext.qltdWeeklyTaskCache.get('P1::D1::W1'), localApplyContext.qltdWeeklyTaskView);
+assert.notEqual(localApplyContext.qltdWeeklyTaskCache.get('P1::D1::W1'), localApplyContext.qltdWeeklyTaskView);
+localApplyContext.applyWeeklySavedUpdateToView(localPayload, { ...localSaved, progressEnd: 65 }, { clearBudgetDrafts: true });
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates.length, 1);
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates[0].progressEnd, 65);
+
+const ganttDirtyContext = {
+  qltdGanttDirtyProjects: new Set(),
+  qltdActiveView: 'report',
+  loadCount: 0,
+  document: { getElementById: () => ({ value: 'P1' }) },
+  getStoredProjectCode: () => '',
+  loadGanttDataForSelectedProject: async () => { ganttDirtyContext.loadCount += 1; }
+};
+vm.createContext(ganttDirtyContext);
+const markGanttDirtySource = app.slice(app.indexOf('function markWeeklyGanttRefreshRequired'), app.indexOf('async function loadGanttDataForSelectedProject'));
+vm.runInContext(`async ${markGanttDirtySource}`, ganttDirtyContext);
+await ganttDirtyContext.markWeeklyGanttRefreshRequired('P1');
+assert.equal(ganttDirtyContext.qltdGanttDirtyProjects.has('P1'), true);
+assert.equal(ganttDirtyContext.loadCount, 0);
+ganttDirtyContext.qltdActiveView = 'gantt';
+await ganttDirtyContext.markWeeklyGanttRefreshRequired('P1');
+assert.equal(ganttDirtyContext.loadCount, 1);
+await ganttDirtyContext.markWeeklyGanttRefreshRequired('P2');
+assert.equal(ganttDirtyContext.loadCount, 1);
+const showViewSource = latestFunction('showWeb07View', 'bindWeb07Navigation');
+assert.match(showViewSource, /qltdGanttDirtyProjects\.has\(projectCode\)/);
+assert.match(showViewSource, /viewName === 'dashboard' \|\| viewName === 'gantt'/);
+const ganttLoaderSource = app.slice(app.indexOf('async function loadGanttDataForSelectedProject'), app.indexOf('function renderDashboardLoading'));
+assert.match(ganttLoaderSource, /qltdGanttDirtyProjects\.delete\(projectCode\)/);
+assert.ok(ganttLoaderSource.indexOf('qltdGanttDirtyProjects.delete(projectCode)') < ganttLoaderSource.indexOf('} catch (error)'));
 const verifySource = app.slice(app.indexOf('function weeklySavedUpdateMatchesPayload'), app.indexOf('function getWeeklySyncWarning'));
 assert.match(verifySource, /weekly_taskupdates_get/);
 assert.match(verifySource, /weeklySavedUpdateMatchesPayload/);
