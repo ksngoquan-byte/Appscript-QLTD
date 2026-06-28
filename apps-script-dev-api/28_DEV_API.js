@@ -126,7 +126,7 @@ function qltdDevApiHandleGet(e) {
   }
 
   if (action === 'listprojects') {
-    return qltdDevApiListProjects_(params.email);
+    return qltdDevApiListProjects_(params);
   }
 
   if (action === 'listdeptplans') {
@@ -364,11 +364,27 @@ function qltdDevApiJson_(payload) {
 }
 
 
-function qltdDevApiListProjects_(email) {
+function qltdDevApiListProjects_(params) {
+  const identity = qltdFirebaseResolveIdentity_(params, true);
+  if (!identity.success) return qltdDevApiJson_(identity);
+
+  const user = qltdUsersGetByEmail_(identity.email);
+  if (!user) {
+    return qltdDevApiJson_(qltdUsersBuildAuthError_('USER_NOT_FOUND', 'Tai khoan chua duoc dang ky tren he thong.', {
+      requiresRegistration: true
+    }));
+  }
+  if (user.status !== 'ACTIVE') {
+    return qltdDevApiJson_(qltdUsersBuildAuthError_('USER_INACTIVE', 'Tai khoan dang bi khoa.'));
+  }
+  if (!qltdUsersIsValidRole_(user.role)) {
+    return qltdDevApiJson_(qltdUsersBuildAuthError_('INVALID_ROLE', 'Vai tro tai khoan khong hop le.'));
+  }
+
   qltdProjectsEnsureSheet_();
   qltdProjectsSeedDefaultIfMissing_();
 
-  const projects = qltdProjectsListForUser_(email).map(function(project) {
+  const projects = qltdProjectsListForUser_(user.email).map(function(project) {
     return {
       projectCode: project.projectCode,
       projectName: project.projectName,

@@ -262,6 +262,30 @@
         #loginView .google-button { min-height: 54px; font-size: 15px; }
         .topbar-logo { width: 88px; }
       }
+
+      .registration-card { width: min(620px, 100%); }
+      .registration-form { display: grid; gap: 16px; margin-top: 22px; }
+      .registration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+      .registration-field { display: grid; gap: 7px; color: #17315f; font-weight: 700; font-size: 13px; }
+      .registration-field input,
+      .registration-field select {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid #cad6ea;
+        border-radius: 10px;
+        padding: 9px 11px;
+        background: #fff;
+        color: #172033;
+        font: inherit;
+        font-weight: 500;
+      }
+      .registration-field.is-full { grid-column: 1 / -1; }
+      .registration-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+      .registration-actions button { flex: 1 1 180px; }
+      @media (max-width: 560px) {
+        .registration-grid { grid-template-columns: 1fr; }
+        .registration-field.is-full { grid-column: auto; }
+      }
     </style>
   </head>
   <body>
@@ -299,7 +323,50 @@
             <h2>Không có quyền truy cập</h2>
             <span id="deniedEmail">Email chưa được cấp quyền.</span>
           </div>
-          <button id="deniedSignOutButton" class="secondary-button" type="button">Đăng xuất</button>
+          <div class="registration-actions">
+            <button id="retryProfileButton" class="google-button" type="button">Thử lại</button>
+            <button id="deniedSignOutButton" class="secondary-button" type="button">Đăng xuất</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="registrationView" class="auth-view hidden">
+        <div class="login-card registration-card">
+          <div class="login-heading">
+            <p>Khai báo lần đầu</p>
+            <h2>Thông tin người dùng</h2>
+            <span id="registrationEmail">Đang xác thực tài khoản...</span>
+          </div>
+          <form id="registrationForm" class="registration-form">
+            <div class="registration-grid">
+              <label class="registration-field">
+                Họ và tên
+                <input id="registrationDisplayName" name="displayName" autocomplete="name" required minlength="2">
+              </label>
+              <label class="registration-field">
+                Chức danh
+                <input id="registrationTitle" name="title" required>
+              </label>
+              <label class="registration-field">
+                Nhóm người dùng
+                <select id="registrationUserGroup" name="userGroup" required>
+                  <option value="">Đang tải...</option>
+                </select>
+              </label>
+              <label id="registrationDepartmentField" class="registration-field">
+                Phòng/Ban
+                <select id="registrationDeptCode" name="deptCode">
+                  <option value="">Chọn phòng/ban</option>
+                </select>
+              </label>
+            </div>
+            <p id="registrationStatus" class="status-text" role="status"></p>
+            <div class="registration-actions">
+              <button id="registrationSubmitButton" class="google-button" type="submit">Hoàn tất khai báo</button>
+              <button id="registrationReloadButton" class="secondary-button hidden" type="button">Tải lại biểu mẫu</button>
+              <button id="registrationSignOutButton" class="secondary-button" type="button">Đăng xuất</button>
+            </div>
+          </form>
         </div>
       </section>
 

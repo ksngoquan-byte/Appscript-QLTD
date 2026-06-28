@@ -125,10 +125,23 @@ document.addEventListener('qltd:pb-detail-changed', (event) => {
 const els = {
   loginView: document.getElementById('loginView'),
   deniedView: document.getElementById('deniedView'),
+  registrationView: document.getElementById('registrationView'),
   appShell: document.getElementById('appShell'),
   signInButton: document.getElementById('signInButton'),
   signOutButton: document.getElementById('signOutButton'),
   deniedSignOutButton: document.getElementById('deniedSignOutButton'),
+  retryProfileButton: document.getElementById('retryProfileButton'),
+  registrationForm: document.getElementById('registrationForm'),
+  registrationEmail: document.getElementById('registrationEmail'),
+  registrationDisplayName: document.getElementById('registrationDisplayName'),
+  registrationTitle: document.getElementById('registrationTitle'),
+  registrationUserGroup: document.getElementById('registrationUserGroup'),
+  registrationDepartmentField: document.getElementById('registrationDepartmentField'),
+  registrationDeptCode: document.getElementById('registrationDeptCode'),
+  registrationStatus: document.getElementById('registrationStatus'),
+  registrationSubmitButton: document.getElementById('registrationSubmitButton'),
+  registrationReloadButton: document.getElementById('registrationReloadButton'),
+  registrationSignOutButton: document.getElementById('registrationSignOutButton'),
   loginStatus: document.getElementById('loginStatus'),
   deniedEmail: document.getElementById('deniedEmail'),
   userAvatar: document.getElementById('userAvatar'),
@@ -144,6 +157,9 @@ let auth = null;
 let db = null;
 let currentUserProfile = null;
 let currentPermissions = { ...DEFAULT_PERMISSIONS };
+let authBootstrapRequestSeq = 0;
+let lastAuthenticatedUser = null;
+let registrationSubmitting = false;
 
 function getLocalRoleForEmail(email) {
   const normalizedEmail = String(email || '').toLowerCase();
@@ -169,13 +185,17 @@ function setStatus(message, type = 'info') {
 }
 
 function showOnly(view) {
-  [els.loginView, els.deniedView, els.appShell].forEach((el) => {
+  [els.loginView, els.deniedView, els.registrationView, els.appShell].forEach((el) => {
     if (!el) return;
     el.classList.toggle('hidden', el !== view);
   });
 }
 
 function renderSignedOut() {
+  currentUserProfile = null;
+  currentPermissions = { ...DEFAULT_PERMISSIONS };
+  lastAuthenticatedUser = null;
+  registrationSubmitting = false;
   showOnly(els.loginView);
   setStatus(
     hasFirebaseConfig(firebaseConfig)
@@ -185,11 +205,11 @@ function renderSignedOut() {
   );
 }
 
-function renderDenied(user) {
+function renderDenied(user, message = '') {
   showOnly(els.deniedView);
 
   if (els.deniedEmail) {
-    els.deniedEmail.textContent = `${user.email || 'Email n\u00e0y'} ch\u01b0a n\u1eb1m trong allowlist DEV.`;
+    els.deniedEmail.textContent = message || `${user.email || 'Email n\u00e0y'} không thể truy cập hệ thống.`;
   }
 }
 
@@ -376,7 +396,9 @@ function renderProjectOptions(projects = []) {
 
 async function loadProjectsForSelector() {
   try {
-    const payload = await fetchBackendJson('listProjects');
+    const payload = await fetchBackendJson('listProjects', {
+      email: currentUserProfile?.email || ''
+    }, { auth: true });
     if (!payload.success) {
       throw new Error(payload.message || 'listProjects failed');
     }
@@ -384,7 +406,14 @@ async function loadProjectsForSelector() {
   } catch (error) {
     console.error('Cannot load project registry', error);
     ensureProjectSelector();
+    qltdProjectRegistry = [];
+    const selector = document.getElementById('projectSelector');
     const status = document.getElementById('projectSelectorStatus');
+    if (selector) {
+      selector.innerHTML = '<option value="">Không tải được danh sách dự án</option>';
+      selector.value = '';
+      selector.disabled = true;
+    }
     if (status) {
       status.textContent = 'Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c danh s\u00e1ch d\u1ef1 \u00e1n';
       status.classList.remove('hidden');
@@ -6913,9 +6942,172 @@ function renderApp(user, role, profile = {}) {
   setApiStatus(profile.apiStatus === 'CONNECTED' ? '\u0110\u00e3 k\u1ebft n\u1ed1i API' : 'Kh\u00f4ng k\u1ebft n\u1ed1i \u0111\u01b0\u1ee3c API');
 }
 
+function getProfileErrorCode(payload) {
+  return String(payload?.errorCode || payload?.message || '').trim().toUpperCase();
+}
+
+function isValidAppProfile(profile) {
+  return !!profile &&
+    profile.success === true &&
+    String(profile.status || '').trim().toUpperCase() === 'ACTIVE' &&
+    ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER'].includes(normalizeRoleKey(profile.role));
+}
+
+function setRegistrationStatus(message, type = 'info') {
+  if (!els.registrationStatus) return;
+  els.registrationStatus.textContent = message || '';
+  els.registrationStatus.dataset.type = type;
+}
+
+function updateRegistrationDepartmentVisibility() {
+  const group = String(els.registrationUserGroup?.value || '').trim().toUpperCase();
+  const requiresDepartment = group === 'DEPT_MANAGER' || group === 'EMPLOYEE';
+  if (els.registrationDepartmentField) els.registrationDepartmentField.classList.toggle('hidden', !requiresDepartment);
+  if (els.registrationDeptCode) {
+    els.registrationDeptCode.required = requiresDepartment;
+    els.registrationDeptCode.disabled = !requiresDepartment;
+    if (!requiresDepartment) els.registrationDeptCode.value = '';
+  }
+}
+
+function populateRegistrationOptions(options = {}) {
+  if (els.registrationUserGroup) {
+    els.registrationUserGroup.innerHTML = '<option value="">Chọn nhóm người dùng</option>';
+    (Array.isArray(options.groups) ? options.groups : []).forEach((group) => {
+      const option = document.createElement('option');
+      option.value = String(group.code || '');
+      option.textContent = String(group.name || group.code || '');
+      els.registrationUserGroup.appendChild(option);
+    });
+  }
+  if (els.registrationDeptCode) {
+    els.registrationDeptCode.innerHTML = '<option value="">Chọn phòng/ban</option>';
+    (Array.isArray(options.departments) ? options.departments : []).forEach((department) => {
+      const option = document.createElement('option');
+      option.value = String(department.deptCode || '');
+      option.textContent = `${department.deptCode || ''} - ${department.deptName || department.deptCode || ''}`;
+      els.registrationDeptCode.appendChild(option);
+    });
+  }
+  updateRegistrationDepartmentVisibility();
+}
+
+async function showRegistrationGate(user) {
+  showOnly(els.registrationView);
+  if (els.registrationEmail) els.registrationEmail.textContent = user?.email || '';
+  if (els.registrationDisplayName && !els.registrationDisplayName.value) {
+    els.registrationDisplayName.value = user?.displayName || '';
+  }
+  if (els.registrationSubmitButton) els.registrationSubmitButton.disabled = true;
+  if (els.registrationReloadButton) els.registrationReloadButton.classList.add('hidden');
+  setRegistrationStatus('Đang tải danh mục khai báo...', 'info');
+
+  try {
+    const options = await fetchBackendJson('user_getregistrationoptions', {
+      email: user?.email || ''
+    }, { auth: true });
+    if (!options.success) throw new Error(options.errorMessage || options.message || 'Không tải được danh mục khai báo.');
+    populateRegistrationOptions(options);
+    if (els.registrationSubmitButton) els.registrationSubmitButton.disabled = false;
+    setRegistrationStatus('Vui lòng khai báo đầy đủ thông tin để tiếp tục.', 'success');
+  } catch (error) {
+    if (els.registrationSubmitButton) els.registrationSubmitButton.disabled = true;
+    if (els.registrationReloadButton) els.registrationReloadButton.classList.remove('hidden');
+    setRegistrationStatus(error.message || 'Không tải được biểu mẫu khai báo. Vui lòng thử lại.', 'error');
+  }
+}
+
+async function handleRegistrationSubmit(event) {
+  event?.preventDefault();
+  if (registrationSubmitting || !auth?.currentUser) return;
+
+  const displayName = String(els.registrationDisplayName?.value || '').trim();
+  const title = String(els.registrationTitle?.value || '').trim();
+  const userGroup = String(els.registrationUserGroup?.value || '').trim().toUpperCase();
+  const requiresDepartment = userGroup === 'DEPT_MANAGER' || userGroup === 'EMPLOYEE';
+  const deptCode = requiresDepartment ? String(els.registrationDeptCode?.value || '').trim() : '';
+  if (!displayName || !title || !userGroup || (requiresDepartment && !deptCode)) {
+    setRegistrationStatus('Vui lòng nhập đầy đủ thông tin bắt buộc.', 'error');
+    return;
+  }
+
+  registrationSubmitting = true;
+  if (els.registrationSubmitButton) {
+    els.registrationSubmitButton.disabled = true;
+    els.registrationSubmitButton.textContent = 'Đang lưu...';
+  }
+  setRegistrationStatus('Đang ghi nhận thông tin người dùng...', 'info');
+
+  try {
+    const result = await postBackendJson({
+      action: 'user_register',
+      displayName,
+      title,
+      userGroup,
+      deptCode
+    });
+    if (!result.success) {
+      const code = getProfileErrorCode(result);
+      if (code === 'USER_INACTIVE' || code === 'INVALID_ROLE') {
+        renderDenied(auth.currentUser, result.errorMessage || result.message);
+        return;
+      }
+      throw new Error(result.errorMessage || result.message || 'Không thể hoàn tất khai báo.');
+    }
+    setRegistrationStatus('Đăng ký thành công. Đang tải hồ sơ...', 'success');
+    await bootstrapAuthenticatedUser(auth.currentUser);
+  } catch (error) {
+    setRegistrationStatus(error.message || 'Không thể hoàn tất khai báo. Vui lòng thử lại.', 'error');
+  } finally {
+    registrationSubmitting = false;
+    if (els.registrationSubmitButton) {
+      els.registrationSubmitButton.disabled = false;
+      els.registrationSubmitButton.textContent = 'Hoàn tất khai báo';
+    }
+  }
+}
+
+async function bootstrapAuthenticatedUser(user) {
+  const requestSeq = ++authBootstrapRequestSeq;
+  lastAuthenticatedUser = user;
+  showOnly(els.loginView);
+  setStatus('Đang kiểm tra hồ sơ người dùng...', 'info');
+
+  try {
+    const profile = await fetchBackendProfile(user.email);
+    if (requestSeq !== authBootstrapRequestSeq) return;
+
+    if (!profile.success) {
+      const code = getProfileErrorCode(profile);
+      if (code === 'USER_NOT_FOUND' || profile.requiresRegistration === true) {
+        await showRegistrationGate(user);
+        return;
+      }
+      if (code === 'USER_INACTIVE') {
+        renderDenied(user, 'Tài khoản đang bị khóa. Vui lòng liên hệ quản trị.');
+        return;
+      }
+      if (code === 'INVALID_ROLE') {
+        renderDenied(user, 'Vai trò tài khoản không hợp lệ. Vui lòng liên hệ quản trị.');
+        return;
+      }
+      renderApiError(user, new Error(profile.errorMessage || profile.message || 'Không tải được hồ sơ người dùng.'));
+      return;
+    }
+
+    if (!isValidAppProfile(profile)) {
+      renderDenied(user, 'Hồ sơ người dùng chưa ACTIVE hoặc vai trò không hợp lệ.');
+      return;
+    }
+    renderApp(user, profile.role, profile);
+  } catch (error) {
+    if (requestSeq === authBootstrapRequestSeq) renderApiError(user, error);
+  }
+}
+
 function renderApiError(user, error) {
   console.error('Apps Script DEV API connection failed', error);
-  renderDenied(user);
+  renderDenied(user, 'Không tải được hồ sơ người dùng. Vui lòng kiểm tra kết nối và thử lại.');
   setApiStatus('Không kết nối được API');
 }
 
@@ -6955,36 +7147,26 @@ function boot() {
 
   onAuthStateChanged(auth, async (user) => {
     if (!user) {
+      authBootstrapRequestSeq += 1;
       renderSignedOut();
       return;
     }
-
-    try {
-      const profile = await fetchBackendProfile(user.email);
-
-      if (!profile.success) {
-        if (profile.message === 'USER_NOT_FOUND') {
-          setStatus('Tài khoản mới, chờ khai báo lần đầu...', 'info');
-          return;
-        }
-        if (profile.message === 'USER_INACTIVE' || profile.message === 'INVALID_ROLE') {
-          renderDenied(user);
-          return;
-        }
-        renderDenied(user);
-        return;
-      }
-
-      renderApp(user, profile.role, profile);
-    } catch (error) {
-      renderApiError(user, error);
-    }
+    await bootstrapAuthenticatedUser(user);
   });
 }
 
 if (els.signInButton) els.signInButton.addEventListener('click', handleSignIn);
 if (els.signOutButton) els.signOutButton.addEventListener('click', handleSignOut);
 if (els.deniedSignOutButton) els.deniedSignOutButton.addEventListener('click', handleSignOut);
+if (els.retryProfileButton) els.retryProfileButton.addEventListener('click', () => {
+  if (lastAuthenticatedUser) bootstrapAuthenticatedUser(lastAuthenticatedUser);
+});
+if (els.registrationForm) els.registrationForm.addEventListener('submit', handleRegistrationSubmit);
+if (els.registrationUserGroup) els.registrationUserGroup.addEventListener('change', updateRegistrationDepartmentVisibility);
+if (els.registrationReloadButton) els.registrationReloadButton.addEventListener('click', () => {
+  if (lastAuthenticatedUser) showRegistrationGate(lastAuthenticatedUser);
+});
+if (els.registrationSignOutButton) els.registrationSignOutButton.addEventListener('click', handleSignOut);
 window.addEventListener('resize', () => {
   const gantt = getDhtmlxGanttInstance();
   if (qltdActiveView === 'gantt' && gantt && gantt.setSizes) gantt.setSizes();
