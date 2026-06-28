@@ -101,6 +101,7 @@ let qltdWeeklyTaskView = { key: '', items: [], updates: [], nextItems: [], stand
 let qltdWeeklySaveRequestId = '';
 let qltdSelectedWeeklyItemKey = '';
 let qltdReportSubTab = 'plan';
+let qltdDeptMasterListExpanded = false;
 let qltdWeeklyForcedItem = null;
 const qltdDetailPopupCache = new Map();
 let qltdDetailPopupRequestSeq = 0;
@@ -2550,6 +2551,7 @@ function isDeptAccessDenied(payload) {
 
 function resetDeptScopedSelectionState() {
   qltdSelectedMasterCode = '';
+  qltdDeptMasterListExpanded = false;
   qltdSelectedWeeklyItemKey = '';
   qltdWeeklyForcedItem = null;
   qltdWeeklySaveRequestId = '';
@@ -3207,13 +3209,56 @@ function getDeptObjectiveStatusClass(status) {
   return 'is-not-started';
 }
 
+function qltdDeptPlanParseIsoDate(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return '';
+  return text;
+}
+
+function qltdDeptPlanTodayIso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function qltdDeptPlanIsOverdue(item, todayIso = qltdDeptPlanTodayIso()) {
+  const finish = qltdDeptPlanParseIsoDate(item?.planFinish);
+  if (!finish || finish >= todayIso) return false;
+  return getDeptObjectiveProgress(item) < 100 && getDeptObjectiveStatusClass(item?.status) !== 'is-completed';
+}
+
+function qltdDeptPlanSortForDisplay(items, todayIso = qltdDeptPlanTodayIso()) {
+  return (Array.isArray(items) ? items : [])
+    .map((item, index) => ({ item, index, finish: qltdDeptPlanParseIsoDate(item?.planFinish), overdue: qltdDeptPlanIsOverdue(item, todayIso) }))
+    .sort((left, right) => {
+      if (left.overdue !== right.overdue) return left.overdue ? -1 : 1;
+      if (left.overdue && left.finish !== right.finish) return left.finish.localeCompare(right.finish);
+      return left.index - right.index;
+    })
+    .map((entry) => entry.item);
+}
+
+function qltdDeptPlanBuildListView(items, expanded, todayIso = qltdDeptPlanTodayIso()) {
+  const sorted = qltdDeptPlanSortForDisplay(items, todayIso);
+  const visible = expanded ? sorted : sorted.slice(0, 5);
+  return { visible, total: sorted.length, remaining: Math.max(0, sorted.length - visible.length) };
+}
+
 function renderDeptPlanTab(payload, dept, masters, selectedMaster) {
   if (!masters.length) return '<p class="empty-state">Phòng/ban này chưa có mục tiêu/công việc gốc.</p>';
   const progress = getDeptObjectiveProgress(selectedMaster);
+  const todayIso = qltdDeptPlanTodayIso();
+  const masterList = qltdDeptPlanBuildListView(masters, qltdDeptMasterListExpanded, todayIso);
   return `
     <section class="dept-objective-card" aria-label="Mục tiêu đang chọn">
+      <div class="dept-objective-card-heading"><div class="report-section-heading">Mục tiêu đang chọn</div></div>
       <div class="dept-objective-selector">
-        <label for="weeklyMasterSelector">Mục tiêu đang chọn</label>
+        <label for="weeklyMasterSelector">Chọn mục tiêu</label>
         <select id="weeklyMasterSelector" title="${escapeHtml(selectedMaster?.taskName || '')}">${masters.map((master) => `<option value="${escapeHtml(master.masterCode || '')}" ${master.masterCode === qltdSelectedMasterCode ? 'selected' : ''}>${escapeHtml(getDeptPlanMasterWbs(master) ? `${getDeptPlanMasterWbs(master)} · ${master.taskName || ''}` : master.taskName || '')}</option>`).join('')}</select>
       </div>
       <div class="dept-objective-hierarchy">
@@ -3226,9 +3271,19 @@ function renderDeptPlanTab(payload, dept, masters, selectedMaster) {
     </section>
     ${renderMasterCompletionWarning(selectedMaster)}
     <div id="pbDetailMount" class="pb-detail-mount" aria-live="polite"></div>
-    <section class="report-summary-section"><div class="report-section-heading">Tổng hợp mục tiêu phòng/ban</div><div class="dept-plan-table-wrap"><table class="dept-plan-table report-master-table"><thead><tr><th>WBS</th><th>Mục tiêu/Công việc gốc</th><th>Bắt đầu KH</th><th>Kết thúc KH</th><th>Việc chi tiết</th><th>Tiến độ</th><th>Trạng thái</th></tr></thead><tbody>
-      ${masters.map((master) => `<tr data-master-select="${escapeHtml(master.masterCode || '')}" class="report-master-row"><td class="mono">${escapeHtml(getDeptPlanMasterWbs(master))}</td><td><div class="task-title">${escapeHtml(master.taskName || '')}</div>${master.contextName ? `<div class="task-context">${escapeHtml(master.contextName)}</div>` : ''}${renderMasterCompletionWarning(master, true)}</td><td>${escapeHtml(formatIsoDateVi(master.planStart || '') || '—')}</td><td>${escapeHtml(formatIsoDateVi(master.planFinish || '') || '—')}</td><td><button type="button" class="detail-count-button" data-detail-popup="${escapeHtml(master.masterCode || '')}">${renderMasterDetailCount(master)}</button></td><td>${escapeHtml(master.progress ?? 0)}%</td><td>${escapeHtml(master.status || 'Chưa cập nhật')}</td></tr>`).join('')}
-    </tbody></table></div></section>`;
+    <section class="report-summary-section">
+      <div class="report-section-header">
+        <div class="report-section-heading">Tổng hợp mục tiêu phòng/ban</div>
+        <span class="report-list-count">Hiển thị ${masterList.visible.length}/${masterList.total} mục tiêu</span>
+      </div>
+      <div class="dept-plan-table-wrap"><table class="dept-plan-table report-master-table"><thead><tr><th>WBS</th><th>Mục tiêu/Công việc gốc</th><th>Bắt đầu KH</th><th>Kết thúc KH</th><th>Việc chi tiết</th><th>Tiến độ</th><th>Trạng thái</th></tr></thead><tbody>
+        ${masterList.visible.map((master) => {
+          const overdue = qltdDeptPlanIsOverdue(master, todayIso);
+          return `<tr data-master-select="${escapeHtml(master.masterCode || '')}" class="report-master-row ${overdue ? 'is-overdue' : ''}"><td class="mono">${escapeHtml(getDeptPlanMasterWbs(master))}</td><td><div class="task-title">${escapeHtml(master.taskName || '')}</div>${master.contextName ? `<div class="task-context">${escapeHtml(master.contextName)}</div>` : ''}${renderMasterCompletionWarning(master, true)}</td><td>${escapeHtml(formatIsoDateVi(master.planStart || '') || '—')}</td><td>${escapeHtml(formatIsoDateVi(master.planFinish || '') || '—')}</td><td><button type="button" class="detail-count-button" data-detail-popup="${escapeHtml(master.masterCode || '')}">${renderMasterDetailCount(master)}</button></td><td>${escapeHtml(master.progress ?? 0)}%</td><td>${escapeHtml(master.status || 'Chưa cập nhật')}${overdue ? '<span class="dept-overdue-badge">Quá hạn</span>' : ''}</td></tr>`;
+        }).join('')}
+      </tbody></table></div>
+      ${masterList.total > 5 ? `<div class="dept-plan-list-footer"><button type="button" class="dept-plan-list-toggle" data-dept-master-list-toggle aria-expanded="${qltdDeptMasterListExpanded}">${qltdDeptMasterListExpanded ? 'Thu gọn' : `Xem thêm ${masterList.remaining} mục tiêu`}</button></div>` : ''}
+    </section>`;
 }
 
 function renderMasterDetailCount(master) {
@@ -3258,6 +3313,8 @@ function bindReportSubTabControls(payload, dept, selectedMaster, week) {
   });
   const selector = document.getElementById('weeklyMasterSelector');
   if (selector) selector.onchange = () => { qltdSelectedMasterCode = selector.value || ''; renderSelectedDeptPlan(); };
+  const masterListToggle = document.querySelector('[data-dept-master-list-toggle]');
+  if (masterListToggle) masterListToggle.onclick = () => { qltdDeptMasterListExpanded = !qltdDeptMasterListExpanded; renderSelectedDeptPlan(); };
   document.querySelectorAll('[data-master-select]').forEach((row) => {
     row.onclick = (event) => { if (event.target.closest('[data-detail-popup]')) return; qltdSelectedMasterCode = row.dataset.masterSelect || ''; renderSelectedDeptPlan(); };
   });

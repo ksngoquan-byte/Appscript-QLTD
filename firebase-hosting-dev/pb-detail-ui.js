@@ -17,6 +17,7 @@ const qltdPbDetailState = {
   assigneeError: '',
   formDraft: null,
   contextMeta: {},
+  listExpanded: false,
   message: '',
   messageType: 'info'
 };
@@ -184,6 +185,10 @@ function qltdPbDetailEnsureStyles() {
     }
 
     .pb-detail-table tr:last-child td { border-bottom: 0; }
+    .pb-detail-table tbody tr:nth-child(even) { background: #fbfdff; }
+    .pb-detail-table tbody tr:hover { background: #f0fdfa; }
+    .pb-detail-table tbody tr.is-overdue { background: #fff7f7; }
+    .pb-detail-table tbody tr.is-overdue:hover { background: #ffeded; }
     .pb-detail-table .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .pb-detail-table .task-name { min-width: 250px; color: #0f172a; font-weight: 800; }
     .pb-detail-table .note { min-width: 220px; color: #475569; }
@@ -202,6 +207,21 @@ function qltdPbDetailEnsureStyles() {
     .pb-detail-status.is-active { background: #dbeafe; color: #1d4ed8; }
     .pb-detail-status.is-done { background: #dcfce7; color: #15803d; }
     .pb-detail-status.is-paused { background: #fff7ed; color: #c2410c; }
+
+    .pb-detail-count-badge,
+    .pb-detail-overdue-badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .pb-detail-count-badge { margin-left: 6px; padding: 3px 8px; background: #e0f2fe; color: #0369a1; }
+    .pb-detail-overdue-badge { margin-left: 6px; padding: 3px 7px; background: #fee2e2; color: #b91c1c; }
+
+    .pb-detail-list-footer { display: flex; justify-content: center; padding-top: 12px; }
+    .pb-detail-list-toggle { min-width: 160px; }
 
     .pb-detail-form {
       margin-top: 14px;
@@ -385,6 +405,34 @@ function qltdPbDetailFormatTableDate(value) {
   return qltdPbDetailFormatDisplayDate(value);
 }
 
+function qltdPbDetailTodayIso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function qltdPbDetailIsOverdue(task, todayIso = qltdPbDetailTodayIso()) {
+  const finish = qltdPbDetailParseIsoDateParts(task?.planFinish)?.iso || '';
+  if (!finish || finish >= todayIso) return false;
+  return Number(task?.progress ?? 0) < 100 && qltdPbDetailGetStatusClass(task?.status) !== 'is-done';
+}
+
+function qltdPbDetailSortForDisplay(tasks, todayIso = qltdPbDetailTodayIso()) {
+  return (Array.isArray(tasks) ? tasks : [])
+    .map((task, index) => ({ task, index, finish: qltdPbDetailParseIsoDateParts(task?.planFinish)?.iso || '', overdue: qltdPbDetailIsOverdue(task, todayIso) }))
+    .sort((left, right) => {
+      if (left.overdue !== right.overdue) return left.overdue ? -1 : 1;
+      if (left.overdue && left.finish !== right.finish) return left.finish.localeCompare(right.finish);
+      return left.index - right.index;
+    })
+    .map((entry) => entry.task);
+}
+
+function qltdPbDetailBuildListView(tasks, expanded, todayIso = qltdPbDetailTodayIso()) {
+  const sorted = qltdPbDetailSortForDisplay(tasks, todayIso);
+  const visible = expanded ? sorted : sorted.slice(0, 5);
+  return { visible, total: sorted.length, remaining: Math.max(0, sorted.length - visible.length) };
+}
+
 function qltdPbDetailRender() {
   const panel = qltdPbDetailEnsurePanel();
   if (!panel) return;
@@ -392,18 +440,22 @@ function qltdPbDetailRender() {
   const context = qltdPbDetailGetContext();
   const master = qltdPbDetailState.masterTask;
   const details = Array.isArray(qltdPbDetailState.detailTasks) ? qltdPbDetailState.detailTasks : [];
+  const todayIso = qltdPbDetailTodayIso();
+  const detailList = qltdPbDetailBuildListView(details, qltdPbDetailState.listExpanded, todayIso);
 
   const messageHtml = qltdPbDetailState.message
     ? `<div class="pb-detail-message ${qltdPbDetailEscapeHtml(qltdPbDetailState.messageType)}">${qltdPbDetailEscapeHtml(qltdPbDetailState.message)}</div>`
     : '';
 
-  const rowsHtml = details.map((task) => `
-    <tr>
+  const rowsHtml = detailList.visible.map((task) => {
+    const overdue = qltdPbDetailIsOverdue(task, todayIso);
+    return `
+    <tr class="${overdue ? 'is-overdue' : ''}">
       <td class="mono">${qltdPbDetailEscapeHtml(task.wbs || '')}</td>
       <td class="task-name" title="${qltdPbDetailEscapeHtml(task.taskName || '')}">${qltdPbDetailEscapeHtml(task.taskName || '')}</td>
       <td>${qltdPbDetailEscapeHtml(qltdPbDetailFormatTableDate(task.planStart))}</td>
       <td>${qltdPbDetailEscapeHtml(qltdPbDetailFormatTableDate(task.planFinish))}</td>
-      <td><span class="pb-detail-status ${qltdPbDetailGetStatusClass(task.status)}">${qltdPbDetailEscapeHtml(task.status || 'Chưa bắt đầu')}</span></td>
+      <td><span class="pb-detail-status ${qltdPbDetailGetStatusClass(task.status)}">${qltdPbDetailEscapeHtml(task.status || 'Chưa bắt đầu')}</span>${overdue ? '<span class="pb-detail-overdue-badge">Quá hạn</span>' : ''}</td>
       <td class="pb-detail-progress">${qltdPbDetailEscapeHtml(task.progress ?? 0)}%</td>
       <td>${qltdPbDetailEscapeHtml(task.owner || '')}</td>
       <td>${qltdPbDetailFormatNumber(task.budgetPlan)}</td>
@@ -412,7 +464,8 @@ function qltdPbDetailRender() {
         ${context.canWrite ? `<button type="button" class="pb-detail-button" data-pb-detail-action="edit" data-detail-task-id="${qltdPbDetailEscapeHtml(task.detailTaskId || '')}">Sửa</button>` : ''}
       </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 
   panel.innerHTML = `
     <div class="pb-detail-header">
@@ -421,7 +474,7 @@ function qltdPbDetailRender() {
         <p class="pb-detail-subtitle">
           ${qltdPbDetailEscapeHtml(context.deptCode)} · ${qltdPbDetailEscapeHtml(context.masterWbs)}
           ${context.masterTaskName || master?.taskName ? ` · ${qltdPbDetailEscapeHtml(context.masterTaskName || master?.taskName)}` : ''}
-          · ${details.length} việc chi tiết
+          <span class="pb-detail-count-badge">Hiển thị ${detailList.visible.length}/${detailList.total} công việc</span>
         </p>
       </div>
       <div class="pb-detail-actions">
@@ -453,6 +506,7 @@ function qltdPbDetailRender() {
             <tbody>${rowsHtml}</tbody>
           </table>
         </div>
+        ${detailList.total > 5 ? `<div class="pb-detail-list-footer"><button type="button" class="pb-detail-button pb-detail-list-toggle" data-pb-detail-action="toggle-list" aria-expanded="${qltdPbDetailState.listExpanded}">${qltdPbDetailState.listExpanded ? 'Thu gọn' : `Xem thêm ${detailList.remaining} công việc`}</button></div>` : ''}
       ` : ''}
       ${qltdPbDetailRenderForm(context)}
     </div>
@@ -858,6 +912,12 @@ function qltdPbDetailHandleClick(event) {
   if (!button) return;
 
   const action = button.dataset.pbDetailAction;
+  if (action === 'toggle-list') {
+    qltdPbDetailState.listExpanded = !qltdPbDetailState.listExpanded;
+    qltdPbDetailRender();
+    return;
+  }
+
   if (action === 'reload') {
     qltdPbDetailLoad(true);
     if (qltdPbDetailState.formMode) qltdPbDetailLoadAssignees(qltdPbDetailGetContext(), true);
@@ -939,6 +999,7 @@ function qltdPbDetailHandleDeptPlanRendered(event) {
     qltdPbDetailState.formDraft = null;
     qltdPbDetailState.masterTask = null;
     qltdPbDetailState.detailTasks = [];
+    qltdPbDetailState.listExpanded = false;
     qltdPbDetailState.loading = false;
     return;
   }
@@ -957,6 +1018,7 @@ function qltdPbDetailHandleDeptPlanRendered(event) {
   qltdPbDetailState.formDraft = null;
   qltdPbDetailState.masterTask = null;
   qltdPbDetailState.detailTasks = [];
+  qltdPbDetailState.listExpanded = false;
   qltdPbDetailLoad(false, context);
 }
 

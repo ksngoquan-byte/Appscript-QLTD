@@ -209,6 +209,10 @@ const cardContext = vm.createContext({
   getDeptPlanMasterWbs: (master) => String(master?.wbs || ''),
   formatIsoDateVi: (value) => value ? String(value).split('-').reverse().join('/') : '',
   normalizeSearchText: (value) => String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd'),
+  qltdDeptMasterListExpanded: false,
+  qltdDeptPlanTodayIso: () => '2026-06-28',
+  qltdDeptPlanBuildListView: (items) => ({ visible: items.slice(0, 5), total: items.length, remaining: Math.max(0, items.length - 5) }),
+  qltdDeptPlanIsOverdue: () => false,
   renderMasterCompletionWarning: () => '',
   renderMasterDetailCount: () => '0 việc'
 });

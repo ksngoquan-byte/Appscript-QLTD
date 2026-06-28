@@ -118,8 +118,9 @@ assert.match(pbBackendSource, /qltdPbDetailValidateParentFinish_\(\s*row\[sheetC
 assert.match(pbBackendSource, /function qltdWorkAuditDetailTaskParentFinish_/);
 assert.doesNotMatch(extractFunction(pbBackendSource, 'qltdPbDetailAuditParentFinishViolations_'), /setValue|setValues|appendRow|deleteRow/);
 assert.match(pbBackendSource, /\['action', 'email', 'actorEmail', 'idToken', 'projectCode', 'deptCode', 'masterTaskCode'\]/);
-const pbRowsSource = pbUiSource.slice(pbUiSource.indexOf('const rowsHtml'), pbUiSource.indexOf("`).join('');", pbUiSource.indexOf('const rowsHtml')));
-const pbTableHeaderSource = pbUiSource.slice(pbUiSource.indexOf('<thead>'), pbUiSource.indexOf('</thead>'));
+const pbRenderSource = extractFunction(pbUiSource, 'qltdPbDetailRender');
+const pbRowsSource = pbRenderSource.slice(pbRenderSource.indexOf('const rowsHtml'), pbRenderSource.indexOf('panel.innerHTML'));
+const pbTableHeaderSource = pbRenderSource.slice(pbRenderSource.indexOf('<thead>'), pbRenderSource.indexOf('</thead>'));
 assert.match(pbRowsSource, /qltdPbDetailFormatTableDate\(task\.planStart\)/);
 assert.match(pbRowsSource, /qltdPbDetailFormatTableDate\(task\.planFinish\)/);
 assert.doesNotMatch(pbRowsSource, /→|undefined|null|Invalid Date|NaN/);

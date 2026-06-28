@@ -13,6 +13,23 @@ function latestFunction(name, nextName) {
   return app.slice(start, end);
 }
 
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}`);
+  assert.ok(start >= 0, `Không tìm thấy hàm ${name}`);
+  const bodyStart = source.indexOf('{', start);
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] !== '}') continue;
+    const candidate = source.slice(start, index + 1);
+    try {
+      new vm.Script(candidate);
+      return candidate;
+    } catch {
+      // Continue until the function declaration is complete.
+    }
+  }
+  throw new Error(`Hàm ${name} chưa đóng`);
+}
+
 const selectedPlan = latestFunction('renderSelectedDeptPlan()', 'renderDeptPlanTab');
 assert.match(selectedPlan, /KẾ HOẠCH PHÒNG\/BAN/);
 assert.match(selectedPlan, /CẬP NHẬT TUẦN/);
@@ -25,6 +42,65 @@ assert.match(planTab, /Việc chi tiết/);
 assert.match(planTab, /data-detail-popup/);
 assert.match(planTab, /formatIsoDateVi\(master\.planStart/);
 assert.match(planTab, /formatIsoDateVi\(master\.planFinish/);
+assert.match(planTab, /Hiển thị \$\{masterList\.visible\.length\}\/\$\{masterList\.total\} mục tiêu/);
+assert.match(planTab, /data-dept-master-list-toggle/);
+assert.match(planTab, /masterList\.total > 5/);
+assert.match(planTab, /dept-overdue-badge/);
+
+const masterListContext = {
+  normalizeSearchText: (value) => String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
+};
+vm.createContext(masterListContext);
+vm.runInContext([
+  extractFunction(app, 'getDeptObjectiveProgress'),
+  extractFunction(app, 'getDeptObjectiveStatusClass'),
+  extractFunction(app, 'qltdDeptPlanParseIsoDate'),
+  extractFunction(app, 'qltdDeptPlanIsOverdue'),
+  extractFunction(app, 'qltdDeptPlanSortForDisplay'),
+  extractFunction(app, 'qltdDeptPlanBuildListView')
+].join('\n'), masterListContext);
+const masterItems = [
+  { id: 'normal-1', planFinish: '2026-07-01', progress: 20, status: 'Đang thực hiện' },
+  { id: 'overdue-recent', planFinish: '2026-06-20', progress: 20, status: 'Đang thực hiện' },
+  { id: 'completed-old', planFinish: '2026-01-01', progress: 20, status: 'Hoàn thành' },
+  { id: 'overdue-old', planFinish: '2026-01-01', progress: 20, status: 'Đang thực hiện' },
+  { id: 'invalid-date', planFinish: '2026-02-30', progress: 20, status: 'Đang thực hiện' },
+  { id: 'progress-100', planFinish: '2026-01-01', progress: 100, status: 'Đang thực hiện' },
+  { id: 'normal-2', planFinish: '', progress: 0, status: 'Chưa bắt đầu' }
+];
+const originalMasterOrder = masterItems.map((item) => item.id);
+const collapsedMasters = masterListContext.qltdDeptPlanBuildListView(masterItems, false, '2026-06-28');
+assert.equal(collapsedMasters.visible.length, 5);
+assert.equal(collapsedMasters.total, 7);
+assert.equal(collapsedMasters.remaining, 2);
+assert.deepEqual(Array.from(collapsedMasters.visible, (item) => item.id), ['overdue-old', 'overdue-recent', 'normal-1', 'completed-old', 'invalid-date']);
+assert.deepEqual(masterItems.map((item) => item.id), originalMasterOrder);
+const expandedMasters = masterListContext.qltdDeptPlanBuildListView(masterItems, true, '2026-06-28');
+assert.equal(expandedMasters.visible.length, 7);
+assert.equal(expandedMasters.remaining, 0);
+assert.equal(masterListContext.qltdDeptPlanBuildListView(masterItems.slice(0, 5), false, '2026-06-28').total, 5);
+
+const masterToggle = {};
+const masterToggleContext = {
+  document: {
+    querySelectorAll: () => [],
+    getElementById: () => null,
+    querySelector: () => masterToggle
+  },
+  qltdReportSubTab: 'plan',
+  qltdDeptMasterListExpanded: false,
+  renderSelectedDeptPlan: () => { masterToggleContext.renderCount += 1; },
+  dispatchDeptPlanRendered: () => {},
+  renderCount: 0
+};
+vm.createContext(masterToggleContext);
+vm.runInContext(extractFunction(app, 'bindReportSubTabControls'), masterToggleContext);
+masterToggleContext.bindReportSubTabControls({}, {}, {}, {});
+masterToggle.onclick();
+assert.equal(masterToggleContext.qltdDeptMasterListExpanded, true);
+masterToggle.onclick();
+assert.equal(masterToggleContext.qltdDeptMasterListExpanded, false);
+assert.equal(masterToggleContext.renderCount, 2);
 
 const weeklyPanel = latestFunction('renderWeeklyTaskUpdatePanel', 'renderWeeklyTaskList');
 assert.match(weeklyPanel, /single-week-toolbar/);
@@ -235,6 +311,67 @@ assert.match(styles, /overflow-x: hidden/);
 
 const contextHandler = pb.slice(pb.indexOf('function qltdPbDetailHandleDeptPlanRendered'), pb.indexOf('function qltdPbDetailBoot'));
 assert.doesNotMatch(contextHandler, /qltdPbDetailLoadAssignees/);
+assert.match(contextHandler, /qltdPbDetailState\.listExpanded = false/);
 assert.match(pb, /qltdPbDetailAssigneeCache = new Map/);
+assert.match(pb, /Hiển thị \$\{detailList\.visible\.length\}\/\$\{detailList\.total\} công việc/);
+assert.match(pb, /detailList\.total > 5/);
+assert.match(pb, /data-pb-detail-action="toggle-list"/);
+assert.match(pb, /pb-detail-overdue-badge/);
+assert.match(pb, /data-pb-detail-action="edit"/);
+assert.match(pb, /\+ Thêm việc chi tiết/);
+
+const detailListContext = {};
+vm.createContext(detailListContext);
+vm.runInContext([
+  extractFunction(pb, 'qltdPbDetailNormalize'),
+  extractFunction(pb, 'qltdPbDetailGetStatusClass'),
+  extractFunction(pb, 'qltdPbDetailParseIsoDateParts'),
+  extractFunction(pb, 'qltdPbDetailIsOverdue'),
+  extractFunction(pb, 'qltdPbDetailSortForDisplay'),
+  extractFunction(pb, 'qltdPbDetailBuildListView')
+].join('\n'), detailListContext);
+const detailItems = masterItems.map((item, index) => ({ ...item, detailTaskId: `DT-${index + 1}` }));
+const originalDetailOrder = detailItems.map((item) => item.id);
+const collapsedDetails = detailListContext.qltdPbDetailBuildListView(detailItems, false, '2026-06-28');
+assert.equal(collapsedDetails.visible.length, 5);
+assert.equal(collapsedDetails.remaining, 2);
+assert.deepEqual(Array.from(collapsedDetails.visible, (item) => item.id), ['overdue-old', 'overdue-recent', 'normal-1', 'completed-old', 'invalid-date']);
+assert.deepEqual(detailItems.map((item) => item.id), originalDetailOrder);
+assert.equal(detailListContext.qltdPbDetailBuildListView(detailItems, true, '2026-06-28').visible.length, 7);
+assert.equal(detailListContext.qltdPbDetailBuildListView(detailItems.slice(0, 5), false, '2026-06-28').total, 5);
+
+const detailToggleContext = {
+  qltdPbDetailState: { listExpanded: false },
+  qltdPbDetailRender: () => { detailToggleContext.renderCount += 1; },
+  renderCount: 0
+};
+vm.createContext(detailToggleContext);
+vm.runInContext(extractFunction(pb, 'qltdPbDetailHandleClick'), detailToggleContext);
+const detailToggleButton = { dataset: { pbDetailAction: 'toggle-list' } };
+const detailToggleEvent = { target: { closest: () => detailToggleButton } };
+detailToggleContext.qltdPbDetailHandleClick(detailToggleEvent);
+assert.equal(detailToggleContext.qltdPbDetailState.listExpanded, true);
+detailToggleContext.qltdPbDetailHandleClick(detailToggleEvent);
+assert.equal(detailToggleContext.qltdPbDetailState.listExpanded, false);
+assert.equal(detailToggleContext.renderCount, 2);
+
+const detailResetContext = {
+  qltdPbDetailState: { contextKey: 'old', listExpanded: true },
+  qltdPbDetailGetContext: () => ({ projectCode: 'P1', deptCode: 'D1', masterTaskCode: 'M2', email: 'user@example.com', key: 'new' }),
+  qltdPbDetailEnsurePanel: () => ({}),
+  qltdPbDetailLoad: () => { detailResetContext.loaded = true; },
+  loaded: false
+};
+vm.createContext(detailResetContext);
+vm.runInContext(extractFunction(pb, 'qltdPbDetailHandleDeptPlanRendered'), detailResetContext);
+detailResetContext.qltdPbDetailHandleDeptPlanRendered({ detail: { projectCode: 'P1', deptCode: 'D1', masterTaskCode: 'M2' } });
+assert.equal(detailResetContext.qltdPbDetailState.listExpanded, false);
+assert.equal(detailResetContext.loaded, true);
+
+const resetDeptState = extractFunction(app, 'resetDeptScopedSelectionState');
+assert.match(resetDeptState, /qltdDeptMasterListExpanded = false/);
+assert.match(styles, /\.report-summary-section/);
+assert.match(styles, /\.report-master-row\.is-overdue/);
+assert.match(styles, /\.dept-plan-list-toggle/);
 
 console.log('Report UX/request contract: PASS');
