@@ -5,6 +5,7 @@ import vm from 'node:vm';
 const source = fs.readFileSync(new URL('../apps-script-dev-api/66_Weekly_Task_Update_Service.js', import.meta.url), 'utf8');
 const sheetRows = [];
 const detailSyncCalls = [];
+const masterApprovalSyncCalls = [];
 const budgetReportIds = new Set();
 const budgetWriteCalls = [];
 const aggregateCalls = [];
@@ -128,6 +129,16 @@ const context = {
 vm.createContext(context);
 vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_ };`, context);
 const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review, resolveActualDate, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext } = context.api;
+context.qltdWeeklyMasterApprovalApplyToMaster_ = (target, auth, dependencyDecision, recoveryPlan) => {
+  masterApprovalSyncCalls.push({ target, auth, dependencyDecision, recoveryPlan });
+  return {
+    success: true,
+    congViecUpdated: true,
+    columnWUpdated: true,
+    recalcTriggered: true,
+    warnings: []
+  };
+};
 
 assert.equal(buildKey('p1', 'ptda', 'week-2026-06-01', 'master', 'CV-1'), 'P1|PTDA|WEEK-2026-06-01|MASTER|CV-1');
 assert.equal(date('2026-06-01'), '2026-06-01');
@@ -188,11 +199,15 @@ assert.deepEqual(sorted.map((item) => item.eligibleReason), ['OVERDUE', 'IN_PROG
 const sheet = { getRange: () => ({ getValues: () => [headers] }), getLastColumn: () => 17 };
 assert.equal(inspect(sheet).headerMatches, false);
 assert.equal(inspect(sheet).canAppendApprovalColumns, false);
-const readySheet = { getRange: () => ({ getValues: () => [headers] }), getLastColumn: () => 21 };
+const readySheet = { getRange: () => ({ getValues: () => [headers] }), getLastColumn: () => headers.length };
 assert.equal(inspect(readySheet).headerMatches, true);
 const oldSheet = { getRange: () => ({ getValues: () => [baseHeaders] }), getLastColumn: () => 17 };
 assert.equal(inspect(oldSheet).canAppendApprovalColumns, true);
-const badSheet = { getRange: () => ({ getValues: () => [[...headers.slice(0, 20), 'Wrong']] }), getLastColumn: () => 21 };
+const legacyHeaders = headers.slice(0, 21);
+const legacySheet = { getRange: () => ({ getValues: () => [legacyHeaders] }), getLastColumn: () => legacyHeaders.length };
+assert.equal(inspect(legacySheet).canAppendApprovalColumns, true);
+assert.deepEqual(Array.from(inspect(legacySheet).appendHeaders), ['DependencyDecision', 'RecoveryPlan']);
+const badSheet = { getRange: () => ({ getValues: () => [[...headers.slice(0, headers.length - 1), 'Wrong']] }), getLastColumn: () => headers.length };
 assert.equal(inspect(badSheet).headerMatches, false);
 
 sheetRows.push(headers.slice());
@@ -315,8 +330,22 @@ const pending = save({ ...saveBase, itemId: 'CV-100', progressEnd: 100, taskStat
 assert.equal(pending.update.approvalStatus, 'PENDING');
 assert.equal(pending.taskSync.approvalRequired, true);
 assert.equal(sheetRows.length, beforePendingRows + 1);
-const reviewResult = review({ email: 'admin@example.com', updateId: pending.update.updateId, approvalStatus: 'APPROVED' });
+const missingDecision = review({ email: 'admin@example.com', updateId: pending.update.updateId, approvalStatus: 'APPROVED' });
+assert.equal(missingDecision.code, 'DEPENDENCY_DECISION_REQUIRED');
+const reviewResult = review({
+  email: 'admin@example.com',
+  updateId: pending.update.updateId,
+  approvalStatus: 'APPROVED',
+  dependencyDecision: 'KEEP_CURRENT',
+  recoveryPlan: 'Bù tiến độ'
+});
 assert.equal(reviewResult.approval.approvalStatus, 'APPROVED');
-assert.equal(reviewResult.masterAutoUpdated, false);
+assert.equal(reviewResult.masterAutoUpdated, true);
+assert.equal(reviewResult.congViecUpdated, true);
+assert.equal(reviewResult.columnWUpdated, true);
+assert.equal(reviewResult.recalcTriggered, true);
+assert.equal(masterApprovalSyncCalls.length, 1);
+assert.equal(masterApprovalSyncCalls[0].dependencyDecision, 'KEEP_CURRENT');
+assert.equal(masterApprovalSyncCalls[0].recoveryPlan, 'Bù tiến độ');
 
 console.log('weekly-task-updates tests: PASS');

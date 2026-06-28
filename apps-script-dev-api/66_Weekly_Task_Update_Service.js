@@ -8,11 +8,19 @@ const QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS = [
 const QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS = [
   'ApprovalStatus', 'ReviewReason', 'ReviewedBy', 'ReviewedAt'
 ];
-const QLTD_WEEKLY_TASK_UPDATE_HEADERS = QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.concat(QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS);
+const QLTD_WEEKLY_TASK_UPDATE_DECISION_HEADERS = [
+  'DependencyDecision', 'RecoveryPlan'
+];
+const QLTD_WEEKLY_TASK_UPDATE_REVIEW_HEADERS = QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS.concat(QLTD_WEEKLY_TASK_UPDATE_DECISION_HEADERS);
+const QLTD_WEEKLY_TASK_UPDATE_HEADERS = QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.concat(QLTD_WEEKLY_TASK_UPDATE_REVIEW_HEADERS);
 const QLTD_WEEKLY_TASK_APPROVAL_STATUS = {
   PENDING: 'PENDING',
   APPROVED: 'APPROVED',
   REJECTED: 'REJECTED'
+};
+const QLTD_WEEKLY_TASK_DEPENDENCY_DECISION = {
+  KEEP_CURRENT: 'KEEP_CURRENT',
+  RECALCULATE_DEPENDENCIES: 'RECALCULATE_DEPENDENCIES'
 };
 
 function qltdSetupWeeklyTaskUpdatesSheetDryRun() {
@@ -38,11 +46,13 @@ function qltdSetupWeeklyTaskUpdatesSheetDryRun() {
     headerMatches: inspection.headerMatches,
     canAppendApprovalColumns: inspection.canAppendApprovalColumns,
     approvalHeadersPresent: inspection.approvalHeadersPresent,
+    decisionHeadersPresent: inspection.decisionHeadersPresent,
     expectedColumnCount: QLTD_WEEKLY_TASK_UPDATE_HEADERS.length,
     actualColumnCount: sheet.getLastColumn(),
     lastRow: sheet.getLastRow(),
     mismatches: inspection.mismatches,
-    impact: inspection.headerMatches ? 'NO_CHANGE' : (inspection.canAppendApprovalColumns ? 'APPEND_APPROVAL_COLUMNS_ONLY' : 'STOP_HEADER_MISMATCH')
+    appendHeaders: inspection.appendHeaders,
+    impact: inspection.headerMatches ? 'NO_CHANGE' : (inspection.canAppendApprovalColumns ? inspection.impact : 'STOP_HEADER_MISMATCH')
   };
   Logger.log(JSON.stringify(existingResult));
   return existingResult;
@@ -55,9 +65,10 @@ function qltdSetupWeeklyTaskUpdatesSheet() {
     if (dryRun.headerMatches) return Object.assign({}, dryRun, { created: false, migrated: false, idempotent: true });
     if (!dryRun.canAppendApprovalColumns) throw new Error('WEEKLY_TASK_UPDATES_HEADER_MISMATCH');
     const sheet = getCurrentSpreadsheet_().getSheetByName(QLTD_WEEKLY_TASK_UPDATE_SHEET);
-    const startColumn = QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length + 1;
-    sheet.getRange(1, startColumn, 1, QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS.length)
-      .setValues([QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS])
+    const startColumn = dryRun.actualColumnCount + 1;
+    const appendHeaders = dryRun.appendHeaders || [];
+    sheet.getRange(1, startColumn, 1, appendHeaders.length)
+      .setValues([appendHeaders])
       .setFontWeight('bold');
     return Object.assign({}, dryRun, {
       success: true,
@@ -66,7 +77,7 @@ function qltdSetupWeeklyTaskUpdatesSheet() {
       idempotent: true,
       columnCount: QLTD_WEEKLY_TASK_UPDATE_HEADERS.length,
       headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS.slice(),
-      impact: 'APPENDED_APPROVAL_COLUMNS_ONLY'
+      impact: dryRun.impact
     });
   }
   if (!dryRun.safeToCreate) throw new Error('WEEKLY_TASK_UPDATES_SETUP_NOT_SAFE');
@@ -181,7 +192,9 @@ function qltdWeeklyMasterApprovalReview_(payload) {
   const updateId = String(payload && payload.updateId || '').trim();
   const nextStatus = qltdWeeklyTaskUpdatesNormalizeApprovalStatus_(payload && payload.approvalStatus || payload && payload.status);
   const reason = String(payload && (payload.reviewReason || payload.reason) || '').trim();
-  const meta = { email: auth.email, updateId: updateId, approvalStatus: nextStatus };
+  const dependencyDecision = qltdWeeklyTaskUpdatesNormalizeDependencyDecision_(payload && payload.dependencyDecision);
+  const recoveryPlan = String(payload && payload.recoveryPlan || '').trim();
+  const meta = { email: auth.email, updateId: updateId, approvalStatus: nextStatus, dependencyDecision: dependencyDecision };
   if (!updateId) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'UPDATE_ID_REQUIRED', 'updateId is required.', meta);
   if ([QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED, QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED].indexOf(nextStatus) === -1) {
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'APPROVAL_STATUS_INVALID', 'Approval status must be APPROVED or REJECTED.', meta);
@@ -189,39 +202,68 @@ function qltdWeeklyMasterApprovalReview_(payload) {
   if (nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED && !reason) {
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'REVIEW_REASON_REQUIRED', 'ReviewReason is required when rejecting.', meta);
   }
+  if (nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED && !dependencyDecision) {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'DEPENDENCY_DECISION_REQUIRED', 'DependencyDecision is required when approving.', meta);
+  }
+  if (nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED &&
+    dependencyDecision === QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.KEEP_CURRENT && !recoveryPlan) {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'RECOVERY_PLAN_REQUIRED', 'RecoveryPlan is required when keeping dependent tasks unchanged.', meta);
+  }
 
   const lock = LockService.getScriptLock();
   let locked = false;
+  let target;
+  let now;
+  let masterSync = null;
   try {
     locked = lock.tryLock(QLTD_WORK_WRITE_LOCK_TIMEOUT_MS);
     if (!locked) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WRITE_LOCK_TIMEOUT', 'Cannot acquire approval review lock.', meta);
     const read = qltdWeeklyTaskUpdatesRead_();
     if (read.error) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, read.error.code, read.error.message, meta);
-    const target = read.updates.find(function(update) { return update.updateId === updateId; });
+    target = read.updates.find(function(update) { return update.updateId === updateId; });
     if (!target || target.itemType !== 'MASTER' || !target.approvalStatus) {
       return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'APPROVAL_NOT_FOUND', 'MASTER completion approval request not found.', meta);
     }
     if (target.approvalStatus !== QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING) {
       return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'APPROVAL_NOT_PENDING', 'Only PENDING approval requests can be reviewed.', Object.assign({ currentStatus: target.approvalStatus }, meta));
     }
-    const now = qltdWorkNowIso_();
+    now = qltdWorkNowIso_();
+    if (nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED) {
+      masterSync = qltdWeeklyMasterApprovalApplyToMaster_(target, auth, dependencyDecision, recoveryPlan, now, action, meta);
+      if (masterSync.error) return masterSync.error;
+    }
     const startColumn = QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length + 1;
-    read.sheet.getRange(target.rowNumber, startColumn, 1, QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS.length)
-      .setValues([[nextStatus, reason, auth.email, now]]);
+    read.sheet.getRange(target.rowNumber, startColumn, 1, QLTD_WEEKLY_TASK_UPDATE_REVIEW_HEADERS.length)
+      .setValues([[nextStatus, reason, auth.email, now, dependencyDecision, recoveryPlan]]);
     const reviewed = Object.assign({}, target, {
       approvalStatus: nextStatus,
       reviewReason: reason,
       reviewedBy: auth.email,
-      reviewedAt: now
+      reviewedAt: now,
+      dependencyDecision: dependencyDecision,
+      recoveryPlan: recoveryPlan
     });
     return qltdWorkOk_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, {
       approval: reviewed,
-      masterAutoUpdated: false,
-      congViecUpdated: false,
-      columnWUpdated: false,
-      recalcTriggered: false
-    }, [qltdWorkWarning_('ADMIN_MANUAL_MASTER_UPDATE_REQUIRED', 'Admin must manually update Cong_viec and column W if needed.')], meta);
+      masterAutoUpdated: !!masterSync,
+      congViecUpdated: !!(masterSync && masterSync.congViecUpdated),
+      columnWUpdated: !!(masterSync && masterSync.columnWUpdated),
+      dependencyDecision: dependencyDecision,
+      recoveryPlanSaved: !!recoveryPlan,
+      recalcTriggered: !!(masterSync && masterSync.recalcTriggered),
+      affectedProjectCode: target.projectCode,
+      affectedMasterTaskCode: target.itemId,
+      masterSync: masterSync
+    }, masterSync && masterSync.warnings || [], meta);
   } catch (error) {
+    Logger.log(JSON.stringify({
+      action: action,
+      code: 'APPROVAL_REVIEW_FAILED',
+      stage: masterSync && masterSync.stage || 'APPROVAL_REVIEW',
+      projectCode: target && target.projectCode || '',
+      itemId: target && target.itemId || '',
+      message: qltdBudgetSafeErrorMessage_(error)
+    }));
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WRITE_ERROR', qltdBudgetSafeErrorMessage_(error), meta);
   } finally {
     if (locked) lock.releaseLock();
@@ -327,7 +369,9 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
       ApprovalStatus: completionProposal ? QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING : '',
       ReviewReason: '',
       ReviewedBy: '',
-      ReviewedAt: ''
+      ReviewedAt: '',
+      DependencyDecision: '',
+      RecoveryPlan: ''
     };
     const rowNumber = existing ? existing.rowNumber : Math.max(read.sheet.getLastRow() + 1, 2);
     read.sheet.getRange(rowNumber, 1, 1, QLTD_WEEKLY_TASK_UPDATE_HEADERS.length).setValues([
@@ -1124,6 +1168,128 @@ function qltdWeeklyTaskUpdatesRead_() {
   }).filter(function(update) { return !!update.updateId; }), error: null };
 }
 
+function qltdWeeklyMasterApprovalApplyToMaster_(target, auth, dependencyDecision, recoveryPlan, reviewedAt, action, meta) {
+  const stageMeta = Object.assign({
+    stage: 'MASTER_SYNC',
+    projectCode: target.projectCode,
+    itemId: target.itemId
+  }, meta || {});
+  try {
+    const project = qltdProjectsGetByCode_(target.projectCode);
+    if (!project) {
+      return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PROJECT_NOT_FOUND', 'Project not found for MASTER approval sync.', stageMeta) };
+    }
+    if (!project.masterSpreadsheetId) {
+      return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'MASTER_SPREADSHEET_ID_MISSING', 'Project has no MasterSpreadsheetId.', stageMeta) };
+    }
+    const spreadsheet = SpreadsheetApp.openById(project.masterSpreadsheetId);
+    const sheetName = String(project.defaultTaskSheet || 'Cong_viec').trim() || 'Cong_viec';
+    const sheet = spreadsheet.getSheetByName(sheetName) || spreadsheet.getSheetByName('Cong_viec');
+    if (!sheet) {
+      return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'CONG_VIEC_SHEET_NOT_FOUND', 'Cannot find Cong_viec in Master spreadsheet.', stageMeta) };
+    }
+    const parseResult = qltdWorkParseDeptTaskSheet_(sheet);
+    if (parseResult.error) {
+      return {
+        error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, parseResult.error.code, parseResult.error.message, Object.assign({
+          sourceSheet: sheet.getName()
+        }, stageMeta), [], parseResult.error.extra || {})
+      };
+    }
+    const task = qltdWorkFindTaskByCode_(parseResult.tasks, target.itemId);
+    if (!task) {
+      return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'MASTER_TASK_NOT_FOUND', 'Cannot find MASTER task in Cong_viec by ItemId.', Object.assign({ sourceSheet: sheet.getName() }, stageMeta)) };
+    }
+    const targetResult = {
+      task: task,
+      sheet: sheet,
+      parsed: parseResult.parsed,
+      headerRow: parseResult.headerRow,
+      sourceSheet: sheet.getName(),
+      warnings: parseResult.warnings || []
+    };
+    const columnWValue = dependencyDecision === QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.KEEP_CURRENT ? 'Không' : 'Có';
+    const note = qltdWeeklyMasterApprovalBuildUpdateNote_(target, auth, dependencyDecision, recoveryPlan, reviewedAt);
+    const changes = [];
+    changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.status, target.taskStatus));
+    if (target.actualStart) changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.actualStart, target.actualStart));
+    if (target.actualFinish) changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.actualFinish, target.actualFinish));
+    if (qltdBudgetFindHeaderIndex_(targetResult.parsed.headerMap, QLTD_WORK_TASK_UPDATE_HEADERS.progress) >= 0) {
+      changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.progress, target.progressEnd));
+    } else {
+      targetResult.warnings.push(qltdWorkWarning_('MASTER_PROGRESS_HEADER_MISSING', 'MASTER progress header is missing; progress was not synced.'));
+    }
+    changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.updateNote, qltdWorkAppendTaskNote_(task.updateNote, note, auth.email)));
+    const columnW = typeof SCHEDULE_ENGINE_V1 !== 'undefined' && SCHEDULE_ENGINE_V1.COL && SCHEDULE_ENGINE_V1.COL.ADJUST_LINK || 23;
+    const columnWRange = sheet.getRange(task.rowNumber, columnW);
+    const columnWBefore = columnWRange.getValue();
+    columnWRange.setValue(columnWValue);
+    const columnWChange = {
+      field: 'Điều chỉnh liên kết?',
+      rowNumber: task.rowNumber,
+      columnNumber: columnW,
+      before: columnWBefore,
+      after: columnWValue
+    };
+    changes.push(columnWChange);
+    try {
+      if (typeof chayScheduleEngineV1NoLockForSpreadsheet_ !== 'function') {
+        throw new Error('Schedule engine no-lock helper is unavailable.');
+      }
+      chayScheduleEngineV1NoLockForSpreadsheet_(spreadsheet, { normalizeFormat: false });
+    } catch (engineError) {
+      Logger.log(JSON.stringify(Object.assign({}, stageMeta, {
+        stage: 'SCHEDULE_ENGINE',
+        message: qltdBudgetSafeErrorMessage_(engineError)
+      })));
+      return {
+        error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'SCHEDULE_ENGINE_FAILED', qltdBudgetSafeErrorMessage_(engineError), Object.assign({}, stageMeta, {
+          stage: 'SCHEDULE_ENGINE'
+        }), targetResult.warnings)
+      };
+    }
+    return {
+      success: true,
+      stage: 'DONE',
+      projectCode: target.projectCode,
+      masterTaskCode: target.itemId,
+      sourceSheet: sheet.getName(),
+      rowNumber: task.rowNumber,
+      congViecUpdated: true,
+      columnWUpdated: true,
+      columnWValue: columnWValue,
+      dependencyDecision: dependencyDecision,
+      recoveryPlanSaved: !!recoveryPlan,
+      recalcTriggered: true,
+      changes: changes,
+      warnings: targetResult.warnings || []
+    };
+  } catch (error) {
+    Logger.log(JSON.stringify(Object.assign({}, stageMeta, {
+      stage: 'MASTER_SYNC',
+      message: qltdBudgetSafeErrorMessage_(error)
+    })));
+    return {
+      error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'MASTER_SYNC_FAILED', qltdBudgetSafeErrorMessage_(error), stageMeta)
+    };
+  }
+}
+
+function qltdWeeklyMasterApprovalBuildUpdateNote_(target, auth, dependencyDecision, recoveryPlan, reviewedAt) {
+  const lines = [
+    'Weekly MASTER approval',
+    'Nguoi bao cao: ' + (target.updatedBy || ''),
+    'Nguoi duyet: ' + (auth.email || ''),
+    'Thoi diem duyet: ' + (reviewedAt || ''),
+    'Quyet dinh lien ket: ' + dependencyDecision
+  ];
+  if (target.thisWeekResult) lines.push('Ket qua tuan: ' + target.thisWeekResult);
+  if (target.issue) lines.push('Vuong mac: ' + target.issue);
+  if (target.recommendation) lines.push('Kien nghi: ' + target.recommendation);
+  if (recoveryPlan) lines.push('Bien phap bu tien do: ' + recoveryPlan);
+  return lines.join(' | ');
+}
+
 function qltdWeeklyTaskUpdatesInspectSheet_(sheet) {
   const lastColumn = sheet.getLastColumn();
   const width = Math.max(lastColumn, QLTD_WEEKLY_TASK_UPDATE_HEADERS.length);
@@ -1135,16 +1301,30 @@ function qltdWeeklyTaskUpdatesInspectSheet_(sheet) {
     const column = QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length + index;
     return current[column] === expected ? null : { column: column + 1, expected: expected, actual: current[column] };
   }).filter(Boolean);
+  const decisionMismatches = QLTD_WEEKLY_TASK_UPDATE_DECISION_HEADERS.map(function(expected, index) {
+    const column = QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length + QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS.length + index;
+    return current[column] === expected ? null : { column: column + 1, expected: expected, actual: current[column] };
+  }).filter(Boolean);
   const extraHeaders = current.slice(QLTD_WEEKLY_TASK_UPDATE_HEADERS.length).filter(function(value) { return !!value; });
-  const approvalHeadersPresent = !approvalMismatches.length && lastColumn >= QLTD_WEEKLY_TASK_UPDATE_HEADERS.length;
-  const headerMatches = !baseMismatches.length && approvalHeadersPresent && !extraHeaders.length && lastColumn === QLTD_WEEKLY_TASK_UPDATE_HEADERS.length;
-  const oldHeaderMatches = !baseMismatches.length && lastColumn === QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length &&
+  const approvalHeadersPresent = !approvalMismatches.length && lastColumn >= QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length + QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS.length;
+  const legacyApprovalHeadersPresent = !approvalMismatches.length && lastColumn === QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length + QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS.length;
+  const decisionHeadersPresent = !decisionMismatches.length && lastColumn >= QLTD_WEEKLY_TASK_UPDATE_HEADERS.length;
+  const headerMatches = !baseMismatches.length && approvalHeadersPresent && decisionHeadersPresent && !extraHeaders.length && lastColumn === QLTD_WEEKLY_TASK_UPDATE_HEADERS.length;
+  const baseOnlyHeaderMatches = !baseMismatches.length && lastColumn === QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length &&
     !QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS.some(function(header) { return current.indexOf(header) !== -1; });
+  const legacyHeaderMatches = !baseMismatches.length && legacyApprovalHeadersPresent &&
+    !QLTD_WEEKLY_TASK_UPDATE_DECISION_HEADERS.some(function(header) { return current.indexOf(header) !== -1; });
+  const appendHeaders = baseOnlyHeaderMatches ? QLTD_WEEKLY_TASK_UPDATE_REVIEW_HEADERS.slice() :
+    (legacyHeaderMatches ? QLTD_WEEKLY_TASK_UPDATE_DECISION_HEADERS.slice() : []);
   return {
     headerMatches: headerMatches,
-    canAppendApprovalColumns: oldHeaderMatches,
+    canAppendApprovalColumns: baseOnlyHeaderMatches || legacyHeaderMatches,
     approvalHeadersPresent: approvalHeadersPresent,
-    mismatches: headerMatches || oldHeaderMatches ? [] : baseMismatches.concat(approvalMismatches)
+    decisionHeadersPresent: decisionHeadersPresent,
+    appendHeaders: appendHeaders,
+    impact: baseOnlyHeaderMatches ? 'APPEND_APPROVAL_AND_DECISION_COLUMNS' :
+      (legacyHeaderMatches ? 'APPEND_DECISION_COLUMNS_ONLY' : (headerMatches ? 'NO_CHANGE' : 'STOP_HEADER_MISMATCH')),
+    mismatches: headerMatches || baseOnlyHeaderMatches || legacyHeaderMatches ? [] : baseMismatches.concat(approvalMismatches).concat(decisionMismatches)
   };
 }
 
@@ -1160,6 +1340,8 @@ function qltdWeeklyTaskUpdatesNormalize_(object, rowNumber) {
     reviewReason: String(object.ReviewReason || ''),
     reviewedBy: qltdWorkNormalizeEmail_(object.ReviewedBy),
     reviewedAt: qltdWeeklyCellText_(object.ReviewedAt),
+    dependencyDecision: qltdWeeklyTaskUpdatesNormalizeDependencyDecision_(object.DependencyDecision),
+    recoveryPlan: String(object.RecoveryPlan || ''),
     rowNumber: rowNumber
   };
   update.key = qltdWeeklyTaskUpdatesBuildKey_(update.projectCode, update.deptCode, update.weekCode, update.itemType, update.itemId);
@@ -1209,6 +1391,11 @@ function qltdWeeklyTaskUpdatesNormalizeApprovalStatus_(value) {
   return status === QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING ||
     status === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED ||
     status === QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED ? status : '';
+}
+function qltdWeeklyTaskUpdatesNormalizeDependencyDecision_(value) {
+  const decision = String(value || '').trim().toUpperCase();
+  return decision === QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.KEEP_CURRENT ||
+    decision === QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.RECALCULATE_DEPENDENCIES ? decision : '';
 }
 function qltdWeeklyTaskUpdatesNormalizeTaskCode_(value) {
   return String(value || '').trim().toUpperCase();
