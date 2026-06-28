@@ -3995,17 +3995,78 @@ function bindWeeklyTaskUpdateControls() {
 }
 
 const QLTD_WEEKLY_EXPORT_HEADERS = [
-  'STT', 'WBS', 'Loại', 'Mục tiêu/Công việc', 'Mục tiêu cha',
-  'Bắt đầu kế hoạch', 'Kết thúc kế hoạch', 'Chủ trì', 'Phối hợp',
-  'Kết quả tuần', 'Tiến độ cuối tuần', 'Trạng thái công việc',
-  'Tình trạng cập nhật', 'Trạng thái duyệt', 'Vướng mắc',
-  'Kiến nghị/Giải pháp', 'Lý do trả lại', 'Người cập nhật', 'Thời điểm cập nhật'
+  'STT', 'WBS', 'Nội dung mục tiêu/công việc', 'Chủ trì', 'Phối hợp',
+  'Bắt đầu KH', 'Kết thúc KH', 'Kết quả thực hiện trong tuần',
+  'Tiến độ cuối tuần', 'Trạng thái công việc', 'Vướng mắc/Rủi ro', 'Giải pháp/Đề xuất'
+];
+const QLTD_WEEKLY_EXPORT_KEYS = [
+  'sequence', 'wbs', 'content', 'owner', 'coordinator', 'planStart',
+  'planFinish', 'weekResult', 'progress', 'status', 'issue', 'recommendation'
+];
+
+const QLTD_WEEKLY_NEXT_EXPORT_HEADERS = [
+  'STT', 'WBS', 'Nội dung mục tiêu/công việc', 'Chủ trì', 'Phối hợp',
+  'Bắt đầu KH', 'Kết thúc KH', 'Tiến độ hiện tại', 'Trạng thái hiện tại',
+  'Nhóm kế hoạch tuần sau', 'Vướng mắc/Rủi ro hiện tại', 'Giải pháp/Đề xuất'
+];
+const QLTD_WEEKLY_NEXT_EXPORT_KEYS = [
+  'sequence', 'wbs', 'content', 'owner', 'coordinator', 'planStart',
+  'planFinish', 'progress', 'status', 'planGroup', 'issue', 'recommendation'
 ];
 
 function qltdWeeklyExportItemKey(item) {
   const type = String(item?.itemType || '').trim().toUpperCase();
   const itemId = String(item?.itemId || '').trim();
   return type && itemId ? `${type}:${itemId}` : '';
+}
+
+function qltdWeeklyEnrichExportItemsWithParentMasters(items, masters) {
+  const sourceItems = Array.isArray(items) ? items.slice() : [];
+  const existingMasterCodes = new Set();
+  sourceItems.forEach((item) => {
+    if (String(item?.itemType || '').trim().toUpperCase() !== 'MASTER') return;
+    [item.itemId, item.masterTaskCode].forEach((value) => {
+      const key = normalizeWeeklyUpdateMatchValue(value);
+      if (key) existingMasterCodes.add(key);
+    });
+  });
+  const referencedParentCodes = new Set();
+  sourceItems.forEach((item) => {
+    if (String(item?.itemType || '').trim().toUpperCase() !== 'PB_DETAIL') return;
+    const key = normalizeWeeklyUpdateMatchValue(item.parentMasterTaskCode || item.masterTaskCode);
+    if (key) referencedParentCodes.add(key);
+  });
+  const deptMastersByCode = new Map();
+  (Array.isArray(masters) ? masters : []).forEach((master) => {
+    const key = normalizeWeeklyUpdateMatchValue(master?.masterCode);
+    if (key && !deptMastersByCode.has(key)) deptMastersByCode.set(key, master);
+  });
+  const additions = [];
+  referencedParentCodes.forEach((parentCode) => {
+    if (existingMasterCodes.has(parentCode)) return;
+    const master = deptMastersByCode.get(parentCode);
+    if (!master) return;
+    const masterCode = String(master.masterCode || '').trim();
+    const exportItem = {
+      itemType: 'MASTER',
+      itemId: masterCode,
+      masterTaskCode: masterCode,
+      wbs: getDeptPlanMasterWbs(master) || String(master.wbs || '').trim(),
+      taskName: master.taskName || '',
+      planStart: master.planStart || '',
+      planFinish: master.planFinish || '',
+      actualStart: master.actualStart || '',
+      actualFinish: master.actualFinish || '',
+      progress: Number.isFinite(Number(master.progress)) ? Number(master.progress) : 0,
+      status: master.status || '',
+      owner: master.owner || '',
+      coordinator: master.coordinator || ''
+    };
+    if (master.officialComplete !== undefined) exportItem.officialComplete = !!master.officialComplete;
+    additions.push(exportItem);
+    existingMasterCodes.add(parentCode);
+  });
+  return sourceItems.concat(additions);
 }
 
 function qltdWeeklyNaturalWbsCompare(left, right) {
@@ -4081,7 +4142,16 @@ function qltdWeeklyLatestExportUpdates(updates, context) {
   return new Map(Array.from(selected, ([key, entry]) => [key, entry.update]));
 }
 
-function qltdWeeklyBuildExportModel(items, updates, context, week) {
+function qltdWeeklyNextPlanGroupLabel(value) {
+  const code = String(value || '').trim().toUpperCase();
+  if (code === 'OVERDUE') return 'Quá hạn chuyển tiếp';
+  if (code === 'IN_PROGRESS') return 'Tiếp tục thực hiện';
+  if (code === 'PLANNED') return 'Bắt đầu/Thực hiện trong tuần sau';
+  if (code === 'COMPLETED_THIS_WEEK') return 'Dự kiến hoàn thành trong tuần sau';
+  return code ? 'Kế hoạch khác' : 'Theo kế hoạch';
+}
+
+function qltdWeeklyBuildExportModel(items, updates, context, week, reportType = 'CURRENT') {
   const uniqueItems = [];
   const seen = new Set();
   (Array.isArray(items) ? items : []).forEach((item, sourceIndex) => {
@@ -4145,35 +4215,36 @@ function qltdWeeklyBuildExportModel(items, updates, context, week) {
     const update = latestUpdates.get(qltdWeeklyExportItemKey(item)) || null;
     const effective = getWeeklyEffectiveTaskState(item, update);
     const person = (value) => String(value || '').trim() ? getWeeklyPersonDisplay(value) : '';
-    const overdue = qltdWeeklyIsOverdue(item, update, week);
+    const text = (value) => value === undefined || value === null ? '' : String(value);
+    const isNextWeek = reportType === 'NEXT';
+    const itemProgress = Number.isFinite(Number(item.progress)) ? Number(item.progress) : 0;
+    const overdue = isNextWeek
+      ? String(item.eligibleReason || '').trim().toUpperCase() === 'OVERDUE'
+      : qltdWeeklyIsOverdue(item, update, week);
+    const cells = {
+      sequence: index + 1,
+      wbs: text(item.wbs),
+      content: text(item.taskName),
+      owner: person(item.owner),
+      coordinator: person(item.coordinator),
+      planStart: qltdWeeklyExportDateValue(item.planStart),
+      planFinish: qltdWeeklyExportDateValue(item.planFinish),
+      progress: isNextWeek ? itemProgress : (Number.isFinite(Number(effective.progress)) ? Number(effective.progress) : 0),
+      status: text(isNextWeek ? item.status : effective.status),
+      weekResult: isNextWeek ? '' : text(update?.thisWeekResult),
+      planGroup: isNextWeek ? qltdWeeklyNextPlanGroupLabel(item.eligibleReason) : '',
+      issue: text(update?.issue),
+      recommendation: text(update?.recommendation)
+    };
+    const keys = isNextWeek ? QLTD_WEEKLY_NEXT_EXPORT_KEYS : QLTD_WEEKLY_EXPORT_KEYS;
+    const values = keys.map((key) => cells[key]);
     return {
       item,
       update,
       level: entry.level,
       orphan: entry.orphan,
       overdue,
-      rejected: String(update?.approvalStatus || '').toUpperCase() === 'REJECTED',
-      values: [
-        index + 1,
-        String(item.wbs || ''),
-        String(item.itemType || '').toUpperCase() === 'MASTER' ? 'Mục tiêu' : 'Công việc',
-        item.taskName || '',
-        entry.orphan ? 'Chưa xác định mục tiêu cha' : entry.parent ? entry.parent.taskName || entry.parent.wbs || '' : '',
-        qltdWeeklyExportDateValue(item.planStart),
-        qltdWeeklyExportDateValue(item.planFinish),
-        person(item.owner),
-        person(item.coordinator),
-        update?.thisWeekResult || '',
-        Number.isFinite(Number(effective.progress)) ? Number(effective.progress) : 0,
-        effective.status || '',
-        `${update ? 'Đã cập nhật' : 'Chưa cập nhật'}${overdue ? '\nQuá hạn' : ''}`,
-        update?.approvalStatus ? formatApprovalStatus(update.approvalStatus, true) : '',
-        update?.issue || '',
-        update?.recommendation || '',
-        update?.reviewReason || '',
-        update?.updatedBy || '',
-        qltdWeeklyExportDateValue(update?.updatedAt, true)
-      ]
+      values
     };
   });
   return {
@@ -4182,9 +4253,10 @@ function qltdWeeklyBuildExportModel(items, updates, context, week) {
   };
 }
 
-function qltdWeeklyStyleReportSheet(sheet, metadata, reportRows) {
-  const columnCount = QLTD_WEEKLY_EXPORT_HEADERS.length;
-  const titleRow = sheet.addRow(['BÁO CÁO CẬP NHẬT KẾT QUẢ TUẦN']);
+function qltdWeeklyStyleReportSheet(sheet, metadata, reportRows, options = {}) {
+  const headers = options.headers || QLTD_WEEKLY_EXPORT_HEADERS;
+  const columnCount = headers.length;
+  const titleRow = sheet.addRow([options.title || 'BÁO CÁO KẾT QUẢ TUẦN NÀY']);
   sheet.mergeCells(titleRow.number, 1, titleRow.number, columnCount);
   titleRow.height = 30;
   titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
@@ -4198,7 +4270,7 @@ function qltdWeeklyStyleReportSheet(sheet, metadata, reportRows) {
     sheet.mergeCells(row.number, 2, row.number, columnCount);
   });
   sheet.addRow([]);
-  const headerRow = sheet.addRow(QLTD_WEEKLY_EXPORT_HEADERS);
+  const headerRow = sheet.addRow(headers);
   headerRow.height = 34;
   headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
   headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
@@ -4219,25 +4291,37 @@ function qltdWeeklyStyleReportSheet(sheet, metadata, reportRows) {
       row.font = { bold: true, color: { argb: 'FF17365D' } };
       row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF2F8' } };
     } else {
-      row.getCell(4).alignment = { vertical: 'top', wrapText: true, indent: 1 };
+      row.getCell(3).alignment = { vertical: 'top', wrapText: true, indent: 1 };
     }
-    if (entry.orphan) row.getCell(5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
-    if (entry.overdue) row.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
-    if (entry.rejected) row.getCell(14).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
+    if (entry.orphan) row.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+    if (entry.overdue) row.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
   });
-  sheet.views = [{ state: 'frozen', ySplit: headerRow.number }];
+  sheet.views = [{ state: 'frozen', ySplit: headerRow.number, showGridLines: false }];
   sheet.autoFilter = {
     from: { row: headerRow.number, column: 1 },
     to: { row: headerRow.number, column: columnCount }
   };
-  [7, 14, 13, 38, 28, 16, 16, 22, 22, 38, 18, 23, 20, 18, 30, 30, 28, 24, 21]
+  (options.widths || [7, 14, 44, 22, 22, 16, 16, 38, 18, 22, 32, 32])
     .forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
   sheet.getColumn(2).numFmt = '@';
   sheet.getColumn(6).numFmt = 'dd/mm/yyyy';
   sheet.getColumn(7).numFmt = 'dd/mm/yyyy';
-  sheet.getColumn(11).numFmt = '0"%"';
-  sheet.getColumn(19).numFmt = 'dd/mm/yyyy hh:mm';
+  sheet.getColumn(options.progressColumn || 9).numFmt = '0"%"';
   sheet.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+}
+
+function qltdWeeklyBuildExportMetadata(payload, dept, week, exportedAt) {
+  const weekInfo = qltdWeeklyGetIsoWeekInfo(week);
+  const projectCode = String(payload?.projectCode || '').trim();
+  const deptCode = String(dept?.deptCode || dept?.sheetName || '').trim();
+  return [
+    ['Dự án', payload?.projectName || projectCode],
+    ['Phòng/ban', dept?.deptName || dept?.displayName || dept?.name || deptCode],
+    ['Tuần số / năm', `Tuần ${weekInfo.weekNo} / ${weekInfo.year}`],
+    ['Từ ngày – đến ngày', `${formatIsoDateVi(week.weekStart)} – ${formatIsoDateVi(week.weekEnd)}`],
+    ['Thời điểm xuất', qltdWeeklyExportDateValue(exportedAt, true), 'dd/mm/yyyy hh:mm'],
+    ['Người xuất', currentUserProfile?.fullName || currentUserProfile?.name || currentUserProfile?.email || '']
+  ];
 }
 
 async function exportWeeklyReportExcel() {
@@ -4259,33 +4343,57 @@ async function exportWeeklyReportExcel() {
     const week = qltdGetSelectedWeekPeriod();
     if (!projectCode || !deptCode || !week) throw new Error('Chưa đủ dự án, phòng/ban hoặc kỳ tuần để xuất.');
 
+    const nextWeek = getNextWeeklyPeriod(week);
+    const nextResult = await fetchBackendJson('work_listweeklyitems', {
+      email: currentUserProfile?.email || '',
+      projectCode,
+      deptCode,
+      weekCode: nextWeek.weekId,
+      weekStart: nextWeek.weekStart,
+      weekEnd: nextWeek.weekEnd
+    }, { auth: true });
+    if (!nextResult?.success) throw new Error(getBackendErrorMessage(nextResult, 'Không tải được dữ liệu kế hoạch tuần sau.'));
+    const nextData = nextResult.data || nextResult;
+
     const ExcelJS = await qltdWeb07LoadExcelJs();
     if (!ExcelJS) throw new Error('Thư viện ExcelJS chưa sẵn sàng.');
 
     const exportedAt = new Date();
-    const weekInfo = qltdWeeklyGetIsoWeekInfo(week);
-    const metadata = [
-      ['Dự án', payload.projectName || projectCode],
-      ['Phòng/ban', dept.deptName || dept.displayName || dept.name || deptCode],
-      ['Tuần số / năm', `Tuần ${weekInfo.weekNo} / ${weekInfo.year}`],
-      ['Từ ngày – đến ngày', `${formatIsoDateVi(week.weekStart)} – ${formatIsoDateVi(week.weekEnd)}`],
-      ['Thời điểm xuất', qltdWeeklyExportDateValue(exportedAt, true), 'dd/mm/yyyy hh:mm'],
-      ['Người xuất', currentUserProfile?.fullName || currentUserProfile?.name || currentUserProfile?.email || '']
-    ];
-    const report = qltdWeeklyBuildExportModel(
-      qltdWeeklyTaskView.items,
+    const currentItems = qltdWeeklyEnrichExportItemsWithParentMasters(qltdWeeklyTaskView.items, dept.masters);
+    const nextItems = qltdWeeklyEnrichExportItemsWithParentMasters(nextData.items, dept.masters);
+    const updateContext = { projectCode, deptCode, weekCode: week.weekId };
+    const currentReport = qltdWeeklyBuildExportModel(
+      currentItems,
       qltdWeeklyTaskView.updates,
-      { projectCode, deptCode, weekCode: week.weekId },
+      updateContext,
       week
     );
-    report.warnings.forEach((warning) => console.warn('[Weekly Excel]', warning));
+    const nextReport = qltdWeeklyBuildExportModel(
+      nextItems,
+      qltdWeeklyTaskView.updates,
+      updateContext,
+      nextWeek,
+      'NEXT'
+    );
+    currentReport.warnings.forEach((warning) => console.warn('[Weekly Excel][Kết quả tuần này]', warning));
+    nextReport.warnings.forEach((warning) => console.warn('[Weekly Excel][Kế hoạch tuần sau]', warning));
     const workbook = new ExcelJS.Workbook();
     workbook.creator = currentUserProfile?.email || 'QLTD Firebase WebApp';
     workbook.created = exportedAt;
     workbook.modified = exportedAt;
 
-    const reportSheet = workbook.addWorksheet('Báo cáo tuần');
-    qltdWeeklyStyleReportSheet(reportSheet, metadata, report.rows);
+    const currentSheet = workbook.addWorksheet('Kết quả tuần này');
+    qltdWeeklyStyleReportSheet(currentSheet, qltdWeeklyBuildExportMetadata(payload, dept, week, exportedAt), currentReport.rows, {
+      headers: QLTD_WEEKLY_EXPORT_HEADERS,
+      title: 'BÁO CÁO KẾT QUẢ TUẦN NÀY',
+      progressColumn: 9
+    });
+    const nextSheet = workbook.addWorksheet('Kế hoạch tuần sau');
+    qltdWeeklyStyleReportSheet(nextSheet, qltdWeeklyBuildExportMetadata(payload, dept, nextWeek, exportedAt), nextReport.rows, {
+      headers: QLTD_WEEKLY_NEXT_EXPORT_HEADERS,
+      title: 'KẾ HOẠCH TUẦN SAU',
+      progressColumn: 8
+    });
 
     const buffer = await workbook.xlsx.writeBuffer();
     const filename = `Bao_cao_tuan_${qltdWeb07SafeFilename(projectCode)}_${qltdWeb07SafeFilename(deptCode)}_${qltdWeb07SafeFilename(week.weekId)}.xlsx`;
