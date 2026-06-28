@@ -362,6 +362,24 @@ function qltdPbDetailFormatNumber(value) {
   return new Intl.NumberFormat('vi-VN').format(number);
 }
 
+function qltdPbDetailParseIsoDateParts(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return { year, month, day, iso: text };
+}
+
+function qltdPbDetailFormatDisplayDate(value) {
+  const parts = qltdPbDetailParseIsoDateParts(value);
+  if (!parts) return String(value || '');
+  return `${String(parts.day).padStart(2, '0')}/${String(parts.month).padStart(2, '0')}/${parts.year}`;
+}
+
 function qltdPbDetailRender() {
   const panel = qltdPbDetailEnsurePanel();
   if (!panel) return;
@@ -378,7 +396,7 @@ function qltdPbDetailRender() {
     <tr>
       <td class="mono">${qltdPbDetailEscapeHtml(task.wbs || '')}</td>
       <td class="task-name" title="${qltdPbDetailEscapeHtml(task.taskName || '')}">${qltdPbDetailEscapeHtml(task.taskName || '')}</td>
-      <td>${qltdPbDetailEscapeHtml(task.planStart || '')}<br>${task.planFinish ? `→ ${qltdPbDetailEscapeHtml(task.planFinish)}` : ''}</td>
+      <td>${qltdPbDetailEscapeHtml(qltdPbDetailFormatDisplayDate(task.planStart))}<br>${task.planFinish ? `→ ${qltdPbDetailEscapeHtml(qltdPbDetailFormatDisplayDate(task.planFinish))}` : ''}</td>
       <td><span class="pb-detail-status ${qltdPbDetailGetStatusClass(task.status)}">${qltdPbDetailEscapeHtml(task.status || 'Chưa bắt đầu')}</span></td>
       <td class="pb-detail-progress">${qltdPbDetailEscapeHtml(task.progress ?? 0)}%</td>
       <td>${qltdPbDetailEscapeHtml(task.owner || '')}</td>
@@ -477,6 +495,7 @@ function qltdPbDetailRenderForm(context) {
 
       <p class="pb-detail-parent">
         <strong>Mục tiêu gốc:</strong> ${qltdPbDetailEscapeHtml(context.masterWbs || 'Chưa có WBS')} · ${qltdPbDetailEscapeHtml(context.masterTaskName || qltdPbDetailState.masterTask?.taskName || '')}<br>
+        <strong>Kết thúc mục tiêu:</strong> ${qltdPbDetailEscapeHtml(qltdPbDetailFormatDisplayDate(qltdPbDetailState.masterTask?.planFinish) || 'Chưa xác định')}<br>
         <strong>Phòng/ban:</strong> ${qltdPbDetailEscapeHtml(context.deptCode)}
       </p>
 
@@ -542,9 +561,11 @@ function qltdPbDetailRenderForm(context) {
 }
 
 async function qltdPbDetailFetchGet(context) {
+  const authContext = await qltdPbDetailGetAuthContext();
   const url = new URL(QLTD_PB_DETAIL_API_URL);
   url.searchParams.set('action', 'work_getdetailtasks');
-  url.searchParams.set('email', context.email);
+  url.searchParams.set('email', authContext.email || context.email);
+  url.searchParams.set('idToken', authContext.idToken);
   url.searchParams.set('projectCode', context.projectCode);
   url.searchParams.set('deptCode', context.deptCode);
   url.searchParams.set('masterTaskCode', context.masterTaskCode);
@@ -560,9 +581,11 @@ async function qltdPbDetailFetchGet(context) {
 }
 
 async function qltdPbDetailFetchAssignees(context) {
+  const authContext = await qltdPbDetailGetAuthContext();
   const url = new URL(QLTD_PB_DETAIL_API_URL);
   url.searchParams.set('action', 'work_listassignees');
-  url.searchParams.set('email', context.email);
+  url.searchParams.set('email', authContext.email || context.email);
+  url.searchParams.set('idToken', authContext.idToken);
   url.searchParams.set('projectCode', context.projectCode);
   url.searchParams.set('deptCode', context.deptCode);
   const response = await fetch(url.toString(), { method: 'GET', cache: 'no-store', redirect: 'follow' });
@@ -630,13 +653,25 @@ function qltdPbDetailCaptureFormDraft() {
   };
 }
 
-async function qltdPbDetailFetchPost(payload) {
+async function qltdPbDetailGetAuthContext(forceRefresh = false) {
+  if (typeof window.__qltdGetAuthContext !== 'function') {
+    throw new Error('Không lấy được phiên đăng nhập Firebase.');
+  }
+  return window.__qltdGetAuthContext(!!forceRefresh);
+}
+
+async function qltdPbDetailFetchPost(payload, forceRefresh = false) {
+  const authContext = await qltdPbDetailGetAuthContext(forceRefresh);
   const response = await fetch(QLTD_PB_DETAIL_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'text/plain;charset=UTF-8'
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...(payload || {}),
+      email: authContext.email || payload?.email || '',
+      idToken: authContext.idToken
+    }),
     cache: 'no-store',
     redirect: 'follow'
   });
@@ -732,6 +767,14 @@ function qltdPbDetailReadFormPayload(context, isEdit) {
 
   if (payload.planStart && payload.planFinish && payload.planFinish < payload.planStart) {
     throw new Error('Ngày kết thúc kế hoạch không được trước ngày bắt đầu kế hoạch.');
+  }
+  const parentPlanFinish = String(qltdPbDetailState.masterTask?.planFinish || '').trim();
+  if (payload.planFinish && parentPlanFinish && payload.planFinish > parentPlanFinish) {
+    throw new Error(
+      `Ngày kết thúc việc con ${qltdPbDetailFormatDisplayDate(payload.planFinish)} ` +
+      `vượt ngày kết thúc việc cha ${qltdPbDetailFormatDisplayDate(parentPlanFinish)} ` +
+      `của mục tiêu ${context.masterTaskCode}.`
+    );
   }
 
   if (!isEdit) {

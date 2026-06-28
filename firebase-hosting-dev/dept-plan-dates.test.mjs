@@ -29,3 +29,81 @@ assert.deepEqual(Array.from(parsed.masters, (item) => item.planFinish), dates.ma
 assert.ok(parsed.masters.every((item) => item.planStart && item.planFinish));
 
 console.log('Dept plan date parser/DTO: 5/5 masters passed.');
+
+const pbBackendSource = fs.readFileSync(new URL('../apps-script-dev-api/64_PB_Detail_Task_Service.js', import.meta.url), 'utf8');
+const pbUiSource = fs.readFileSync(new URL('./pb-detail-ui.js', import.meta.url), 'utf8');
+
+function extractFunction(functionSource, name) {
+  const start = functionSource.indexOf(`function ${name}`);
+  assert.ok(start >= 0, `Missing function ${name}`);
+  const bodyStart = functionSource.indexOf('{', start);
+  for (let index = bodyStart; index < functionSource.length; index += 1) {
+    if (functionSource[index] !== '}') continue;
+    const candidate = functionSource.slice(start, index + 1);
+    try {
+      new vm.Script(candidate);
+      return candidate;
+    } catch {
+      // Continue until the function declaration is complete.
+    }
+  }
+  throw new Error(`Unclosed function ${name}`);
+}
+
+const pbContext = {
+  qltdBudgetFormatDate_: (value) => {
+    if (!value) return '';
+    if (typeof value === 'string') return value.slice(0, 10);
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  },
+  qltdPbDetailNormalizeTaskCode_: (value) => String(value || '').trim(),
+  console
+};
+vm.createContext(pbContext);
+vm.runInContext([
+  extractFunction(pbBackendSource, 'qltdPbDetailParseIsoDate_'),
+  extractFunction(pbBackendSource, 'qltdPbDetailDateIso_'),
+  extractFunction(pbBackendSource, 'qltdPbDetailValidateParentFinish_')
+].join('\n'), pbContext);
+
+for (const iso of ['2026-01-02', '2026-02-01', '2026-11-12', '2026-12-11']) {
+  assert.equal(pbContext.qltdPbDetailDateIso_(pbContext.qltdPbDetailParseIsoDate_(iso)), iso);
+}
+assert.equal(pbContext.qltdPbDetailParseIsoDate_('2026-02-30'), null);
+
+const masterRow = { masterTaskCode: 'M-1', values: ['', '', '', '2026-06-20'] };
+const pbColumns = { planFinish: 3 };
+assert.equal(pbContext.qltdPbDetailValidateParentFinish_('2026-06-19', masterRow, pbColumns, 'M-1'), null);
+assert.equal(pbContext.qltdPbDetailValidateParentFinish_('2026-06-20', masterRow, pbColumns, 'M-1'), null);
+const parentError = pbContext.qltdPbDetailValidateParentFinish_('2026-06-21', masterRow, pbColumns, 'M-1');
+assert.equal(parentError.code, 'DETAIL_PLAN_FINISH_EXCEEDS_MASTER');
+assert.equal(parentError.extra.parentPlanFinish, '2026-06-20');
+assert.equal(parentError.extra.requestedPlanFinish, '2026-06-21');
+assert.equal(parentError.extra.masterTaskCode, 'M-1');
+assert.match(parentError.message, /Ngày kết thúc việc con 2026-06-21/);
+
+const pbUiContext = { Date, Number, String, console };
+vm.createContext(pbUiContext);
+vm.runInContext([
+  extractFunction(pbUiSource, 'qltdPbDetailParseIsoDateParts'),
+  extractFunction(pbUiSource, 'qltdPbDetailFormatDisplayDate')
+].join('\n'), pbUiContext);
+assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-01-02'), '02/01/2026');
+assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-02-01'), '01/02/2026');
+assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-11-12'), '12/11/2026');
+assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-12-11'), '11/12/2026');
+assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-02-30'), '2026-02-30');
+
+assert.match(pbBackendSource, /qltdPbDetailValidateParentFinish_\(\s*validation\.updates\.planFinish/);
+assert.match(pbBackendSource, /qltdPbDetailValidateParentFinish_\(\s*row\[sheetContext\.columns\.planFinish\]/);
+assert.match(pbBackendSource, /function qltdWorkAuditDetailTaskParentFinish_/);
+assert.doesNotMatch(extractFunction(pbBackendSource, 'qltdPbDetailAuditParentFinishViolations_'), /setValue|setValues|appendRow|deleteRow/);
+assert.match(pbBackendSource, /\['action', 'email', 'actorEmail', 'idToken', 'projectCode', 'deptCode', 'masterTaskCode'\]/);
+assert.match(pbUiSource, /qltdPbDetailFormatDisplayDate\(task\.planStart\)/);
+assert.match(pbUiSource, /vượt ngày kết thúc việc cha/);
+assert.match(pbUiSource, /idToken:\s*authContext\.idToken/);
+
+console.log('PB_DETAIL date and parent finish tests: PASS');

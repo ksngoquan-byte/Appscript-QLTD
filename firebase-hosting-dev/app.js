@@ -7144,6 +7144,14 @@ function boot() {
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  window.__qltdGetAuthContext = async (forceRefresh = false) => {
+    const user = auth?.currentUser;
+    if (!user) throw new Error('Phiên đăng nhập không còn hiệu lực.');
+    return {
+      email: user.email || '',
+      idToken: await user.getIdToken(!!forceRefresh)
+    };
+  };
 
   onAuthStateChanged(auth, async (user) => {
     if (!user) {

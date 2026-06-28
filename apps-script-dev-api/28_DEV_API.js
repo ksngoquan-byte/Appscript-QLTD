@@ -97,6 +97,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdWorkGetDetailTasks_(params));
   }
 
+  if (action === 'work_auditdetailtaskparentfinish') {
+    return qltdDevApiJson_(qltdWorkAuditDetailTaskParentFinish_(params));
+  }
+
   if (action === 'work_listweeklyitems') {
     return qltdDevApiJson_(qltdWorkListWeeklyItems_(params));
   }
