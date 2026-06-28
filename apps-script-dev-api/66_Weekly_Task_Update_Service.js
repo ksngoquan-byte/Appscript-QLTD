@@ -477,6 +477,11 @@ function qltdWorkListWeeklyItems_(params) {
     weekCode: scope.weekCode,
     items: items.map(function(item) { delete item.eligible; return item; }),
     summary: summary,
+    capabilities: {
+      canUpdate: qltdWorkCanWriteTask_(auth.user, scope.deptCode, scope.dept),
+      canReviewWeekly: qltdWorkCanReviewWeekly_(auth.user, scope.deptCode, scope.dept),
+      role: qltdWorkNormalizeRole_(auth.user && auth.user.role)
+    },
     standaloneBudgetItems: budgetContext.standaloneItems || []
   }, scope.warnings.concat(officialMasters.warnings || []).concat(budgetContext.warnings || []).concat(detailContext.error ? [qltdWorkWarning_('PB_DETAIL_UNAVAILABLE', 'PB_DETAIL items could not be loaded.')] : []), scope.meta);
 }
@@ -1515,7 +1520,7 @@ function qltdWeeklyTaskUpdatesBuildItem_(type, id, source, weekStart, weekEnd, s
     detailTaskId: type === 'PB_DETAIL' ? id : '', parentMasterTaskCode: type === 'PB_DETAIL' ? source.masterTaskCode : '',
     wbs: source.wbs || '', taskName: source.taskName || '', planStart: planStart, planFinish: planFinish,
     actualStart: actualStart, actualFinish: actualFinish, progress: officialComplete ? Math.max(progress, 100) : progress, status: officialComplete ? 'Hoàn thành' : (source.status || ''),
-    owner: source.owner || source.ownerText || '', plannedBudget: Number(source.budgetPlan || source.plannedBudget || 0),
+    owner: source.owner || source.ownerText || '', coordinator: source.coordinator || source.coordinatorText || '', plannedBudget: Number(source.budgetPlan || source.plannedBudget || 0),
     actualBudget: Number(source.budgetActual || source.actualBudget || 0), hasBudget: (source.taskLinkedBudgetItems || []).length > 0 || Number(source.budgetPlan || source.plannedBudget || 0) > 0 || Number(source.budgetActual || source.actualBudget || 0) > 0,
     taskLinkedBudgetItems: (source.taskLinkedBudgetItems || []).slice(),
     taskLinkedBudgetThisWeek: Number(source.taskLinkedBudgetThisWeek || 0),

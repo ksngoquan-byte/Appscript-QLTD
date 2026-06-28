@@ -191,6 +191,9 @@ context.qltdWorkUpdateDetailTask_ = (payload) => { detailSyncCalls.push(payload)
 
 const base = { wbs: '1.1', taskName: 'Công việc', planStart: '2026-06-01', planFinish: '2026-06-30', progress: 20 };
 assert.equal(buildItem('MASTER', 'CV-1', base, '2026-06-08', '2026-06-14', '').eligibleReason, 'PLANNED');
+assert.equal(buildItem('PB_DETAIL', 'DT-START', { ...base, planStart: '2026-06-10', planFinish: '2026-07-01' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'PLANNED');
+assert.equal(buildItem('PB_DETAIL', 'DT-FINISH', { ...base, planStart: '2026-06-01', planFinish: '2026-06-12' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'PLANNED');
+assert.equal(buildItem('PB_DETAIL', 'DT-CROSS', { ...base, planStart: '2026-06-01', planFinish: '2026-07-01' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'PLANNED');
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, planFinish: '2026-06-01' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'OVERDUE');
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, actualStart: '2026-05-01' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'IN_PROGRESS');
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, progress: 100, actualFinish: '2026-06-10' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'COMPLETED_THIS_WEEK');
@@ -200,6 +203,10 @@ assert.equal(buildItem('MASTER', 'CV-1', { ...base, planFinish: '', progress: 10
 assert.equal(buildItem('MASTER', 'CV-1', { wbs: '1', taskName: 'Không lịch', progress: 0 }, '2026-06-08', '2026-06-14', '').eligible, false);
 assert.equal(buildItem('MASTER', 'CV-1', { wbs: '1', taskName: 'Không lịch', progress: 0 }, '2026-06-08', '2026-06-14', 'không lịch').eligibleReason, 'UNSCHEDULED');
 assert.equal(buildItem('MASTER', 'CV-1', base, '2026-06-08', '2026-06-14', 'không khớp').eligible, false);
+assert.equal(buildItem('PB_DETAIL', 'DT-COORD', { ...base, coordinatorText: 'user@example.com; other@example.com' }, '2026-06-08', '2026-06-14', '').coordinator, 'user@example.com; other@example.com');
+assert.match(source, /capabilities:\s*\{/);
+assert.match(source, /canUpdate:\s*qltdWorkCanWriteTask_/);
+assert.match(source, /canReviewWeekly:\s*qltdWorkCanReviewWeekly_/);
 
 const sorted = [
   { eligibleReason: 'PLANNED', planFinish: '2026-06-12', wbs: '2' },
