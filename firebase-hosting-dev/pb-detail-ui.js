@@ -380,6 +380,11 @@ function qltdPbDetailFormatDisplayDate(value) {
   return `${String(parts.day).padStart(2, '0')}/${String(parts.month).padStart(2, '0')}/${parts.year}`;
 }
 
+function qltdPbDetailFormatTableDate(value) {
+  if (!qltdPbDetailParseIsoDateParts(value)) return '—';
+  return qltdPbDetailFormatDisplayDate(value);
+}
+
 function qltdPbDetailRender() {
   const panel = qltdPbDetailEnsurePanel();
   if (!panel) return;
@@ -396,7 +401,8 @@ function qltdPbDetailRender() {
     <tr>
       <td class="mono">${qltdPbDetailEscapeHtml(task.wbs || '')}</td>
       <td class="task-name" title="${qltdPbDetailEscapeHtml(task.taskName || '')}">${qltdPbDetailEscapeHtml(task.taskName || '')}</td>
-      <td>${qltdPbDetailEscapeHtml(qltdPbDetailFormatDisplayDate(task.planStart))}<br>${task.planFinish ? `→ ${qltdPbDetailEscapeHtml(qltdPbDetailFormatDisplayDate(task.planFinish))}` : ''}</td>
+      <td>${qltdPbDetailEscapeHtml(qltdPbDetailFormatTableDate(task.planStart))}</td>
+      <td>${qltdPbDetailEscapeHtml(qltdPbDetailFormatTableDate(task.planFinish))}</td>
       <td><span class="pb-detail-status ${qltdPbDetailGetStatusClass(task.status)}">${qltdPbDetailEscapeHtml(task.status || 'Chưa bắt đầu')}</span></td>
       <td class="pb-detail-progress">${qltdPbDetailEscapeHtml(task.progress ?? 0)}%</td>
       <td>${qltdPbDetailEscapeHtml(task.owner || '')}</td>
@@ -434,7 +440,8 @@ function qltdPbDetailRender() {
               <tr>
                 <th>WBS</th>
                 <th>Việc chi tiết</th>
-                <th>Kế hoạch</th>
+                <th>Bắt đầu</th>
+                <th>Kết thúc</th>
                 <th>Trạng thái</th>
                 <th>Tiến độ</th>
                 <th>Chủ trì</th>

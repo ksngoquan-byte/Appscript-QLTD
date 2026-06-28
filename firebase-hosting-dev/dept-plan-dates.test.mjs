@@ -89,20 +89,46 @@ const pbUiContext = { Date, Number, String, console };
 vm.createContext(pbUiContext);
 vm.runInContext([
   extractFunction(pbUiSource, 'qltdPbDetailParseIsoDateParts'),
-  extractFunction(pbUiSource, 'qltdPbDetailFormatDisplayDate')
+  extractFunction(pbUiSource, 'qltdPbDetailFormatDisplayDate'),
+  extractFunction(pbUiSource, 'qltdPbDetailFormatTableDate')
 ].join('\n'), pbUiContext);
 assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-01-02'), '02/01/2026');
 assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-02-01'), '01/02/2026');
 assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-11-12'), '12/11/2026');
 assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-12-11'), '11/12/2026');
 assert.equal(pbUiContext.qltdPbDetailFormatDisplayDate('2026-02-30'), '2026-02-30');
+assert.equal(pbUiContext.qltdPbDetailFormatTableDate('2026-01-02'), '02/01/2026');
+assert.equal(pbUiContext.qltdPbDetailFormatTableDate(''), '—');
+assert.equal(pbUiContext.qltdPbDetailFormatTableDate(null), '—');
+assert.equal(pbUiContext.qltdPbDetailFormatTableDate(undefined), '—');
+assert.equal(pbUiContext.qltdPbDetailFormatTableDate('2026-02-30'), '—');
+assert.equal(pbUiContext.qltdPbDetailFormatTableDate('not-a-date'), '—');
+const formatDatePair = (planStart, planFinish) => [
+  pbUiContext.qltdPbDetailFormatTableDate(planStart),
+  pbUiContext.qltdPbDetailFormatTableDate(planFinish)
+];
+assert.deepEqual(formatDatePair('2026-01-02', '2026-12-11'), ['02/01/2026', '11/12/2026']);
+assert.deepEqual(formatDatePair('2026-01-02', ''), ['02/01/2026', '—']);
+assert.deepEqual(formatDatePair('', '2026-12-11'), ['—', '11/12/2026']);
+assert.deepEqual(formatDatePair('', ''), ['—', '—']);
+assert.deepEqual(formatDatePair('invalid-start', '2026-02-30'), ['—', '—']);
 
 assert.match(pbBackendSource, /qltdPbDetailValidateParentFinish_\(\s*validation\.updates\.planFinish/);
 assert.match(pbBackendSource, /qltdPbDetailValidateParentFinish_\(\s*row\[sheetContext\.columns\.planFinish\]/);
 assert.match(pbBackendSource, /function qltdWorkAuditDetailTaskParentFinish_/);
 assert.doesNotMatch(extractFunction(pbBackendSource, 'qltdPbDetailAuditParentFinishViolations_'), /setValue|setValues|appendRow|deleteRow/);
 assert.match(pbBackendSource, /\['action', 'email', 'actorEmail', 'idToken', 'projectCode', 'deptCode', 'masterTaskCode'\]/);
-assert.match(pbUiSource, /qltdPbDetailFormatDisplayDate\(task\.planStart\)/);
+const pbRowsSource = pbUiSource.slice(pbUiSource.indexOf('const rowsHtml'), pbUiSource.indexOf("`).join('');", pbUiSource.indexOf('const rowsHtml')));
+const pbTableHeaderSource = pbUiSource.slice(pbUiSource.indexOf('<thead>'), pbUiSource.indexOf('</thead>'));
+assert.match(pbRowsSource, /qltdPbDetailFormatTableDate\(task\.planStart\)/);
+assert.match(pbRowsSource, /qltdPbDetailFormatTableDate\(task\.planFinish\)/);
+assert.doesNotMatch(pbRowsSource, /→|undefined|null|Invalid Date|NaN/);
+assert.match(pbTableHeaderSource, /<th>Bắt đầu<\/th>/);
+assert.match(pbTableHeaderSource, /<th>Kết thúc<\/th>/);
+assert.doesNotMatch(pbTableHeaderSource, /<th>Kế hoạch<\/th>/);
+assert.equal((pbRowsSource.match(/<td(?:\s|>)/g) || []).length, (pbTableHeaderSource.match(/<th(?:\s|>)/g) || []).length);
+assert.match(pbUiSource, /data-pb-detail-action="edit"/);
+assert.match(pbUiSource, /\+ Thêm việc chi tiết/);
 assert.match(pbUiSource, /vượt ngày kết thúc việc cha/);
 assert.match(pbUiSource, /idToken:\s*authContext\.idToken/);
 
