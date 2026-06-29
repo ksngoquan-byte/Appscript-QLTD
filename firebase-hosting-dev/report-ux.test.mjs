@@ -14,7 +14,8 @@ function latestFunction(name, nextName) {
 }
 
 function extractFunction(source, name) {
-  const start = source.indexOf(`function ${name}`);
+  const asyncStart = source.indexOf(`async function ${name}`);
+  const start = asyncStart >= 0 ? asyncStart : source.indexOf(`function ${name}`);
   assert.ok(start >= 0, `Không tìm thấy hàm ${name}`);
   const bodyStart = source.indexOf('{', start);
   for (let index = bodyStart; index < source.length; index += 1) {
@@ -130,7 +131,7 @@ assert.doesNotMatch(approvalDirtySource, /loadWeeklyTaskDataForCurrent|loadGantt
 const pbApprovalLoaderSource = app.slice(app.indexOf('async function loadPbDetailApprovals'), app.indexOf('async function reviewPbDetailApproval'));
 assert.match(pbApprovalLoaderSource, /weekly_pbdetailapprovals_get/);
 assert.match(pbApprovalLoaderSource, /\{ auth: true \}/);
-const pbApprovalReviewSource = app.slice(app.indexOf('async function reviewPbDetailApproval'), app.indexOf('async function reviewMasterApproval'));
+const pbApprovalReviewSource = extractFunction(app, 'reviewPbDetailApproval');
 assert.match(pbApprovalReviewSource, /qltdPbDetailApprovalView\.reviewing/);
 assert.match(pbApprovalReviewSource, /APPROVAL_NOT_PENDING/);
 assert.match(pbApprovalReviewSource, /finally/);
@@ -193,6 +194,7 @@ const approvalRenderContext = {
   escapeHtml: (value) => String(value ?? ''),
   formatIsoDateVi: (value) => String(value || ''),
   formatApprovalStatus: (value) => String(value || ''),
+  isNotificationApprovalHighlight: () => false,
   renderMasterApprovalDependencyControls: () => '<CONTROLS>'
 };
 vm.createContext(approvalRenderContext);
@@ -328,6 +330,7 @@ const weeklyPanelContext = {
   qltdWeeklyWorkspaceTab: 'tasks',
   qltdSelectedWeeklyItemKey: 'PB_DETAIL:DT-LOCAL',
   qltdWeeklyEditingItemKey: '',
+  qltdWeeklyNotificationDetailItemKey: '',
   currentUserProfile: { email: 'user@example.com', role: 'EDITOR' },
   normalizeRoleKey: (value) => String(value || '').trim().toUpperCase(),
   getWeeklyTaskCacheKey: () => 'P1::D1::W1',
@@ -343,6 +346,7 @@ const weeklyPanelContext = {
   renderWeeklyTaskList: (items) => `<ROW:${items[0]?.itemId}:${weeklyPanelContext.qltdSelectedWeeklyItemKey}>`,
   renderWeeklySelectedForm: (_item, saved) => `<FORM:${saved.thisWeekResult}>`,
   renderWeeklyReadonlySelection: () => '<READONLY>',
+  renderWeeklyNotificationSelection: () => '<NOTIFICATION-DETAIL>',
   renderStandaloneBudgetWeeklyBlock: () => '',
   renderWeeklySavedUpdates: () => '<HISTORY>'
 };
@@ -488,6 +492,7 @@ const objectiveRenderContext = {
   escapeHtml: (value) => String(value ?? ''),
   formatIsoDateVi: (value) => String(value || ''),
   renderWeeklyWorkflowBadges: () => '',
+  isNotificationWeeklyHighlight: () => false,
   qltdSelectedWeeklyItemKey: ''
 };
 vm.createContext(objectiveRenderContext);

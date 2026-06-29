@@ -380,6 +380,10 @@
             </div>
           </div>
           <div class="profile">
+            <button id="notificationBellButton" class="icon-button notification-bell-button" type="button" title="Bạn có 0 thông báo chưa đọc" aria-label="Mở thông báo" aria-expanded="false" aria-controls="notificationPanel">
+              <span class="notification-bell-icon" aria-hidden="true">🔔</span>
+              <span id="notificationBadge" class="notification-badge hidden" aria-hidden="true"></span>
+            </button>
             <img id="userAvatar" alt="" class="avatar">
             <div>
               <strong id="userName">Người dùng</strong>
@@ -391,6 +395,26 @@
             </button>
           </div>
         </header>
+
+        <div id="notificationBackdrop" class="notification-backdrop hidden" aria-hidden="true"></div>
+        <aside id="notificationPanel" class="notification-panel hidden" aria-labelledby="notificationPanelTitle" aria-hidden="true">
+          <div class="notification-panel-header">
+            <div>
+              <span class="notification-panel-eyebrow">Trung tâm thông báo</span>
+              <h2 id="notificationPanelTitle">Thông báo</h2>
+            </div>
+            <button id="notificationCloseButton" class="icon-button notification-close-button" type="button" title="Đóng thông báo" aria-label="Đóng thông báo">×</button>
+          </div>
+          <div class="notification-panel-summary" aria-live="polite">
+            <span id="notificationUnreadSummary">Chưa đọc: 0</span>
+            <span id="notificationActionSummary">Cần xử lý: 0</span>
+          </div>
+          <div class="notification-panel-toolbar">
+            <p id="notificationPanelStatus" role="status"></p>
+            <button id="notificationReloadButton" class="secondary-button" type="button">Tải lại</button>
+          </div>
+          <div id="notificationList" class="notification-list"></div>
+        </aside>
 
         <nav class="tabs" aria-label="Điều hướng chính">
           <button type="button" disabled>Dashboard</button>

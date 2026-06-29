@@ -106,6 +106,7 @@ let qltdWeeklyTaskView = { key: '', items: [], updates: [], nextItems: [], stand
 let qltdWeeklySaveRequestId = '';
 let qltdSelectedWeeklyItemKey = '';
 let qltdWeeklyEditingItemKey = '';
+let qltdWeeklyNotificationDetailItemKey = '';
 let qltdWeeklyWorkspaceTab = 'objectives';
 let qltdWeeklyTaskFilters = { search: '', ownership: 'ALL', statuses: [] };
 let qltdReportSubTab = 'plan';
@@ -121,6 +122,32 @@ let qltdPbDetailApprovalReviewSeq = 0;
 let qltdPbDetailApprovalView = { projectCode: '', loading: false, error: '', approvals: [], reviewing: null };
 let qltdBudgetDashboardRequestSeq = 0;
 let qltdBudgetDashboardView = { loading: false, error: '', data: null, deptCode: '', view: 'project', showAllBusinessAlerts: false, showAllDataAlerts: false };
+let qltdProjectsLoadPromise = null;
+const QLTD_NOTIFICATION_TYPE_LABELS = {
+  PB_DETAIL_PENDING: 'Cập nhật công việc chờ duyệt',
+  MASTER_COMPLETION_PENDING: 'Hoàn thành mục tiêu chờ duyệt',
+  UPDATE_APPROVED: 'Cập nhật đã được duyệt',
+  UPDATE_REJECTED: 'Cập nhật bị trả lại'
+};
+const QLTD_NOTIFICATION_FALLBACK_MESSAGE = 'Không thể mở đúng nội dung của thông báo. Dữ liệu có thể đã thay đổi hoặc bạn không còn quyền truy cập.';
+const QLTD_NOTIFICATION_RESOLVED_MESSAGE = 'Yêu cầu này đã được xử lý.';
+let qltdNotificationLoadRequestSeq = 0;
+let qltdNotificationSessionVersion = 0;
+let qltdNotificationNavigationSeq = 0;
+let qltdNotificationLoadPromise = null;
+const qltdNotificationMarkingIds = new Set();
+let qltdNotificationHighlight = null;
+let qltdNotificationState = {
+  loaded: false,
+  loading: false,
+  open: false,
+  error: '',
+  warning: '',
+  navigationMessage: '',
+  notifications: [],
+  unreadCount: 0,
+  actionRequiredCount: 0
+};
 
 document.addEventListener('qltd:pb-detail-changed', (event) => {
   const detail = event.detail || {};
@@ -159,6 +186,16 @@ const els = {
   userName: document.getElementById('userName'),
   userEmail: document.getElementById('userEmail'),
   userRole: document.getElementById('userRole'),
+  notificationBellButton: document.getElementById('notificationBellButton'),
+  notificationBadge: document.getElementById('notificationBadge'),
+  notificationBackdrop: document.getElementById('notificationBackdrop'),
+  notificationPanel: document.getElementById('notificationPanel'),
+  notificationCloseButton: document.getElementById('notificationCloseButton'),
+  notificationUnreadSummary: document.getElementById('notificationUnreadSummary'),
+  notificationActionSummary: document.getElementById('notificationActionSummary'),
+  notificationPanelStatus: document.getElementById('notificationPanelStatus'),
+  notificationReloadButton: document.getElementById('notificationReloadButton'),
+  notificationList: document.getElementById('notificationList'),
   accessStatus: document.getElementById('accessStatus'),
   roleStatus: document.getElementById('roleStatus'),
   apiStatus: document.getElementById('apiStatus')
@@ -204,6 +241,7 @@ function showOnly(view) {
 
 function renderSignedOut() {
   clearWeeklyTaskSessionState();
+  clearNotificationState();
   currentUserProfile = null;
   currentPermissions = { ...DEFAULT_PERMISSIONS };
   lastAuthenticatedUser = null;
@@ -294,6 +332,249 @@ function normalizePermissions(permissions = {}, role = '') {
 
 function setApiStatus(message) {
   if (els.apiStatus) els.apiStatus.textContent = message;
+}
+
+function formatNotificationBadgeCount(count) {
+  const value = Math.max(0, Number(count) || 0);
+  return value > 99 ? '99+' : String(value);
+}
+
+function formatNotificationType(type) {
+  return QLTD_NOTIFICATION_TYPE_LABELS[String(type || '').trim().toUpperCase()] || 'Thông báo hệ thống';
+}
+
+function normalizeNotificationItem(item = {}) {
+  return {
+    notificationId: String(item.notificationId || item.NotificationId || '').trim(),
+    type: String(item.type || item.Type || '').trim().toUpperCase(),
+    entityId: String(item.entityId || item.EntityId || '').trim(),
+    projectCode: String(item.projectCode || item.ProjectCode || '').trim(),
+    departmentCode: String(item.departmentCode || item.DepartmentCode || '').trim(),
+    weekStart: String(item.weekStart || item.WeekStart || '').trim().slice(0, 10),
+    tabKey: String(item.tabKey || item.TabKey || '').trim().toUpperCase(),
+    itemKey: String(item.itemKey || item.ItemKey || '').trim(),
+    title: String(item.title || item.Title || ''),
+    message: String(item.message || item.Message || ''),
+    isRead: item.isRead === true || item.IsRead === true || String(item.isRead || item.IsRead || '').toUpperCase() === 'TRUE',
+    status: String(item.status || item.Status || '').trim().toUpperCase(),
+    createdAt: String(item.createdAt || item.CreatedAt || '').trim(),
+    sourceRequestId: String(item.sourceRequestId || item.SourceRequestId || '').trim()
+  };
+}
+
+function sortNotificationsNewest(items = []) {
+  return items.slice().sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')));
+}
+
+function isNotificationActionType(type) {
+  return ['PB_DETAIL_PENDING', 'MASTER_COMPLETION_PENDING'].includes(String(type || '').toUpperCase());
+}
+
+function getNotificationWeekId(notification = {}) {
+  const weekStart = String(notification.weekStart || '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(weekStart) ? `WEEK-${weekStart}` : '';
+}
+
+function getNotificationDeepLinkKind(type) {
+  const code = String(type || '').trim().toUpperCase();
+  if (code === 'PB_DETAIL_PENDING') return 'PB_APPROVAL';
+  if (code === 'MASTER_COMPLETION_PENDING') return 'MASTER_APPROVAL';
+  if (code === 'UPDATE_APPROVED') return 'WEEKLY_APPROVED';
+  if (code === 'UPDATE_REJECTED') return 'WEEKLY_REJECTED';
+  return 'UNKNOWN';
+}
+
+function isNotificationNavigationCurrent(navigationSeq) {
+  return !navigationSeq || navigationSeq === qltdNotificationNavigationSeq;
+}
+
+function renderNotificationCenter() {
+  const state = qltdNotificationState;
+  const unreadCount = Math.max(0, Number(state.unreadCount) || 0);
+  const actionRequiredCount = Math.max(0, Number(state.actionRequiredCount) || 0);
+  if (els.notificationBellButton) {
+    const tooltip = `Bạn có ${unreadCount} thông báo chưa đọc`;
+    els.notificationBellButton.title = tooltip;
+    els.notificationBellButton.setAttribute('aria-label', tooltip);
+    els.notificationBellButton.setAttribute('aria-expanded', state.open ? 'true' : 'false');
+  }
+  if (els.notificationBadge) {
+    els.notificationBadge.textContent = unreadCount ? formatNotificationBadgeCount(unreadCount) : '';
+    els.notificationBadge.classList.toggle('hidden', unreadCount === 0);
+  }
+  if (els.notificationPanel) {
+    els.notificationPanel.classList.toggle('hidden', !state.open);
+    els.notificationPanel.setAttribute('aria-hidden', state.open ? 'false' : 'true');
+  }
+  if (els.notificationBackdrop) els.notificationBackdrop.classList.toggle('hidden', !state.open);
+  if (els.notificationUnreadSummary) els.notificationUnreadSummary.textContent = `Chưa đọc: ${unreadCount}`;
+  if (els.notificationActionSummary) els.notificationActionSummary.textContent = `Cần xử lý: ${actionRequiredCount}`;
+  if (els.notificationReloadButton) els.notificationReloadButton.disabled = state.loading;
+  if (els.notificationPanelStatus) {
+    const status = state.navigationMessage || state.warning || state.error || (state.loading ? (state.loaded ? 'Đang tải lại...' : 'Đang tải thông báo...') : '');
+    els.notificationPanelStatus.textContent = status;
+    els.notificationPanelStatus.className = state.error ? 'is-error' : state.warning ? 'is-warning' : '';
+  }
+  if (!els.notificationList) return;
+  if (state.loading && !state.loaded) {
+    els.notificationList.innerHTML = '<p class="notification-empty-state">Đang tải thông báo...</p>';
+    return;
+  }
+  if (state.error && !state.notifications.length) {
+    els.notificationList.innerHTML = '<p class="notification-empty-state">Không tải được thông báo. Bạn có thể bấm “Tải lại”.</p>';
+    return;
+  }
+  if (!state.notifications.length) {
+    els.notificationList.innerHTML = '<p class="notification-empty-state">Bạn chưa có thông báo.</p>';
+    return;
+  }
+  els.notificationList.innerHTML = sortNotificationsNewest(state.notifications).map((notification) => {
+    const actionState = isNotificationActionType(notification.type)
+      ? `<span class="notification-pill ${notification.status === 'RESOLVED' ? 'is-resolved' : 'is-action'}">${notification.status === 'RESOLVED' ? 'Đã xử lý' : 'Cần xử lý'}</span>`
+      : '';
+    const createdAt = formatWeeklyDateTime(notification.createdAt) || 'Không rõ thời gian';
+    return `<button type="button" class="notification-item ${notification.isRead ? 'is-read' : 'is-unread'}" data-notification-id="${escapeHtml(notification.notificationId)}">
+      <span class="notification-item-heading"><strong>${escapeHtml(notification.title || formatNotificationType(notification.type))}</strong><time>${escapeHtml(createdAt)}</time></span>
+      <span class="notification-item-meta">${escapeHtml(formatNotificationType(notification.type))}</span>
+      <p>${escapeHtml(notification.message || '')}</p>
+      <span class="notification-item-badges"><span class="notification-pill ${notification.isRead ? '' : 'is-unread'}">${notification.isRead ? 'Đã đọc' : 'Chưa đọc'}</span>${actionState}</span>
+    </button>`;
+  }).join('');
+  els.notificationList.querySelectorAll('[data-notification-id]').forEach((button) => {
+    button.onclick = () => handleNotificationClick(button.dataset.notificationId || '');
+  });
+}
+
+function clearNotificationState() {
+  qltdNotificationSessionVersion += 1;
+  qltdNotificationLoadRequestSeq += 1;
+  qltdNotificationNavigationSeq += 1;
+  qltdNotificationLoadPromise = null;
+  qltdNotificationMarkingIds.clear();
+  qltdNotificationHighlight = null;
+  qltdNotificationState = {
+    loaded: false,
+    loading: false,
+    open: false,
+    error: '',
+    warning: '',
+    navigationMessage: '',
+    notifications: [],
+    unreadCount: 0,
+    actionRequiredCount: 0
+  };
+  renderNotificationCenter();
+}
+
+async function loadNotifications(options = {}) {
+  if (!auth?.currentUser || !isAuthenticatedUser()) return null;
+  if (qltdNotificationLoadPromise) return qltdNotificationLoadPromise;
+  const requestSeq = ++qltdNotificationLoadRequestSeq;
+  const sessionVersion = qltdNotificationSessionVersion;
+  qltdNotificationState = { ...qltdNotificationState, loading: true, error: '', warning: options.keepWarning ? qltdNotificationState.warning : '' };
+  renderNotificationCenter();
+  let requestPromise;
+  requestPromise = (async () => {
+    try {
+      const result = await fetchBackendJson('notifications_list', { limit: 100 }, { auth: true });
+      if (!result.success) throw new Error(getBackendErrorMessage(result, 'Không tải được thông báo.'));
+      if (requestSeq !== qltdNotificationLoadRequestSeq || sessionVersion !== qltdNotificationSessionVersion) return null;
+      const data = result.data || result;
+      const notifications = sortNotificationsNewest((Array.isArray(data.notifications) ? data.notifications : []).map(normalizeNotificationItem));
+      let unreadCount = Math.max(0, Number(data.unreadCount) || 0);
+      notifications.forEach((notification) => {
+        if (qltdNotificationMarkingIds.has(notification.notificationId) && !notification.isRead) {
+          notification.isRead = true;
+          unreadCount = Math.max(0, unreadCount - 1);
+        }
+      });
+      qltdNotificationState = {
+        ...qltdNotificationState,
+        loaded: true,
+        loading: false,
+        error: '',
+        notifications,
+        unreadCount,
+        actionRequiredCount: Math.max(0, Number(data.actionRequiredCount) || 0)
+      };
+      renderNotificationCenter();
+      return qltdNotificationState;
+    } catch (error) {
+      if (requestSeq !== qltdNotificationLoadRequestSeq || sessionVersion !== qltdNotificationSessionVersion) return null;
+      qltdNotificationState = {
+        ...qltdNotificationState,
+        loaded: false,
+        loading: false,
+        error: error.message || 'Không tải được thông báo.',
+        notifications: [],
+        unreadCount: 0,
+        actionRequiredCount: 0
+      };
+      renderNotificationCenter();
+      return null;
+    } finally {
+      if (qltdNotificationLoadPromise === requestPromise) qltdNotificationLoadPromise = null;
+    }
+  })();
+  qltdNotificationLoadPromise = requestPromise;
+  return requestPromise;
+}
+
+function setNotificationPanelOpen(open) {
+  qltdNotificationState = { ...qltdNotificationState, open: !!open, navigationMessage: open ? qltdNotificationState.navigationMessage : '' };
+  renderNotificationCenter();
+  if (open) loadNotifications();
+}
+
+async function markNotificationReadOptimistically(notificationId) {
+  const id = String(notificationId || '').trim();
+  const notification = qltdNotificationState.notifications.find((item) => item.notificationId === id);
+  if (!notification || notification.isRead || qltdNotificationMarkingIds.has(id)) return false;
+  qltdNotificationMarkingIds.add(id);
+  qltdNotificationState = {
+    ...qltdNotificationState,
+    notifications: qltdNotificationState.notifications.map((item) => item.notificationId === id ? { ...item, isRead: true } : item),
+    unreadCount: Math.max(0, Number(qltdNotificationState.unreadCount || 0) - 1),
+    warning: ''
+  };
+  renderNotificationCenter();
+  try {
+    const result = await postBackendJson({ action: 'notifications_markread', NotificationId: id });
+    if (!result.success) throw new Error(getBackendErrorMessage(result, 'Không đánh dấu được thông báo đã đọc.'));
+    return true;
+  } catch (error) {
+    const hasCurrent = qltdNotificationState.notifications.some((item) => item.notificationId === id);
+    qltdNotificationState = {
+      ...qltdNotificationState,
+      notifications: qltdNotificationState.notifications.map((item) => item.notificationId === id ? { ...item, isRead: false } : item),
+      unreadCount: Math.max(0, Number(qltdNotificationState.unreadCount || 0) + (hasCurrent ? 1 : 0)),
+      warning: error.message || 'Không đánh dấu được thông báo đã đọc.'
+    };
+    renderNotificationCenter();
+    showWeeklyToast(qltdNotificationState.warning);
+    return false;
+  } finally {
+    qltdNotificationMarkingIds.delete(id);
+  }
+}
+
+async function handleNotificationClick(notificationId) {
+  const notification = qltdNotificationState.notifications.find((item) => item.notificationId === String(notificationId || ''));
+  if (!notification) return;
+  void markNotificationReadOptimistically(notification.notificationId);
+  qltdNotificationState = { ...qltdNotificationState, navigationMessage: 'Đang mở nội dung thông báo...', warning: '' };
+  renderNotificationCenter();
+  const navigationSeq = ++qltdNotificationNavigationSeq;
+  const navigation = await navigateNotificationDeepLink(notification, navigationSeq);
+  if (!isNotificationNavigationCurrent(navigationSeq)) return;
+  if (navigation.success) {
+    setNotificationPanelOpen(false);
+    showWeeklyToast(navigation.message || 'Đã mở nội dung thông báo.');
+    return;
+  }
+  qltdNotificationState = { ...qltdNotificationState, navigationMessage: navigation.message || QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+  renderNotificationCenter();
+  showWeeklyToast(navigation.message || QLTD_NOTIFICATION_FALLBACK_MESSAGE);
 }
 
 function getNavButtonByLabel(label) {
@@ -1410,7 +1691,8 @@ function ensureWeb07Panels() {
   }
 }
 
-function showWeb07View(viewName) {
+function showWeb07View(viewName, options = {}) {
+  let viewLoadPromise = null;
   qltdActiveView = viewName;
   ensureWeb07Panels();
   if (viewName === 'report') ensureDeptPlanPanel();
@@ -1466,7 +1748,7 @@ function showWeb07View(viewName) {
 
   if (viewName === 'report') {
     const projectCode = document.getElementById('projectSelector')?.value || '';
-    if (projectCode) loadDeptPlansForSelectedProject(projectCode);
+    if (projectCode && !options.skipDataLoad) viewLoadPromise = loadDeptPlansForSelectedProject(projectCode);
     window.scrollTo({ top: 0, behavior: 'auto' });
   }
 
@@ -1483,9 +1765,10 @@ function showWeb07View(viewName) {
 
   if (viewName === 'admin') {
     renderAdminPanel();
-    loadAdminMasterApprovals();
+    if (!options.skipDataLoad) viewLoadPromise = loadAdminMasterApprovals();
     window.scrollTo({ top: 0, behavior: 'auto' });
   }
+  return viewLoadPromise;
 }
 
 function bindWeb07Navigation() {
@@ -2033,6 +2316,13 @@ function removeMasterApprovalDraft(updateId) {
   qltdAdminApprovalView = { ...qltdAdminApprovalView, reviewDrafts };
 }
 
+function isNotificationApprovalHighlight(section, item) {
+  const highlight = qltdNotificationHighlight;
+  if (!highlight || highlight.kind !== 'approval' || highlight.section !== section) return false;
+  if (highlight.targetId) return String(item?.updateId || '') === String(highlight.targetId);
+  return notificationMatchesApprovalItem(highlight.notification || {}, item);
+}
+
 function renderAdminPanel() {
   const panel = document.getElementById('web07AdminPanel');
   if (!panel) return;
@@ -2098,7 +2388,7 @@ function renderAdminMasterApprovals(approvals) {
     const approveLabel = isCurrent && reviewing.approvalStatus === 'APPROVED' ? 'Đang duyệt...' : 'Duyệt';
     const rejectLabel = isCurrent && reviewing.approvalStatus === 'REJECTED' ? 'Đang trả lại...' : 'Không duyệt';
     const disabled = reviewing ? 'disabled' : '';
-    return `<tr><td>${escapeHtml(item.projectCode || '')}</td><td>${escapeHtml(item.deptCode || '')}</td><td class="mono">${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.taskStatus || '')} · ${escapeHtml(item.progressEnd ?? '')}%</td><td>${escapeHtml(formatIsoDateVi(item.actualFinish || '') || '—')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td>${renderMasterApprovalDependencyControls(item)}</td><td><span class="approval-status-badge is-${escapeHtml(String(item.approvalStatus || '').toLowerCase())}">${escapeHtml(formatApprovalStatus(item.approvalStatus))}</span></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-master-approval-approve="${escapeHtml(item.updateId || '')}" ${disabled}>${approveLabel}</button><button type="button" class="secondary-button" data-master-approval-reject="${escapeHtml(item.updateId || '')}" ${disabled}>${rejectLabel}</button></div></td></tr>`;
+    return `<tr class="${isNotificationApprovalHighlight('MASTER', item) ? 'is-notification-target' : ''}" data-notification-approval-id="${escapeHtml(item.updateId || '')}"><td>${escapeHtml(item.projectCode || '')}</td><td>${escapeHtml(item.deptCode || '')}</td><td class="mono">${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.taskStatus || '')} · ${escapeHtml(item.progressEnd ?? '')}%</td><td>${escapeHtml(formatIsoDateVi(item.actualFinish || '') || '—')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td>${renderMasterApprovalDependencyControls(item)}</td><td><span class="approval-status-badge is-${escapeHtml(String(item.approvalStatus || '').toLowerCase())}">${escapeHtml(formatApprovalStatus(item.approvalStatus))}</span></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-master-approval-approve="${escapeHtml(item.updateId || '')}" ${disabled}>${approveLabel}</button><button type="button" class="secondary-button" data-master-approval-reject="${escapeHtml(item.updateId || '')}" ${disabled}>${rejectLabel}</button></div></td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 
@@ -2209,7 +2499,7 @@ function renderPbDetailApprovals(approvals) {
     const disabled = reviewing ? 'disabled' : '';
     const approveLabel = isCurrent && reviewing.approvalStatus === 'APPROVED' ? 'Đang duyệt...' : 'Duyệt';
     const rejectLabel = isCurrent && reviewing.approvalStatus === 'REJECTED' ? 'Đang trả lại...' : 'Trả lại';
-    return `<tr><td>${escapeHtml(item.projectCode || '')}</td><td class="mono">${escapeHtml(item.wbs || item.itemId || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td>${escapeHtml(formatWeeklyDateTime(item.updatedAt))}</td><td>${escapeHtml(item.officialProgress ?? 0)}% · ${escapeHtml(item.officialStatus || '—')}</td><td>${escapeHtml(item.progressEnd ?? 0)}% · ${escapeHtml(item.taskStatus || '—')}</td><td>${escapeHtml(item.thisWeekResult || '—')}</td><td>${escapeHtml(item.issue || '—')}<br><small>${escapeHtml(item.recommendation || '—')}</small></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-pb-detail-approval-approve="${escapeHtml(item.updateId || '')}" ${disabled}>${approveLabel}</button><button type="button" class="secondary-button" data-pb-detail-approval-reject="${escapeHtml(item.updateId || '')}" ${disabled}>${rejectLabel}</button></div></td></tr>`;
+    return `<tr class="${isNotificationApprovalHighlight('PB_DETAIL', item) ? 'is-notification-target' : ''}" data-notification-approval-id="${escapeHtml(item.updateId || '')}"><td>${escapeHtml(item.projectCode || '')}</td><td class="mono">${escapeHtml(item.wbs || item.itemId || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td>${escapeHtml(formatWeeklyDateTime(item.updatedAt))}</td><td>${escapeHtml(item.officialProgress ?? 0)}% · ${escapeHtml(item.officialStatus || '—')}</td><td>${escapeHtml(item.progressEnd ?? 0)}% · ${escapeHtml(item.taskStatus || '—')}</td><td>${escapeHtml(item.thisWeekResult || '—')}</td><td>${escapeHtml(item.issue || '—')}<br><small>${escapeHtml(item.recommendation || '—')}</small></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-pb-detail-approval-approve="${escapeHtml(item.updateId || '')}" ${disabled}>${approveLabel}</button><button type="button" class="secondary-button" data-pb-detail-approval-reject="${escapeHtml(item.updateId || '')}" ${disabled}>${rejectLabel}</button></div></td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 
@@ -2292,6 +2582,145 @@ async function reviewPbDetailApproval(updateId, approvalStatus, reviewReason = '
       renderAdminPanel();
     }
   }
+}
+
+async function selectNotificationProject(projectCode) {
+  const code = String(projectCode || '').trim();
+  if (!code) return false;
+  if (qltdProjectsLoadPromise) await qltdProjectsLoadPromise;
+  if (!qltdProjectRegistry.length) {
+    qltdProjectsLoadPromise = loadProjectsForSelector();
+    await qltdProjectsLoadPromise;
+  }
+  const selector = document.getElementById('projectSelector');
+  const allowedProject = qltdProjectRegistry.find((project) => String(project.projectCode || '').toUpperCase() === code.toUpperCase());
+  const selectedCode = String(allowedProject?.projectCode || '');
+  const allowed = !!selectedCode;
+  if (!selector || !allowed) return false;
+  selector.value = selectedCode;
+  setStoredProjectCode(selectedCode);
+  return selector.value === selectedCode;
+}
+
+function notificationMatchesApprovalItem(notification, item) {
+  const sourceKeys = [notification.sourceRequestId, notification.entityId].filter(Boolean);
+  if (sourceKeys.includes(String(item?.updateId || ''))) return true;
+  if (!notification.itemKey || String(item?.itemId || '') !== notification.itemKey) return false;
+  return !notification.departmentCode || String(item?.deptCode || '').toUpperCase() === String(notification.departmentCode || '').toUpperCase();
+}
+
+function scrollToNotificationTarget(kind, targetId) {
+  window.setTimeout(() => {
+    const attribute = kind === 'approval' ? 'data-notification-approval-id' : 'data-notification-weekly-key';
+    const target = Array.from(document.querySelectorAll(`[${attribute}]`))
+      .find((element) => element.getAttribute(attribute) === String(targetId || ''));
+    if (!target) return;
+    target.classList.add('is-notification-target');
+    if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 40);
+}
+
+async function navigateNotificationApproval(notification, section, navigationSeq) {
+  const role = normalizeRoleKey(currentUserProfile?.role);
+  if ((section === 'PB_DETAIL' && role !== 'EDITOR') || (section === 'MASTER' && !['ADMIN', 'PMO'].includes(role))) {
+    return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+  }
+  if (!await selectNotificationProject(notification.projectCode)) {
+    showWeb07View('admin', { skipDataLoad: true });
+    return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+  }
+  if (!isNotificationNavigationCurrent(navigationSeq)) return { success: false, stale: true, message: '' };
+  if (section === 'PB_DETAIL') qltdSelectedDeptCode = String(notification.departmentCode || '');
+  qltdNotificationHighlight = { kind: 'approval', section, notification };
+  await showWeb07View('admin');
+  if (!isNotificationNavigationCurrent(navigationSeq)) return { success: false, stale: true, message: '' };
+  const approvals = section === 'PB_DETAIL' ? qltdPbDetailApprovalView.approvals : qltdAdminApprovalView.approvals;
+  const target = (approvals || []).find((item) => notificationMatchesApprovalItem(notification, item));
+  if (!target) {
+    return {
+      success: false,
+      message: notification.status === 'RESOLVED' ? QLTD_NOTIFICATION_RESOLVED_MESSAGE : QLTD_NOTIFICATION_FALLBACK_MESSAGE
+    };
+  }
+  qltdNotificationHighlight = { kind: 'approval', section, notification, targetId: target.updateId };
+  renderAdminPanel();
+  scrollToNotificationTarget('approval', target.updateId);
+  return { success: true, message: 'Đã mở yêu cầu chờ duyệt.' };
+}
+
+async function navigateNotificationWeekly(notification, openEditor, navigationSeq) {
+  if (!await selectNotificationProject(notification.projectCode)) {
+    qltdReportSubTab = 'weekly';
+    showWeb07View('report', { skipDataLoad: true });
+    return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+  }
+  if (!isNotificationNavigationCurrent(navigationSeq)) return { success: false, stale: true, message: '' };
+  const weekId = getNotificationWeekId(notification);
+  if (!weekId) {
+    qltdReportSubTab = 'weekly';
+    showWeb07View('report', { skipDataLoad: true });
+    return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+  }
+  qltdReportSubTab = 'weekly';
+  qltdSelectedWeekId = weekId;
+  qltdNotificationHighlight = { kind: 'weekly', notification };
+  await showWeb07View('report');
+  if (!isNotificationNavigationCurrent(navigationSeq)) return { success: false, stale: true, message: '' };
+  const payload = qltdDeptPlanPayload;
+  if (!payload?.success || String(payload.projectCode || '').toUpperCase() !== String(notification.projectCode || '').toUpperCase()) {
+    return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+  }
+  const departments = payload.departments || [];
+  const department = notification.departmentCode
+    ? departments.find((item) => String(item.deptCode || item.sheetName || '').toUpperCase() === String(notification.departmentCode || '').toUpperCase())
+    : departments[0];
+  if (!department) return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+  qltdSelectedDeptCode = department.deptCode || department.sheetName || '';
+  const deptSelector = document.getElementById('deptSelector');
+  if (deptSelector) deptSelector.value = qltdSelectedDeptCode;
+  qltdReportSubTab = 'weekly';
+  qltdSelectedWeekId = weekId;
+  qltdSelectedWeeklyItemKey = '';
+  qltdWeeklyEditingItemKey = '';
+  qltdWeeklyNotificationDetailItemKey = '';
+  renderSelectedDeptPlan();
+  await loadWeeklyTaskDataForCurrent();
+  if (!isNotificationNavigationCurrent(navigationSeq)) return { success: false, stale: true, message: '' };
+  if (qltdWeeklyTaskView.accessDenied || qltdWeeklyTaskView.error) {
+    return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+  }
+  const update = (qltdWeeklyTaskView.updates || []).find((item) =>
+    [notification.sourceRequestId, notification.entityId].filter(Boolean).includes(String(item.updateId || ''))
+  ) || (qltdWeeklyTaskView.updates || []).find((item) => String(item.itemId || '') === notification.itemKey);
+  const itemId = String(update?.itemId || notification.itemKey || '');
+  const item = (qltdWeeklyTaskView.items || []).find((candidate) => String(candidate.itemId || '') === itemId);
+  if (!item || !update) return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+  const itemKey = `${item.itemType}:${item.itemId}`;
+  qltdWeeklyWorkspaceTab = item.itemType === 'PB_DETAIL' ? 'tasks' : 'objectives';
+  qltdSelectedWeeklyItemKey = itemKey;
+  if (openEditor) {
+    if (!canUpdateWeeklyItem(item, qltdWeeklyTaskView.capabilities)) {
+      qltdWeeklyNotificationDetailItemKey = itemKey;
+      renderWeeklyTaskRegion();
+      return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
+    }
+    qltdWeeklyEditingItemKey = itemKey;
+  } else {
+    qltdWeeklyNotificationDetailItemKey = itemKey;
+  }
+  qltdNotificationHighlight = { kind: 'weekly', notification, targetId: itemKey };
+  renderWeeklyTaskRegion();
+  scrollToNotificationTarget('weekly', itemKey);
+  return { success: true, message: openEditor ? 'Đã mở lại cập nhật bị trả lại.' : 'Đã mở chi tiết cập nhật đã duyệt.' };
+}
+
+async function navigateNotificationDeepLink(notification, navigationSeq) {
+  const kind = getNotificationDeepLinkKind(notification?.type);
+  if (kind === 'PB_APPROVAL') return navigateNotificationApproval(notification, 'PB_DETAIL', navigationSeq);
+  if (kind === 'MASTER_APPROVAL') return navigateNotificationApproval(notification, 'MASTER', navigationSeq);
+  if (kind === 'WEEKLY_APPROVED') return navigateNotificationWeekly(notification, false, navigationSeq);
+  if (kind === 'WEEKLY_REJECTED') return navigateNotificationWeekly(notification, true, navigationSeq);
+  return { success: false, message: QLTD_NOTIFICATION_FALLBACK_MESSAGE };
 }
 
 async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '', reviewOptions = {}) {
@@ -2799,6 +3228,7 @@ function resetDeptScopedSelectionState() {
   qltdDeptMasterListExpanded = false;
   qltdSelectedWeeklyItemKey = '';
   qltdWeeklyEditingItemKey = '';
+  qltdWeeklyNotificationDetailItemKey = '';
   qltdWeeklyWorkspaceTab = 'objectives';
   qltdWeeklyTaskFilters = { search: '', ownership: 'ALL', statuses: [] };
   qltdWeeklyForcedItem = null;
@@ -3464,6 +3894,7 @@ function qltdShiftSelectedWeek(days) {
   qltdSelectedWeekId = `WEEK-${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   qltdSelectedWeeklyItemKey = '';
   qltdWeeklyEditingItemKey = '';
+  qltdWeeklyNotificationDetailItemKey = '';
   qltdWeeklyForcedItem = null;
 }
 
@@ -3948,7 +4379,7 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
     ${state.refreshing ? '<div class="weekly-loading-state" role="status">Đang làm mới dữ liệu tuần...</div>' : ''}
     ${state.refreshWarning ? `<div class="weekly-error-state" role="alert"><p>${escapeHtml(state.refreshWarning)}</p><button type="button" class="secondary-button" data-weekly-retry>Thử lại</button></div>` : ''}
     ${state.error ? `<div class="weekly-error-state" role="alert"><p>${escapeHtml(state.error)}</p><button type="button" class="secondary-button" data-weekly-retry>Tải lại</button></div>` : ''}
-    ${!state.loading && !state.error ? `${qltdWeeklyWorkspaceTab === 'tasks' ? renderWeeklyTaskFilters(visibleModel) : ''}<div class="weekly-split-view"><aside class="weekly-list-panel" aria-label="${qltdWeeklyWorkspaceTab === 'objectives' ? 'Danh sách mục tiêu' : 'Danh sách công việc'}"><div class="weekly-list-toolbar"><div><h3>${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</h3><span>${qltdWeeklyWorkspaceTab === 'objectives' ? `${model.objectives.length} mục tiêu` : `Hiển thị ${visibleTasks.length}/${model.tasks.length} công việc`}</span></div></div>${qltdWeeklyWorkspaceTab === 'objectives' ? renderWeeklyObjectiveList(model.objectives, state.updates, updateContext, week, state.capabilities) : renderWeeklyTaskList(visibleTasks, state.updates, updateContext, week, { capabilities: state.capabilities, objectives: model.objectives, filtered: visibleTasks.length !== model.tasks.length })}</aside><main class="weekly-detail-panel" aria-label="Chi tiết cập nhật">${editorOpen && canUpdateSelected ? renderWeeklySelectedForm(selected, saved) : selected && canUpdateSelected ? renderWeeklySavedSelectionPlaceholder() : selected ? renderWeeklyReadonlySelection(selected, saved, week) : `<div class="weekly-form-placeholder"><strong>CHI TIẾT ${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</strong><span>${canUpdate ? 'Chọn “Cập nhật” để mở biểu mẫu.' : 'Tài khoản hiện tại chỉ có quyền xem.'}</span></div>`}${renderStandaloneBudgetWeeklyBlock(canUpdate && normalizeRoleKey(state.capabilities?.role) !== 'REPORTER' ? state.standaloneBudgetItems || [] : [])}${editorOpen && canUpdateSelected ? renderWeeklySaveActions(selected, state.capabilities) : ''}</main></div><details class="weekly-history"><summary>Các cập nhật đã lưu trong tuần (${state.updates.length})</summary>${renderWeeklySavedUpdates(state.updates, state.items, canUpdate)}</details>` : ''}
+    ${!state.loading && !state.error ? `${qltdWeeklyWorkspaceTab === 'tasks' ? renderWeeklyTaskFilters(visibleModel) : ''}<div class="weekly-split-view"><aside class="weekly-list-panel" aria-label="${qltdWeeklyWorkspaceTab === 'objectives' ? 'Danh sách mục tiêu' : 'Danh sách công việc'}"><div class="weekly-list-toolbar"><div><h3>${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</h3><span>${qltdWeeklyWorkspaceTab === 'objectives' ? `${model.objectives.length} mục tiêu` : `Hiển thị ${visibleTasks.length}/${model.tasks.length} công việc`}</span></div></div>${qltdWeeklyWorkspaceTab === 'objectives' ? renderWeeklyObjectiveList(model.objectives, state.updates, updateContext, week, state.capabilities) : renderWeeklyTaskList(visibleTasks, state.updates, updateContext, week, { capabilities: state.capabilities, objectives: model.objectives, filtered: visibleTasks.length !== model.tasks.length })}</aside><main class="weekly-detail-panel" aria-label="Chi tiết cập nhật">${editorOpen && canUpdateSelected ? renderWeeklySelectedForm(selected, saved) : selected && qltdWeeklyNotificationDetailItemKey === qltdSelectedWeeklyItemKey ? renderWeeklyNotificationSelection(selected, saved, week) : selected && canUpdateSelected ? renderWeeklySavedSelectionPlaceholder() : selected ? renderWeeklyReadonlySelection(selected, saved, week) : `<div class="weekly-form-placeholder"><strong>CHI TIẾT ${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</strong><span>${canUpdate ? 'Chọn “Cập nhật” để mở biểu mẫu.' : 'Tài khoản hiện tại chỉ có quyền xem.'}</span></div>`}${renderStandaloneBudgetWeeklyBlock(canUpdate && normalizeRoleKey(state.capabilities?.role) !== 'REPORTER' ? state.standaloneBudgetItems || [] : [])}${editorOpen && canUpdateSelected ? renderWeeklySaveActions(selected, state.capabilities) : ''}</main></div><details class="weekly-history"><summary>Các cập nhật đã lưu trong tuần (${state.updates.length})</summary>${renderWeeklySavedUpdates(state.updates, state.items, canUpdate)}</details>` : ''}
   </section>`;
 }
 
@@ -3958,6 +4389,10 @@ function renderWeeklyTaskFilters(model) {
   return `<section class="weekly-filter-bar" aria-label="Bộ lọc công việc"><input id="weeklyTaskSearch" type="search" value="${escapeHtml(qltdWeeklyTaskFilters.search || '')}" placeholder="Tìm WBS, tên, mã, người thực hiện..."><select id="weeklyTaskOwnership"><option value="ALL" ${qltdWeeklyTaskFilters.ownership === 'ALL' ? 'selected' : ''}>Việc của phòng</option><option value="OWNED" ${qltdWeeklyTaskFilters.ownership === 'OWNED' ? 'selected' : ''}>Tôi chủ trì</option><option value="COORDINATED" ${qltdWeeklyTaskFilters.ownership === 'COORDINATED' ? 'selected' : ''}>Tôi phối hợp</option></select><div class="weekly-filter-chips">${options.map(([code, label]) => `<label><input type="checkbox" data-weekly-filter-status="${code}" ${selected.has(code) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><button type="button" class="secondary-button" data-weekly-clear-filters>Xóa bộ lọc</button><span class="weekly-filter-result">${model.visibleTasks.length}/${model.tasks.length} kết quả</span></section>`;
 }
 
+function isNotificationWeeklyHighlight(itemKey) {
+  return qltdNotificationHighlight?.kind === 'weekly' && String(qltdNotificationHighlight.targetId || '') === String(itemKey || '');
+}
+
 function renderWeeklyObjectiveList(items, updates, context, week, capabilities) {
   if (!items.length) return '<p class="empty-state">Không có mục tiêu liên quan đến tuần này.</p>';
   return `<div class="weekly-objective-list">${items.map((item) => {
@@ -3965,7 +4400,7 @@ function renderWeeklyObjectiveList(items, updates, context, week, capabilities) 
     const effective = getWeeklyEffectiveTaskState(item, saved);
     const key = `${item.itemType}:${item.itemId}`;
     const canUpdate = canUpdateWeeklyItem(item, capabilities);
-    return `<article class="weekly-objective-row ${key === qltdSelectedWeeklyItemKey ? 'is-selected' : ''}"><div><span class="mono">${escapeHtml(item.wbs || item.itemId)}</span><strong>${escapeHtml(item.taskName || item.itemId)}</strong><small>${escapeHtml(formatIsoDateVi(item.planStart) || '—')} – ${escapeHtml(formatIsoDateVi(item.planFinish) || '—')}</small></div><div><strong>${escapeHtml(effective.progress)}%</strong><span>${escapeHtml(effective.status)}</span><div class="weekly-workflow-badges">${renderWeeklyWorkflowBadges(item, saved, week)}</div></div><div>${canUpdate ? `<button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">${saved ? 'Sửa cập nhật' : 'Cập nhật'}</button>` : '<span class="weekly-readonly-action">Chỉ xem</span>'}</div></article>`;
+    return `<article class="weekly-objective-row ${key === qltdSelectedWeeklyItemKey ? 'is-selected' : ''} ${isNotificationWeeklyHighlight(key) ? 'is-notification-target' : ''}" data-notification-weekly-key="${escapeHtml(key)}"><div><span class="mono">${escapeHtml(item.wbs || item.itemId)}</span><strong>${escapeHtml(item.taskName || item.itemId)}</strong><small>${escapeHtml(formatIsoDateVi(item.planStart) || '—')} – ${escapeHtml(formatIsoDateVi(item.planFinish) || '—')}</small></div><div><strong>${escapeHtml(effective.progress)}%</strong><span>${escapeHtml(effective.status)}</span><div class="weekly-workflow-badges">${renderWeeklyWorkflowBadges(item, saved, week)}</div></div><div>${canUpdate ? `<button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">${saved ? 'Sửa cập nhật' : 'Cập nhật'}</button>` : '<span class="weekly-readonly-action">Chỉ xem</span>'}</div></article>`;
   }).join('')}</div>`;
 }
 
@@ -3986,15 +4421,29 @@ function renderWeeklyTaskRow(item, saved, options = {}) {
   const rowClass = [
     'weekly-task-row',
     item.progressReadonly ? 'is-summary' : '',
-    key === qltdSelectedWeeklyItemKey ? 'is-selected' : ''
+    key === qltdSelectedWeeklyItemKey ? 'is-selected' : '',
+    isNotificationWeeklyHighlight(key) ? 'is-notification-target' : ''
   ].filter(Boolean).join(' ');
   const coordinatorDisplay = getWeeklyPersonDisplay(item.coordinator);
-  return `<article class="${rowClass}"><div class="weekly-task-main"><div class="weekly-task-kicker"><span class="weekly-item-type">CÔNG VIỆC</span>${renderBudgetFlowBadge(item)}</div><strong>${escapeHtml(item.wbs ? `${item.wbs} · ${item.taskName}` : item.taskName)}</strong><small>Mục tiêu cha: ${escapeHtml(options.parentName || '—')}</small><small>BĐ: ${escapeHtml(formatIsoDateVi(item.planStart) || '—')} · KT: ${escapeHtml(formatIsoDateVi(item.planFinish) || '—')}</small><small title="${escapeHtml(item.owner || '')}">Chủ trì: ${escapeHtml(ownerDisplay)} · Phối hợp: ${escapeHtml(coordinatorDisplay)}</small></div><div class="weekly-task-state"><span>${escapeHtml(item.officialComplete ? 100 : effective.progress)}%</span><small>${escapeHtml(statusText)}</small><div class="weekly-workflow-badges">${renderWeeklyWorkflowBadges(item, saved, options.week)}</div><em class="weekly-task-badge ${escapeHtml(getWeeklyTaskBadgeClass(item, updated, overdueDays))}">${escapeHtml(badge)}</em></div><div class="weekly-task-actions">${options.canUpdate ? `<button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">${updated ? 'Sửa cập nhật' : 'Cập nhật'}</button>` : '<span class="weekly-readonly-action">Chỉ xem</span>'}</div></article>`;
+  return `<article class="${rowClass}" data-notification-weekly-key="${escapeHtml(key)}"><div class="weekly-task-main"><div class="weekly-task-kicker"><span class="weekly-item-type">CÔNG VIỆC</span>${renderBudgetFlowBadge(item)}</div><strong>${escapeHtml(item.wbs ? `${item.wbs} · ${item.taskName}` : item.taskName)}</strong><small>Mục tiêu cha: ${escapeHtml(options.parentName || '—')}</small><small>BĐ: ${escapeHtml(formatIsoDateVi(item.planStart) || '—')} · KT: ${escapeHtml(formatIsoDateVi(item.planFinish) || '—')}</small><small title="${escapeHtml(item.owner || '')}">Chủ trì: ${escapeHtml(ownerDisplay)} · Phối hợp: ${escapeHtml(coordinatorDisplay)}</small></div><div class="weekly-task-state"><span>${escapeHtml(item.officialComplete ? 100 : effective.progress)}%</span><small>${escapeHtml(statusText)}</small><div class="weekly-workflow-badges">${renderWeeklyWorkflowBadges(item, saved, options.week)}</div><em class="weekly-task-badge ${escapeHtml(getWeeklyTaskBadgeClass(item, updated, overdueDays))}">${escapeHtml(badge)}</em></div><div class="weekly-task-actions">${options.canUpdate ? `<button type="button" class="weekly-update-button" data-weekly-select="${escapeHtml(key)}">${updated ? 'Sửa cập nhật' : 'Cập nhật'}</button>` : '<span class="weekly-readonly-action">Chỉ xem</span>'}</div></article>`;
 }
 
 function renderWeeklyReadonlySelection(selected, saved, week) {
   const effective = getWeeklyEffectiveTaskState(selected, saved);
   return `<section class="weekly-readonly-card"><strong>${escapeHtml(selected.wbs ? `${selected.wbs} · ${selected.taskName}` : selected.taskName)}</strong><span>Tiến độ: ${escapeHtml(effective.progress)}% · ${escapeHtml(effective.status)}</span><div class="weekly-workflow-badges">${renderWeeklyWorkflowBadges(selected, saved, week)}</div><p>Bạn có thể xem dữ liệu nhưng không có quyền cập nhật trong phạm vi này.</p></section>`;
+}
+
+function renderWeeklyNotificationSelection(selected, saved, week) {
+  const effective = getWeeklyEffectiveTaskState(selected, saved);
+  return `<section class="weekly-readonly-card weekly-notification-detail">
+    <strong>${escapeHtml(selected.wbs ? `${selected.wbs} · ${selected.taskName}` : selected.taskName)}</strong>
+    <div class="weekly-workflow-badges">${renderWeeklyWorkflowBadges(selected, saved, week)}</div>
+    <span>Kết quả tuần: ${escapeHtml(saved?.thisWeekResult || '—')}</span>
+    <span>Tiến độ đề xuất: ${escapeHtml(saved?.progressEnd ?? effective.progress)}% · ${escapeHtml(saved?.taskStatus || effective.status || '—')}</span>
+    <span>Vướng mắc: ${escapeHtml(saved?.issue || '—')}</span>
+    <span>Giải pháp/Đề xuất: ${escapeHtml(saved?.recommendation || '—')}</span>
+    ${saved?.reviewReason ? `<p><strong>Lý do trả lại:</strong> ${escapeHtml(saved.reviewReason)}</p>` : ''}
+  </section>`;
 }
 
 function renderWeeklySavedSelectionPlaceholder() {
@@ -4230,7 +4679,7 @@ function renderWeeklySaveActions(selected, capabilities = {}) {
 
 function bindWeeklyTaskUpdateControls() {
   document.querySelectorAll('[data-week-nav]').forEach((button) => {
-    button.onclick = () => { if (button.dataset.weekNav === 'today') { qltdSelectedWeekId = qltdCurrentWeekPeriod().weekId; qltdSelectedWeeklyItemKey = ''; qltdWeeklyEditingItemKey = ''; qltdWeeklyForcedItem = null; } else qltdShiftSelectedWeek(button.dataset.weekNav === 'prev' ? -7 : 7); qltdWeeklyResetTaskFilters(); renderWeeklyTaskRegion(); loadWeeklyTaskDataForCurrent(); };
+    button.onclick = () => { if (button.dataset.weekNav === 'today') { qltdSelectedWeekId = qltdCurrentWeekPeriod().weekId; qltdSelectedWeeklyItemKey = ''; qltdWeeklyEditingItemKey = ''; qltdWeeklyNotificationDetailItemKey = ''; qltdWeeklyForcedItem = null; } else qltdShiftSelectedWeek(button.dataset.weekNav === 'prev' ? -7 : 7); qltdWeeklyResetTaskFilters(); renderWeeklyTaskRegion(); loadWeeklyTaskDataForCurrent(); };
   });
   const weekPicker = document.getElementById('weeklyWeekPicker');
   if (weekPicker) weekPicker.onchange = () => {
@@ -4239,6 +4688,7 @@ function bindWeeklyTaskUpdateControls() {
     qltdSelectedWeekId = period.weekId;
     qltdSelectedWeeklyItemKey = '';
     qltdWeeklyEditingItemKey = '';
+    qltdWeeklyNotificationDetailItemKey = '';
     qltdWeeklyForcedItem = null;
     qltdWeeklyResetTaskFilters();
     renderWeeklyTaskRegion();
@@ -4249,13 +4699,14 @@ function bindWeeklyTaskUpdateControls() {
       qltdWeeklyWorkspaceTab = button.dataset.weeklyWorkspaceTab === 'tasks' ? 'tasks' : 'objectives';
       qltdSelectedWeeklyItemKey = '';
       qltdWeeklyEditingItemKey = '';
+      qltdWeeklyNotificationDetailItemKey = '';
       renderWeeklyTaskRegion();
     };
   });
-  document.querySelectorAll('[data-weekly-select]').forEach((button) => { button.onclick = () => { qltdSelectedWeeklyItemKey = button.dataset.weeklySelect || ''; qltdWeeklyEditingItemKey = qltdSelectedWeeklyItemKey; renderWeeklyTaskRegion(); }; });
+  document.querySelectorAll('[data-weekly-select]').forEach((button) => { button.onclick = () => { qltdSelectedWeeklyItemKey = button.dataset.weeklySelect || ''; qltdWeeklyEditingItemKey = qltdSelectedWeeklyItemKey; qltdWeeklyNotificationDetailItemKey = ''; renderWeeklyTaskRegion(); }; });
   document.querySelectorAll('[data-weekly-master-details]').forEach((button) => { button.onclick = () => { const payload = qltdDeptPlanPayload || {}; const dept = (payload.departments || []).find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || {}; openDetailStatusPopup(payload, dept, button.dataset.weeklyMasterDetails || ''); }; });
-  document.querySelectorAll('[data-weekly-item]').forEach((button) => { button.onclick = () => { qltdWeeklyWorkspaceTab = button.dataset.weeklyItemType === 'PB_DETAIL' ? 'tasks' : 'objectives'; if (qltdWeeklyWorkspaceTab === 'tasks') qltdWeeklyResetTaskFilters(); qltdSelectedWeeklyItemKey = button.dataset.weeklyItem || ''; qltdWeeklyEditingItemKey = qltdSelectedWeeklyItemKey; renderWeeklyTaskRegion(); }; });
-  const close = document.querySelector('[data-weekly-close-form]'); if (close) close.onclick = () => { qltdSelectedWeeklyItemKey = ''; qltdWeeklyEditingItemKey = ''; renderWeeklyTaskRegion(); };
+  document.querySelectorAll('[data-weekly-item]').forEach((button) => { button.onclick = () => { qltdWeeklyWorkspaceTab = button.dataset.weeklyItemType === 'PB_DETAIL' ? 'tasks' : 'objectives'; if (qltdWeeklyWorkspaceTab === 'tasks') qltdWeeklyResetTaskFilters(); qltdSelectedWeeklyItemKey = button.dataset.weeklyItem || ''; qltdWeeklyEditingItemKey = qltdSelectedWeeklyItemKey; qltdWeeklyNotificationDetailItemKey = ''; renderWeeklyTaskRegion(); }; });
+  const close = document.querySelector('[data-weekly-close-form]'); if (close) close.onclick = () => { qltdSelectedWeeklyItemKey = ''; qltdWeeklyEditingItemKey = ''; qltdWeeklyNotificationDetailItemKey = ''; renderWeeklyTaskRegion(); };
   const search = document.getElementById('weeklyTaskSearch');
   if (search) search.onchange = () => { qltdWeeklyTaskFilters.search = search.value || ''; renderWeeklyTaskRegion(); };
   const ownership = document.getElementById('weeklyTaskOwnership');
@@ -8129,7 +8580,8 @@ function renderApp(user, role, profile = {}) {
   ensureWeb07Panels();
   bindWeb07Navigation();
   showWeb07View('dashboard');
-  loadProjectsForSelector();
+  qltdProjectsLoadPromise = loadProjectsForSelector();
+  void loadNotifications();
 
   if (els.userAvatar) {
     els.userAvatar.src = user.photoURL || '';
@@ -8377,6 +8829,13 @@ if (els.registrationReloadButton) els.registrationReloadButton.addEventListener(
   if (lastAuthenticatedUser) showRegistrationGate(lastAuthenticatedUser);
 });
 if (els.registrationSignOutButton) els.registrationSignOutButton.addEventListener('click', handleSignOut);
+if (els.notificationBellButton) els.notificationBellButton.addEventListener('click', () => setNotificationPanelOpen(!qltdNotificationState.open));
+if (els.notificationCloseButton) els.notificationCloseButton.addEventListener('click', () => setNotificationPanelOpen(false));
+if (els.notificationBackdrop) els.notificationBackdrop.addEventListener('click', () => setNotificationPanelOpen(false));
+if (els.notificationReloadButton) els.notificationReloadButton.addEventListener('click', () => loadNotifications());
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && qltdNotificationState.open) setNotificationPanelOpen(false);
+});
 window.addEventListener('resize', () => {
   const gantt = getDhtmlxGanttInstance();
   if (qltdActiveView === 'gantt' && gantt && gantt.setSizes) gantt.setSizes();
