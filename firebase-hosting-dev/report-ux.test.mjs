@@ -105,7 +105,9 @@ assert.equal(masterToggleContext.renderCount, 2);
 const weeklyPanel = latestFunction('renderWeeklyTaskUpdatePanel', 'renderWeeklyTaskList');
 assert.match(weeklyPanel, /single-week-toolbar/);
 assert.match(weeklyPanel, /Thứ Hai – Chủ nhật/);
-assert.match(weeklyPanel, /selected && canUpdate \? renderWeeklySelectedForm/);
+assert.match(weeklyPanel, /editorOpen && canUpdate \? renderWeeklySelectedForm/);
+assert.match(weeklyPanel, /selected && canUpdate \? renderWeeklySavedSelectionPlaceholder/);
+assert.match(weeklyPanel, /qltdWeeklyEditingItemKey === qltdSelectedWeeklyItemKey/);
 assert.match(weeklyPanel, /renderStandaloneBudgetWeeklyBlock/);
 assert.match(weeklyPanel, /weekly-split-view/);
 assert.match(weeklyPanel, /data-weekly-workspace-tab="objectives"/);
@@ -124,6 +126,57 @@ assert.ok(weeklyPanel.indexOf('renderWeeklySelectedForm') < weeklyPanel.indexOf(
 assert.ok(weeklyPanel.indexOf('renderStandaloneBudgetWeeklyBlock') < weeklyPanel.indexOf('renderWeeklySaveActions'));
 assert.ok(weeklyPanel.indexOf('renderWeeklySaveActions') < weeklyPanel.indexOf('renderWeeklySavedUpdates'));
 assert.equal((weeklyPanel.match(/renderWeeklySaveActions/g) || []).length, 1);
+assert.match(extractFunction(app, 'renderWeeklySavedSelectionPlaceholder'), /Đã lưu cập nhật.*Bấm “Cập nhật” để mở lại biểu mẫu/);
+
+const panelItem = { itemType: 'PB_DETAIL', itemId: 'DT-LOCAL', taskName: 'Việc local' };
+const panelSaved = { itemType: 'PB_DETAIL', itemId: 'DT-LOCAL', thisWeekResult: 'Kết quả vừa lưu' };
+const weeklyPanelContext = {
+  QLTD_WEEKLY_DEPT_ACCESS_MESSAGE: 'Không có quyền',
+  qltdWeeklyTaskView: {
+    key: 'P1::D1::W1',
+    items: [panelItem],
+    updates: [panelSaved],
+    standaloneBudgetItems: [],
+    capabilities: { canUpdate: true, role: 'EDITOR' },
+    loading: false,
+    error: ''
+  },
+  qltdWeeklyTaskFilters: { search: 'giữ nguyên', ownership: 'OWNED', statuses: ['NOT_UPDATED'] },
+  qltdWeeklyWorkspaceTab: 'tasks',
+  qltdSelectedWeeklyItemKey: 'PB_DETAIL:DT-LOCAL',
+  qltdWeeklyEditingItemKey: '',
+  currentUserProfile: { email: 'user@example.com', role: 'EDITOR' },
+  getWeeklyTaskCacheKey: () => 'P1::D1::W1',
+  qltdWeeklyBuildWorkspaceModel: () => ({ objectives: [], tasks: [panelItem], visibleTasks: [], notUpdated: 0, pending: 0 }),
+  findWeeklySavedUpdate: () => panelSaved,
+  qltdWeeklyGetIsoWeekInfo: () => ({ weekNo: 1, year: 2026 }),
+  formatRole: () => 'Biên tập',
+  qltdWeeklyGetOverdueMetric: () => ({ label: 'Công việc quá hạn', count: 0 }),
+  escapeHtml: (value) => String(value ?? ''),
+  formatIsoDateVi: (value) => String(value || ''),
+  renderWeeklyTaskFilters: (model) => `<FILTER:${model.visibleTasks.length}>`,
+  renderWeeklyObjectiveList: () => '',
+  renderWeeklyTaskList: (items) => `<ROW:${items[0]?.itemId}:${weeklyPanelContext.qltdSelectedWeeklyItemKey}>`,
+  renderWeeklySelectedForm: (_item, saved) => `<FORM:${saved.thisWeekResult}>`,
+  renderWeeklyReadonlySelection: () => '<READONLY>',
+  renderStandaloneBudgetWeeklyBlock: () => '',
+  renderWeeklySavedUpdates: () => '<HISTORY>'
+};
+vm.createContext(weeklyPanelContext);
+vm.runInContext(`${[
+  extractFunction(app, 'renderWeeklySavedSelectionPlaceholder'),
+  extractFunction(app, 'renderWeeklySaveActions'),
+  extractFunction(app.slice(app.lastIndexOf('function renderWeeklyTaskUpdatePanel')), 'renderWeeklyTaskUpdatePanel')
+].join('\n')}\nthis.renderPanel = renderWeeklyTaskUpdatePanel;`, weeklyPanelContext);
+const closedPanelHtml = weeklyPanelContext.renderPanel({ projectCode: 'P1' }, { deptCode: 'D1' }, {}, { weekId: 'W1', weekStart: '2026-06-22', weekEnd: '2026-06-28' });
+assert.match(closedPanelHtml, /ĐÃ LƯU CẬP NHẬT/);
+assert.match(closedPanelHtml, /ROW:DT-LOCAL:PB_DETAIL:DT-LOCAL/);
+assert.match(closedPanelHtml, /FILTER:1/);
+assert.doesNotMatch(closedPanelHtml, /FORM:|saveWeeklyTaskUpdateButton/);
+weeklyPanelContext.qltdWeeklyEditingItemKey = 'PB_DETAIL:DT-LOCAL';
+const reopenedPanelHtml = weeklyPanelContext.renderPanel({ projectCode: 'P1' }, { deptCode: 'D1' }, {}, { weekId: 'W1', weekStart: '2026-06-22', weekEnd: '2026-06-28' });
+assert.match(reopenedPanelHtml, /FORM:Kết quả vừa lưu/);
+assert.match(reopenedPanelHtml, /saveWeeklyTaskUpdateButton/);
 
 const weeklyStateSource = app.slice(app.indexOf('function normalizeWeeklyUpdateMatchValue'), app.indexOf('function renderWeeklyTaskUpdatePanel('));
 const weeklyStateContext = {};
@@ -647,6 +700,28 @@ assert.equal((weeklyBinding.match(/data-weekly-retry/g) || []).length, 1);
 assert.equal((weeklyBinding.match(/loadWeeklyTaskDataForCurrent\(\{ force: true \}\)/g) || []).length, 1);
 assert.doesNotMatch(weeklyBinding.slice(weeklyBinding.indexOf("data-weekly-workspace-tab"), weeklyBinding.indexOf("data-weekly-master-details")), /loadWeeklyTaskData/);
 assert.doesNotMatch(weeklyBinding.slice(weeklyBinding.indexOf("weeklyTaskSearch"), weeklyBinding.indexOf("const retry")), /loadWeeklyTaskData/);
+assert.match(weeklyBinding, /qltdWeeklyEditingItemKey = qltdSelectedWeeklyItemKey/);
+const selectButton = { dataset: { weeklySelect: 'PB_DETAIL:DT-LOCAL' }, onclick: null };
+const weeklyBindingContext = {
+  document: {
+    querySelectorAll: (selector) => selector === '[data-weekly-select]' ? [selectButton] : [],
+    getElementById: () => null,
+    querySelector: () => null
+  },
+  qltdSelectedWeeklyItemKey: '',
+  qltdWeeklyEditingItemKey: '',
+  renderCount: 0,
+  renderWeeklyTaskRegion: () => { weeklyBindingContext.renderCount += 1; },
+  syncWeeklyActualDateLifecycle: () => {},
+  syncWeeklyBudgetValidation: () => {}
+};
+vm.createContext(weeklyBindingContext);
+vm.runInContext(extractFunction(app.slice(app.lastIndexOf('function bindWeeklyTaskUpdateControls')), 'bindWeeklyTaskUpdateControls'), weeklyBindingContext);
+weeklyBindingContext.bindWeeklyTaskUpdateControls();
+selectButton.onclick();
+assert.equal(weeklyBindingContext.qltdSelectedWeeklyItemKey, 'PB_DETAIL:DT-LOCAL');
+assert.equal(weeklyBindingContext.qltdWeeklyEditingItemKey, 'PB_DETAIL:DT-LOCAL');
+assert.equal(weeklyBindingContext.renderCount, 1);
 
 const weeklySave = latestFunction('saveWeeklyTaskUpdate()', 'showWeeklyToast');
 assert.match(weeklySave, /verifyWeeklyTaskUpdateSaved\(body\)/);
@@ -657,11 +732,138 @@ assert.match(weeklySave, /budgetUpdates: budgetPayload\.updates/);
 assert.match(weeklySave, /getWeeklyEffectiveTaskState\(item, currentUpdate\)/);
 assert.match(weeklySave, /applyWeeklySavedUpdateToView\(body, data\.update/);
 assert.match(weeklySave, /renderWeeklyTaskRegion\(\)/);
+assert.match(weeklySave, /qltdWeeklyEditingItemKey = ''/);
+assert.doesNotMatch(weeklySave, /renderedStatus/);
+assert.doesNotMatch(weeklySave, /status\.textContent = 'Đang lưu\.\.\.'/);
 assert.equal((weeklySave.match(/loadWeeklyTaskDataForCurrent\(\{ force: true \}\)/g) || []).length, 1);
 assert.match(weeklySave, /budgetPayload\.updates\.length && !localRefresh\.budgetComplete/);
 const verifiedSaveBranch = weeklySave.slice(weeklySave.indexOf('if (verified)'));
 assert.doesNotMatch(verifiedSaveBranch, /loadWeeklyTaskDataForCurrent/);
 assert.match(verifiedSaveBranch, /qltdGanttDirtyProjects\.add\(projectCode\)/);
+assert.match(extractFunction(app, 'resetDeptScopedSelectionState'), /qltdWeeklyEditingItemKey = ''/);
+assert.match(extractFunction(app, 'clearWeeklyTaskSessionState'), /qltdWeeklyEditingItemKey = ''/);
+assert.match(extractFunction(app, 'qltdShiftSelectedWeek'), /qltdWeeklyEditingItemKey = ''/);
+
+function createWeeklySaveContext({ postResult, postError = null, verified = null, delayed = false } = {}) {
+  const button = { disabled: false, dataset: {}, textContent: 'Lưu báo cáo tuần' };
+  const status = { textContent: '' };
+  const inputs = {
+    saveWeeklyTaskUpdateButton: button,
+    weeklyTaskSaveStatus: status,
+    weeklyTaskResult: { value: 'Dữ liệu người dùng' },
+    weeklyTaskIssue: { value: 'Vướng mắc' },
+    weeklyTaskRecommendation: { value: 'Kiến nghị' },
+    weeklyTaskBudget: { value: '' },
+    weeklyTaskBudgetNote: { value: '' }
+  };
+  let releasePost;
+  const context = {
+    qltdWeeklyTaskView: { items: [{ itemType: 'PB_DETAIL', itemId: 'DT-1', progress: 20 }], updates: [] },
+    qltdSelectedWeeklyItemKey: 'PB_DETAIL:DT-1',
+    qltdWeeklyEditingItemKey: 'PB_DETAIL:DT-1',
+    qltdDeptPlanPayload: { projectCode: 'P1', departments: [{ deptCode: 'D1' }] },
+    qltdSelectedDeptCode: 'D1',
+    qltdSelectedWeekId: 'W1',
+    qltdWeeklyForcedItem: {},
+    qltdWeeklySaveRequestId: 'REQ-1',
+    qltdWeeklyTaskFilters: { search: 'không đổi', ownership: 'OWNED', statuses: ['NOT_UPDATED'] },
+    qltdWeeklyWorkspaceTab: 'tasks',
+    currentUserProfile: { email: 'user@example.com' },
+    qltdGanttDirtyProjects: new Set(),
+    document: { getElementById: (id) => inputs[id] || null },
+    window: { confirm: () => true },
+    validateWeeklyTaskForm: () => ({ error: '', progressEnd: 30, status: 'Đang thực hiện', dates: { actualStart: '', actualFinish: '', actualStartEdit: '', actualFinishEdit: '' } }),
+    buildWeeklyBudgetUpdates: () => ({ error: '', updates: [] }),
+    findWeeklySavedUpdate: () => null,
+    getWeeklyEffectiveTaskState: () => ({ progress: 20 }),
+    getWeeklySaveRequestId: () => 'REQ-1',
+    postCount: 0,
+    postBackendJson: async () => {
+      context.postCount += 1;
+      if (delayed) await new Promise((resolve) => { releasePost = resolve; });
+      if (postError) throw postError;
+      return postResult || { success: true, data: { update: { projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', itemType: 'PB_DETAIL', itemId: 'DT-1', progressEnd: 30, approvalStatus: '' }, budget: { savedCount: 0, results: [] } } };
+    },
+    appliedUpdates: [],
+    applyWeeklySavedUpdateToView: (_body, update) => {
+      context.appliedUpdates.push(update);
+      context.qltdWeeklyTaskView.updates = [update];
+      return { applied: true, budgetComplete: true };
+    },
+    getWeeklySyncWarning: () => null,
+    toastMessages: [],
+    showWeeklyToast: (message) => context.toastMessages.push(message),
+    renderCount: 0,
+    renderWeeklyTaskRegion: () => { context.renderCount += 1; },
+    loadCount: 0,
+    loadWeeklyTaskDataForCurrent: async () => { context.loadCount += 1; },
+    markWeeklyGanttRefreshRequired: async () => {},
+    verifyCount: 0,
+    verifyWeeklyTaskUpdateSaved: async () => { context.verifyCount += 1; return verified; },
+    console
+  };
+  context.releasePost = () => releasePost?.();
+  vm.createContext(context);
+  vm.runInContext(`async ${weeklySave}`, context);
+  return { context, button, status, inputs };
+}
+
+const successfulSave = createWeeklySaveContext();
+await successfulSave.context.saveWeeklyTaskUpdate();
+assert.equal(successfulSave.context.postCount, 1);
+assert.equal(successfulSave.context.verifyCount, 0);
+assert.equal(successfulSave.context.qltdSelectedWeeklyItemKey, 'PB_DETAIL:DT-1');
+assert.equal(successfulSave.context.qltdWeeklyEditingItemKey, '');
+assert.equal(successfulSave.context.renderCount, 1);
+assert.equal(successfulSave.context.toastMessages.length, 1);
+assert.equal(successfulSave.context.loadCount, 0);
+assert.equal(successfulSave.context.appliedUpdates.length, 1);
+assert.equal(successfulSave.context.qltdWeeklyTaskFilters.search, 'không đổi');
+assert.equal(successfulSave.context.qltdWeeklyWorkspaceTab, 'tasks');
+assert.equal(successfulSave.status.textContent, '');
+
+const pendingSave = createWeeklySaveContext({
+  postResult: { success: true, data: { update: { itemType: 'MASTER', itemId: 'M1', approvalStatus: 'PENDING', officialComplete: false }, budget: { savedCount: 0, results: [] } } }
+});
+await pendingSave.context.saveWeeklyTaskUpdate();
+assert.equal(pendingSave.context.appliedUpdates[0].approvalStatus, 'PENDING');
+assert.equal(pendingSave.context.appliedUpdates[0].officialComplete, false);
+
+const backendFailure = createWeeklySaveContext({ postResult: { success: false, message: 'Backend từ chối' } });
+await backendFailure.context.saveWeeklyTaskUpdate();
+assert.equal(backendFailure.context.qltdWeeklyEditingItemKey, 'PB_DETAIL:DT-1');
+assert.equal(backendFailure.inputs.weeklyTaskResult.value, 'Dữ liệu người dùng');
+assert.equal(backendFailure.button.disabled, false);
+assert.equal(backendFailure.status.textContent, 'Backend từ chối');
+assert.equal(backendFailure.context.appliedUpdates.length, 0);
+assert.equal(backendFailure.context.toastMessages.length, 0);
+
+const recoveredUpdate = { projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', itemType: 'PB_DETAIL', itemId: 'DT-1', progressEnd: 30 };
+const interruptedSave = createWeeklySaveContext({ postError: new Error('Mất kết nối'), verified: recoveredUpdate });
+await interruptedSave.context.saveWeeklyTaskUpdate();
+assert.equal(interruptedSave.context.verifyCount, 1);
+assert.equal(interruptedSave.context.qltdWeeklyEditingItemKey, '');
+assert.equal(interruptedSave.context.qltdSelectedWeeklyItemKey, 'PB_DETAIL:DT-1');
+assert.equal(interruptedSave.context.toastMessages.length, 1);
+assert.equal(interruptedSave.context.renderCount, 1);
+assert.equal(interruptedSave.context.loadCount, 0);
+
+const unverifiedSave = createWeeklySaveContext({ postError: new Error('Mất kết nối'), verified: null });
+await unverifiedSave.context.saveWeeklyTaskUpdate();
+assert.equal(unverifiedSave.context.qltdWeeklyEditingItemKey, 'PB_DETAIL:DT-1');
+assert.equal(unverifiedSave.inputs.weeklyTaskResult.value, 'Dữ liệu người dùng');
+assert.equal(unverifiedSave.button.disabled, false);
+assert.equal(unverifiedSave.context.renderCount, 0);
+assert.equal(unverifiedSave.context.toastMessages.length, 0);
+
+const doubleSave = createWeeklySaveContext({ delayed: true });
+const firstSubmit = doubleSave.context.saveWeeklyTaskUpdate();
+await Promise.resolve();
+const secondSubmit = doubleSave.context.saveWeeklyTaskUpdate();
+assert.equal(doubleSave.context.postCount, 1);
+doubleSave.context.releasePost();
+await Promise.all([firstSubmit, secondSubmit]);
+assert.equal(doubleSave.context.postCount, 1);
 
 const localApplyContext = {
   qltdWeeklyTaskCache: new Map(),

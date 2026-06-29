@@ -105,6 +105,7 @@ let qltdWeeklyTaskCacheIdentity = '';
 let qltdWeeklyTaskView = { key: '', items: [], updates: [], nextItems: [], standaloneBudgetItems: [], budgetDrafts: {}, capabilities: { canUpdate: false, canReviewWeekly: false, role: '' }, loading: false, error: '' };
 let qltdWeeklySaveRequestId = '';
 let qltdSelectedWeeklyItemKey = '';
+let qltdWeeklyEditingItemKey = '';
 let qltdWeeklyWorkspaceTab = 'objectives';
 let qltdWeeklyTaskFilters = { search: '', ownership: 'ALL', statuses: [] };
 let qltdReportSubTab = 'plan';
@@ -2575,6 +2576,7 @@ function resetDeptScopedSelectionState() {
   qltdSelectedMasterCode = '';
   qltdDeptMasterListExpanded = false;
   qltdSelectedWeeklyItemKey = '';
+  qltdWeeklyEditingItemKey = '';
   qltdWeeklyWorkspaceTab = 'objectives';
   qltdWeeklyTaskFilters = { search: '', ownership: 'ALL', statuses: [] };
   qltdWeeklyForcedItem = null;
@@ -3073,6 +3075,7 @@ function clearWeeklyTaskSessionState() {
   qltdWeeklyTaskCacheVersions.clear();
   qltdWeeklyTaskCacheIdentity = '';
   qltdSelectedWeeklyItemKey = '';
+  qltdWeeklyEditingItemKey = '';
   qltdWeeklyWorkspaceTab = 'objectives';
   qltdWeeklyTaskFilters = { search: '', ownership: 'ALL', statuses: [] };
   qltdWeeklySaveRequestId = '';
@@ -3238,6 +3241,7 @@ function qltdShiftSelectedWeek(days) {
   const date = new Date(`${current.weekStart}T12:00:00`); date.setDate(date.getDate() + days);
   qltdSelectedWeekId = `WEEK-${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   qltdSelectedWeeklyItemKey = '';
+  qltdWeeklyEditingItemKey = '';
   qltdWeeklyForcedItem = null;
 }
 
@@ -3472,6 +3476,7 @@ function renderDetailStatusPopup(payload, dept, masterCode, result) {
       qltdWeeklyForcedItem = { projectCode: payload.projectCode, deptCode, weekCode: selectedWeek.weekId, itemType: 'PB_DETAIL', itemId: task.detailTaskId, detailTaskId: task.detailTaskId, masterTaskCode: task.masterTaskCode || masterCode, parentMasterTaskCode: task.masterTaskCode || masterCode, wbs: task.wbs || '', taskName: task.taskName || '', planStart: task.planStart || '', planFinish: task.planFinish || '', actualStart: task.actualStart || '', actualFinish: task.actualFinish || '', progress: Number(task.progress || 0), status: task.status || '', owner: task.owner || '', plannedBudget: Number(task.budgetPlan || 0), actualBudget: Number(task.budgetActual || 0), hasBudget: Number(task.budgetPlan || 0) > 0 || Number(task.budgetActual || 0) > 0, hasDetails: false, progressReadonly: false, eligibleReason: 'PLANNED', eligible: true };
       invalidateWeeklyTaskCacheKey(getWeeklyTaskCacheKey(payload.projectCode, deptCode, selectedWeek.weekId));
       qltdSelectedWeeklyItemKey = `PB_DETAIL:${task.detailTaskId}`;
+      qltdWeeklyEditingItemKey = qltdSelectedWeeklyItemKey;
       qltdSelectedMasterCode = task.masterTaskCode || masterCode;
       qltdReportSubTab = 'weekly';
       closeDetailStatusPopup();
@@ -3670,9 +3675,14 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
   }
   const updateContext = { projectCode: payload.projectCode, deptCode: dept.deptCode || dept.sheetName || '', weekCode: week.weekId };
   const model = qltdWeeklyBuildWorkspaceModel(state.items, state.updates, updateContext, week, qltdWeeklyTaskFilters, currentUserProfile?.email || '');
-  const activeItems = qltdWeeklyWorkspaceTab === 'objectives' ? model.objectives : model.visibleTasks;
+  const activeItems = qltdWeeklyWorkspaceTab === 'objectives' ? model.objectives : model.tasks;
   const selected = activeItems.find((item) => `${item.itemType}:${item.itemId}` === qltdSelectedWeeklyItemKey) || null;
+  const visibleTasks = selected && qltdWeeklyWorkspaceTab === 'tasks' && !model.visibleTasks.some((item) => `${item.itemType}:${item.itemId}` === qltdSelectedWeeklyItemKey)
+    ? [selected].concat(model.visibleTasks)
+    : model.visibleTasks;
+  const visibleModel = visibleTasks === model.visibleTasks ? model : { ...model, visibleTasks };
   const saved = selected ? findWeeklySavedUpdate(state.updates, selected, updateContext) : null;
+  const editorOpen = !!selected && qltdWeeklyEditingItemKey === qltdSelectedWeeklyItemKey;
   const deptName = dept.deptName || dept.displayName || dept.name || dept.deptCode || dept.sheetName || '';
   const projectName = payload.projectName || payload.projectCode || '';
   const weekInfo = qltdWeeklyGetIsoWeekInfo(week);
@@ -3701,7 +3711,7 @@ function renderWeeklyTaskUpdatePanel(payload, dept, master, week) {
     ${state.refreshing ? '<div class="weekly-loading-state" role="status">Đang làm mới dữ liệu tuần...</div>' : ''}
     ${state.refreshWarning ? `<div class="weekly-error-state" role="alert"><p>${escapeHtml(state.refreshWarning)}</p><button type="button" class="secondary-button" data-weekly-retry>Thử lại</button></div>` : ''}
     ${state.error ? `<div class="weekly-error-state" role="alert"><p>${escapeHtml(state.error)}</p><button type="button" class="secondary-button" data-weekly-retry>Tải lại</button></div>` : ''}
-    ${!state.loading && !state.error ? `${qltdWeeklyWorkspaceTab === 'tasks' ? renderWeeklyTaskFilters(model) : ''}<div class="weekly-split-view"><aside class="weekly-list-panel" aria-label="${qltdWeeklyWorkspaceTab === 'objectives' ? 'Danh sách mục tiêu' : 'Danh sách công việc'}"><div class="weekly-list-toolbar"><div><h3>${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</h3><span>${qltdWeeklyWorkspaceTab === 'objectives' ? `${model.objectives.length} mục tiêu` : `Hiển thị ${model.visibleTasks.length}/${model.tasks.length} công việc`}</span></div></div>${qltdWeeklyWorkspaceTab === 'objectives' ? renderWeeklyObjectiveList(model.objectives, state.updates, updateContext, week, canUpdate) : renderWeeklyTaskList(model.visibleTasks, state.updates, updateContext, week, { canUpdate, objectives: model.objectives, filtered: model.visibleTasks.length !== model.tasks.length })}</aside><main class="weekly-detail-panel" aria-label="Chi tiết cập nhật">${selected && canUpdate ? renderWeeklySelectedForm(selected, saved) : selected ? renderWeeklyReadonlySelection(selected, saved, week) : `<div class="weekly-form-placeholder"><strong>CHI TIẾT ${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</strong><span>${canUpdate ? 'Chọn “Cập nhật” để mở biểu mẫu.' : 'Tài khoản hiện tại chỉ có quyền xem.'}</span></div>`}${renderStandaloneBudgetWeeklyBlock(canUpdate ? state.standaloneBudgetItems || [] : [])}${selected && canUpdate ? renderWeeklySaveActions() : ''}</main></div><details class="weekly-history"><summary>Các cập nhật đã lưu trong tuần (${state.updates.length})</summary>${renderWeeklySavedUpdates(state.updates, state.items, canUpdate)}</details>` : ''}
+    ${!state.loading && !state.error ? `${qltdWeeklyWorkspaceTab === 'tasks' ? renderWeeklyTaskFilters(visibleModel) : ''}<div class="weekly-split-view"><aside class="weekly-list-panel" aria-label="${qltdWeeklyWorkspaceTab === 'objectives' ? 'Danh sách mục tiêu' : 'Danh sách công việc'}"><div class="weekly-list-toolbar"><div><h3>${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</h3><span>${qltdWeeklyWorkspaceTab === 'objectives' ? `${model.objectives.length} mục tiêu` : `Hiển thị ${visibleTasks.length}/${model.tasks.length} công việc`}</span></div></div>${qltdWeeklyWorkspaceTab === 'objectives' ? renderWeeklyObjectiveList(model.objectives, state.updates, updateContext, week, canUpdate) : renderWeeklyTaskList(visibleTasks, state.updates, updateContext, week, { canUpdate, objectives: model.objectives, filtered: visibleTasks.length !== model.tasks.length })}</aside><main class="weekly-detail-panel" aria-label="Chi tiết cập nhật">${editorOpen && canUpdate ? renderWeeklySelectedForm(selected, saved) : selected && canUpdate ? renderWeeklySavedSelectionPlaceholder() : selected ? renderWeeklyReadonlySelection(selected, saved, week) : `<div class="weekly-form-placeholder"><strong>CHI TIẾT ${qltdWeeklyWorkspaceTab === 'objectives' ? 'MỤC TIÊU' : 'CÔNG VIỆC'}</strong><span>${canUpdate ? 'Chọn “Cập nhật” để mở biểu mẫu.' : 'Tài khoản hiện tại chỉ có quyền xem.'}</span></div>`}${renderStandaloneBudgetWeeklyBlock(canUpdate ? state.standaloneBudgetItems || [] : [])}${editorOpen && canUpdate ? renderWeeklySaveActions() : ''}</main></div><details class="weekly-history"><summary>Các cập nhật đã lưu trong tuần (${state.updates.length})</summary>${renderWeeklySavedUpdates(state.updates, state.items, canUpdate)}</details>` : ''}
   </section>`;
 }
 
@@ -3747,6 +3757,10 @@ function renderWeeklyTaskRow(item, saved, options = {}) {
 function renderWeeklyReadonlySelection(selected, saved, week) {
   const effective = getWeeklyEffectiveTaskState(selected, saved);
   return `<section class="weekly-readonly-card"><strong>${escapeHtml(selected.wbs ? `${selected.wbs} · ${selected.taskName}` : selected.taskName)}</strong><span>Tiến độ: ${escapeHtml(effective.progress)}% · ${escapeHtml(effective.status)}</span><div class="weekly-workflow-badges">${renderWeeklyWorkflowBadges(selected, saved, week)}</div><p>Bạn có thể xem dữ liệu nhưng không có quyền cập nhật trong phạm vi này.</p></section>`;
+}
+
+function renderWeeklySavedSelectionPlaceholder() {
+  return '<div class="weekly-form-placeholder"><strong>ĐÃ LƯU CẬP NHẬT</strong><span>Đã lưu cập nhật. Bấm “Cập nhật” để mở lại biểu mẫu.</span></div>';
 }
 
 function getWeeklyTaskBadgeClass(item, updated, overdueDays) {
@@ -3977,7 +3991,7 @@ function renderWeeklySaveActions() {
 
 function bindWeeklyTaskUpdateControls() {
   document.querySelectorAll('[data-week-nav]').forEach((button) => {
-    button.onclick = () => { if (button.dataset.weekNav === 'today') { qltdSelectedWeekId = qltdCurrentWeekPeriod().weekId; qltdSelectedWeeklyItemKey = ''; qltdWeeklyForcedItem = null; } else qltdShiftSelectedWeek(button.dataset.weekNav === 'prev' ? -7 : 7); qltdWeeklyResetTaskFilters(); renderWeeklyTaskRegion(); loadWeeklyTaskDataForCurrent(); };
+    button.onclick = () => { if (button.dataset.weekNav === 'today') { qltdSelectedWeekId = qltdCurrentWeekPeriod().weekId; qltdSelectedWeeklyItemKey = ''; qltdWeeklyEditingItemKey = ''; qltdWeeklyForcedItem = null; } else qltdShiftSelectedWeek(button.dataset.weekNav === 'prev' ? -7 : 7); qltdWeeklyResetTaskFilters(); renderWeeklyTaskRegion(); loadWeeklyTaskDataForCurrent(); };
   });
   const weekPicker = document.getElementById('weeklyWeekPicker');
   if (weekPicker) weekPicker.onchange = () => {
@@ -3985,6 +3999,7 @@ function bindWeeklyTaskUpdateControls() {
     if (!period) return;
     qltdSelectedWeekId = period.weekId;
     qltdSelectedWeeklyItemKey = '';
+    qltdWeeklyEditingItemKey = '';
     qltdWeeklyForcedItem = null;
     qltdWeeklyResetTaskFilters();
     renderWeeklyTaskRegion();
@@ -3994,13 +4009,14 @@ function bindWeeklyTaskUpdateControls() {
     button.onclick = () => {
       qltdWeeklyWorkspaceTab = button.dataset.weeklyWorkspaceTab === 'tasks' ? 'tasks' : 'objectives';
       qltdSelectedWeeklyItemKey = '';
+      qltdWeeklyEditingItemKey = '';
       renderWeeklyTaskRegion();
     };
   });
-  document.querySelectorAll('[data-weekly-select]').forEach((button) => { button.onclick = () => { qltdSelectedWeeklyItemKey = button.dataset.weeklySelect || ''; renderWeeklyTaskRegion(); }; });
+  document.querySelectorAll('[data-weekly-select]').forEach((button) => { button.onclick = () => { qltdSelectedWeeklyItemKey = button.dataset.weeklySelect || ''; qltdWeeklyEditingItemKey = qltdSelectedWeeklyItemKey; renderWeeklyTaskRegion(); }; });
   document.querySelectorAll('[data-weekly-master-details]').forEach((button) => { button.onclick = () => { const payload = qltdDeptPlanPayload || {}; const dept = (payload.departments || []).find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || {}; openDetailStatusPopup(payload, dept, button.dataset.weeklyMasterDetails || ''); }; });
-  document.querySelectorAll('[data-weekly-item]').forEach((button) => { button.onclick = () => { qltdWeeklyWorkspaceTab = button.dataset.weeklyItemType === 'PB_DETAIL' ? 'tasks' : 'objectives'; if (qltdWeeklyWorkspaceTab === 'tasks') qltdWeeklyResetTaskFilters(); qltdSelectedWeeklyItemKey = button.dataset.weeklyItem || ''; renderWeeklyTaskRegion(); }; });
-  const close = document.querySelector('[data-weekly-close-form]'); if (close) close.onclick = () => { qltdSelectedWeeklyItemKey = ''; renderWeeklyTaskRegion(); };
+  document.querySelectorAll('[data-weekly-item]').forEach((button) => { button.onclick = () => { qltdWeeklyWorkspaceTab = button.dataset.weeklyItemType === 'PB_DETAIL' ? 'tasks' : 'objectives'; if (qltdWeeklyWorkspaceTab === 'tasks') qltdWeeklyResetTaskFilters(); qltdSelectedWeeklyItemKey = button.dataset.weeklyItem || ''; qltdWeeklyEditingItemKey = qltdSelectedWeeklyItemKey; renderWeeklyTaskRegion(); }; });
+  const close = document.querySelector('[data-weekly-close-form]'); if (close) close.onclick = () => { qltdSelectedWeeklyItemKey = ''; qltdWeeklyEditingItemKey = ''; renderWeeklyTaskRegion(); };
   const search = document.getElementById('weeklyTaskSearch');
   if (search) search.onchange = () => { qltdWeeklyTaskFilters.search = search.value || ''; renderWeeklyTaskRegion(); };
   const ownership = document.getElementById('weeklyTaskOwnership');
@@ -4757,7 +4773,7 @@ function applyWeeklySavedUpdateToView(payload, update, options = {}) {
 }
 
 async function saveWeeklyTaskUpdate() {
-  const item = qltdWeeklyTaskView.items.find((candidate) => `${candidate.itemType}:${candidate.itemId}` === qltdSelectedWeeklyItemKey); if (!item) return;
+  const item = qltdWeeklyTaskView.items.find((candidate) => `${candidate.itemType}:${candidate.itemId}` === qltdWeeklyEditingItemKey); if (!item) return;
   const payload = qltdDeptPlanPayload || {}; const dept = (payload.departments || []).find((candidate) => (candidate.deptCode || candidate.sheetName) === qltdSelectedDeptCode) || {};
   const status = document.getElementById('weeklyTaskSaveStatus');
   const button = document.getElementById('saveWeeklyTaskUpdateButton');
@@ -4774,7 +4790,6 @@ async function saveWeeklyTaskUpdate() {
   if (progressEnd < Number(currentEffectiveState.progress || 0)) { confirmProgressDecrease = window.confirm(`Tiến độ mới ${progressEnd}% thấp hơn tiến độ hiện tại ${currentEffectiveState.progress}%. Bạn có xác nhận?`); if (!confirmProgressDecrease) return; }
   const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode, deptCode, weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: validation.status || '', actualStart: validation.dates.actualStart || '', actualFinish: validation.dates.actualFinish || '', actualStartEdit: validation.dates.actualStartEdit || '', actualFinishEdit: validation.dates.actualFinishEdit || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease, budgetUpdates: budgetPayload.updates, requestId: getWeeklySaveRequestId() };
   if (button) { button.disabled = true; button.dataset.saving = '1'; button.textContent = 'Đang lưu...'; }
-  if (status) status.textContent = 'Đang lưu...';
   try {
     const result = await postBackendJson(body);
     if (!result.success) {
@@ -4788,13 +4803,11 @@ async function saveWeeklyTaskUpdate() {
     const syncWarning = getWeeklySyncWarning(result);
     const budgetSaved = Number(data.budget?.savedCount || 0);
     const message = syncWarning ? `Công việc đã lưu; ${budgetSaved} khoản ngân sách đã lưu, nhưng đồng bộ trạng thái nguồn chưa hoàn tất.` : data.update?.approvalStatus === 'PENDING' ? `Đã gửi Admin phê duyệt cập nhật hoàn thành MASTER; ${budgetSaved} khoản ngân sách đã lưu.` : `Công việc đã lưu; ${budgetSaved} khoản ngân sách đã lưu.`;
-    if (status) status.textContent = message;
+    qltdWeeklyEditingItemKey = '';
     showWeeklyToast(message);
     qltdWeeklySaveRequestId = '';
     renderWeeklyTaskRegion();
     if (budgetPayload.updates.length && !localRefresh.budgetComplete) await loadWeeklyTaskDataForCurrent({ force: true });
-    const renderedStatus = document.getElementById('weeklyTaskSaveStatus');
-    if (renderedStatus) renderedStatus.textContent = message;
     if (data.ganttRefreshRequired && projectCode) await markWeeklyGanttRefreshRequired(projectCode);
   } catch (error) {
     if (error.backendResult) {
@@ -4807,12 +4820,10 @@ async function saveWeeklyTaskUpdate() {
       qltdWeeklyForcedItem = null;
       applyWeeklySavedUpdateToView(body, verified, { budgetUpdates: budgetPayload.updates, budgetResults: [], clearBudgetDrafts: true });
       const message = 'Đã lưu cập nhật tuần, nhưng phản hồi kết nối bị gián đoạn.';
-      if (status) status.textContent = message;
+      qltdWeeklyEditingItemKey = '';
       showWeeklyToast(message);
       qltdWeeklySaveRequestId = '';
       renderWeeklyTaskRegion();
-      const renderedStatus = document.getElementById('weeklyTaskSaveStatus');
-      if (renderedStatus) renderedStatus.textContent = message;
       if (projectCode) qltdGanttDirtyProjects.add(projectCode);
       return;
     }
