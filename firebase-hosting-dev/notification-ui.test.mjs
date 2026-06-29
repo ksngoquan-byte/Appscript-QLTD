@@ -36,6 +36,8 @@ vm.createContext(helperContext);
 vm.runInContext([
   extractFunction(app, 'formatNotificationBadgeCount'),
   extractFunction(app, 'formatNotificationType'),
+  extractFunction(app, 'getNotificationTypeTone'),
+  extractFunction(app, 'getNotificationTypeIcon'),
   extractFunction(app, 'normalizeNotificationItem'),
   extractFunction(app, 'sortNotificationsNewest'),
   extractFunction(app, 'isNotificationActionType'),
@@ -52,6 +54,11 @@ assert.equal(helperContext.formatNotificationType('MASTER_COMPLETION_PENDING'), 
 assert.equal(helperContext.formatNotificationType('UPDATE_APPROVED'), 'Cập nhật đã được duyệt');
 assert.equal(helperContext.formatNotificationType('UPDATE_REJECTED'), 'Cập nhật bị trả lại');
 assert.doesNotMatch(helperContext.formatNotificationType('UNKNOWN'), /UNKNOWN/);
+assert.equal(helperContext.getNotificationTypeTone('PB_DETAIL_PENDING'), 'pending');
+assert.equal(helperContext.getNotificationTypeTone('MASTER_COMPLETION_PENDING'), 'master');
+assert.equal(helperContext.getNotificationTypeTone('UPDATE_APPROVED'), 'approved');
+assert.equal(helperContext.getNotificationTypeTone('UPDATE_REJECTED'), 'rejected');
+assert.match(helperContext.getNotificationTypeIcon('UPDATE_APPROVED'), /<svg/);
 assert.equal(helperContext.isNotificationActionType('PB_DETAIL_PENDING'), true);
 assert.equal(helperContext.isNotificationActionType('UPDATE_APPROVED'), false);
 assert.equal(helperContext.getNotificationWeekId({ weekStart: '2026-06-22T00:00:00.000Z' }), 'WEEK-2026-06-22');
@@ -74,21 +81,53 @@ assert.equal(helperContext.notificationMatchesApprovalItem({ itemKey: 'ITEM-1' }
 assert.match(html, /id="notificationBellButton"/);
 assert.match(html, /id="notificationBadge" class="notification-badge hidden"/);
 assert.match(html, /Bạn có 0 thông báo chưa đọc/);
-assert.match(html, /id="notificationUnreadSummary">Chưa đọc: 0/);
-assert.match(html, /id="notificationActionSummary">Cần xử lý: 0/);
+assert.match(html, /class="notification-bell-icon"[^>]*viewBox/);
+assert.doesNotMatch(html, /🔔/);
+assert.match(html, /aria-controls="notificationPanel"/);
+assert.match(html, /id="notificationUnreadSummary">0/);
+assert.match(html, /id="notificationActionSummary">0/);
+assert.match(html, /<small>Chưa đọc<\/small>/);
+assert.match(html, /<small>Cần xử lý<\/small>/);
 assert.match(html, /id="notificationReloadButton"/);
+assert.match(html, /Theo dõi yêu cầu cần xử lý và các cập nhật mới\./);
+assert.match(html, /id="notificationCloseButton"[\s\S]*?<svg/);
+assert.match(html, /id="notificationReloadButton"[\s\S]*?<svg/);
 assert.match(styles, /\.notification-item\.is-unread/);
 assert.match(styles, /\.is-notification-target/);
+assert.match(styles, /\.notification-panel\.is-open/);
+assert.match(styles, /\.notification-backdrop\.is-open/);
+assert.match(styles, /@media \(max-width: 560px\)/);
+assert.match(styles, /\.notification-bell-button:focus-visible/);
 
 const renderSource = extractFunction(app, 'renderNotificationCenter');
 assert.match(renderSource, /unreadCount === 0/);
+assert.match(renderSource, /formatNotificationBadgeCount\(unreadCount\)/);
+assert.match(renderSource, /classList\.toggle\('hidden', unreadCount === 0\)/);
 assert.match(renderSource, /Bạn có \$\{unreadCount\} thông báo chưa đọc/);
-assert.match(renderSource, /Đang tải thông báo/);
-assert.match(renderSource, /Bạn chưa có thông báo\./);
+assert.match(renderSource, /reloadLabel\.textContent = state\.loading \? 'Đang tải\.\.\.' : 'Tải lại'/);
+assert.match(renderSource, /Đang tải thông báo\.\.\./);
+assert.match(renderSource, /Bạn chưa có thông báo/);
+assert.match(renderSource, /Các yêu cầu phê duyệt và cập nhật mới sẽ hiển thị tại đây\./);
 assert.match(renderSource, /Không tải được thông báo/);
+assert.match(renderSource, /data-notification-retry/);
+assert.match(renderSource, /Thử lại/);
 assert.match(renderSource, /sortNotificationsNewest/);
 assert.match(renderSource, /notification\.isRead \? 'is-read' : 'is-unread'/);
 assert.match(renderSource, /notification\.status === 'RESOLVED'/);
+assert.match(renderSource, /\[notification\.projectCode, notification\.departmentCode\]\.filter\(Boolean\)\.join\(' · '\)/);
+assert.match(renderSource, /notification-type-pill/);
+assert.match(renderSource, /notification-unread-dot/);
+assert.match(renderSource, /notification-item-arrow/);
+assert.match(styles, /\.notification-item\.is-pending/);
+assert.match(styles, /\.notification-item\.is-master/);
+assert.match(styles, /\.notification-item\.is-approved/);
+assert.match(styles, /\.notification-item\.is-rejected/);
+
+const panelSource = extractFunction(app, 'setNotificationPanelOpen');
+assert.match(panelSource, /notificationCloseButton\.focus/);
+assert.match(panelSource, /if \(open\) loadNotifications\(\)/);
+assert.match(app, /notificationBackdrop\) els\.notificationBackdrop\.addEventListener\('click', \(\) => setNotificationPanelOpen\(false\)\)/);
+assert.match(app, /event\.key === 'Escape' && qltdNotificationState\.open/);
 
 const clearSource = extractFunction(app, 'clearNotificationState');
 assert.match(clearSource, /unreadCount: 0/);

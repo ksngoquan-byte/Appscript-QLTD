@@ -343,6 +343,24 @@ function formatNotificationType(type) {
   return QLTD_NOTIFICATION_TYPE_LABELS[String(type || '').trim().toUpperCase()] || 'Thông báo hệ thống';
 }
 
+function getNotificationTypeTone(type) {
+  const code = String(type || '').trim().toUpperCase();
+  if (code === 'PB_DETAIL_PENDING') return 'pending';
+  if (code === 'MASTER_COMPLETION_PENDING') return 'master';
+  if (code === 'UPDATE_APPROVED') return 'approved';
+  if (code === 'UPDATE_REJECTED') return 'rejected';
+  return 'system';
+}
+
+function getNotificationTypeIcon(type) {
+  const tone = getNotificationTypeTone(type);
+  if (tone === 'pending') return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H6a2 2 0 0 0-2 2v12h12v-3M9 3h6v4H9zM13 12l2 2 5-5"/></svg>';
+  if (tone === 'master') return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="m14 10 5-5"/></svg>';
+  if (tone === 'approved') return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>';
+  if (tone === 'rejected') return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5M5 12h9a5 5 0 0 1 5 5v2"/></svg>';
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>';
+}
+
 function normalizeNotificationItem(item = {}) {
   return {
     notificationId: String(item.notificationId || item.NotificationId || '').trim(),
@@ -403,41 +421,73 @@ function renderNotificationCenter() {
     els.notificationBadge.classList.toggle('hidden', unreadCount === 0);
   }
   if (els.notificationPanel) {
-    els.notificationPanel.classList.toggle('hidden', !state.open);
+    els.notificationPanel.classList.remove('hidden');
+    els.notificationPanel.classList.toggle('is-open', state.open);
     els.notificationPanel.setAttribute('aria-hidden', state.open ? 'false' : 'true');
   }
-  if (els.notificationBackdrop) els.notificationBackdrop.classList.toggle('hidden', !state.open);
-  if (els.notificationUnreadSummary) els.notificationUnreadSummary.textContent = `Chưa đọc: ${unreadCount}`;
-  if (els.notificationActionSummary) els.notificationActionSummary.textContent = `Cần xử lý: ${actionRequiredCount}`;
-  if (els.notificationReloadButton) els.notificationReloadButton.disabled = state.loading;
+  if (els.notificationBackdrop) {
+    els.notificationBackdrop.classList.remove('hidden');
+    els.notificationBackdrop.classList.toggle('is-open', state.open);
+  }
+  if (els.notificationUnreadSummary) els.notificationUnreadSummary.textContent = String(unreadCount);
+  if (els.notificationActionSummary) els.notificationActionSummary.textContent = String(actionRequiredCount);
+  if (els.notificationReloadButton) {
+    els.notificationReloadButton.disabled = state.loading;
+    els.notificationReloadButton.classList.toggle('is-loading', state.loading);
+    const reloadLabel = els.notificationReloadButton.querySelector('span');
+    if (reloadLabel) reloadLabel.textContent = state.loading ? 'Đang tải...' : 'Tải lại';
+  }
   if (els.notificationPanelStatus) {
     const status = state.navigationMessage || state.warning || state.error || (state.loading ? (state.loaded ? 'Đang tải lại...' : 'Đang tải thông báo...') : '');
     els.notificationPanelStatus.textContent = status;
     els.notificationPanelStatus.className = state.error ? 'is-error' : state.warning ? 'is-warning' : '';
   }
   if (!els.notificationList) return;
+  els.notificationList.setAttribute('aria-busy', state.loading ? 'true' : 'false');
   if (state.loading && !state.loaded) {
-    els.notificationList.innerHTML = '<p class="notification-empty-state">Đang tải thông báo...</p>';
+    els.notificationList.innerHTML = `<div class="notification-state is-loading" role="status">
+      <span class="notification-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></span>
+      <strong>Đang tải thông báo...</strong>
+      <span>Vui lòng chờ trong giây lát.</span>
+    </div>`;
     return;
   }
   if (state.error && !state.notifications.length) {
-    els.notificationList.innerHTML = '<p class="notification-empty-state">Không tải được thông báo. Bạn có thể bấm “Tải lại”.</p>';
+    els.notificationList.innerHTML = `<div class="notification-state is-error" role="alert">
+      <span class="notification-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 8v5m0 4h.01M10.3 3.9 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span>
+      <strong>Không tải được thông báo</strong>
+      <span>${escapeHtml(state.error || 'Đã xảy ra lỗi khi kết nối.')}</span>
+      <button type="button" class="notification-state-action" data-notification-retry>Thử lại</button>
+    </div>`;
+    els.notificationList.querySelector('[data-notification-retry]').onclick = () => loadNotifications();
     return;
   }
   if (!state.notifications.length) {
-    els.notificationList.innerHTML = '<p class="notification-empty-state">Bạn chưa có thông báo.</p>';
+    els.notificationList.innerHTML = `<div class="notification-state is-empty">
+      <span class="notification-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg></span>
+      <strong>Bạn chưa có thông báo</strong>
+      <span>Các yêu cầu phê duyệt và cập nhật mới sẽ hiển thị tại đây.</span>
+    </div>`;
     return;
   }
   els.notificationList.innerHTML = sortNotificationsNewest(state.notifications).map((notification) => {
+    const typeLabel = formatNotificationType(notification.type);
+    const typeTone = getNotificationTypeTone(notification.type);
     const actionState = isNotificationActionType(notification.type)
       ? `<span class="notification-pill ${notification.status === 'RESOLVED' ? 'is-resolved' : 'is-action'}">${notification.status === 'RESOLVED' ? 'Đã xử lý' : 'Cần xử lý'}</span>`
       : '';
     const createdAt = formatWeeklyDateTime(notification.createdAt) || 'Không rõ thời gian';
-    return `<button type="button" class="notification-item ${notification.isRead ? 'is-read' : 'is-unread'}" data-notification-id="${escapeHtml(notification.notificationId)}">
-      <span class="notification-item-heading"><strong>${escapeHtml(notification.title || formatNotificationType(notification.type))}</strong><time>${escapeHtml(createdAt)}</time></span>
-      <span class="notification-item-meta">${escapeHtml(formatNotificationType(notification.type))}</span>
-      <p>${escapeHtml(notification.message || '')}</p>
-      <span class="notification-item-badges"><span class="notification-pill ${notification.isRead ? '' : 'is-unread'}">${notification.isRead ? 'Đã đọc' : 'Chưa đọc'}</span>${actionState}</span>
+    const metadata = [notification.projectCode, notification.departmentCode].filter(Boolean).join(' · ');
+    return `<button type="button" class="notification-item is-${typeTone} ${notification.isRead ? 'is-read' : 'is-unread'}" data-notification-id="${escapeHtml(notification.notificationId)}" aria-label="${escapeHtml(`${notification.title || typeLabel}. ${notification.isRead ? 'Đã đọc' : 'Chưa đọc'}`)}">
+      <span class="notification-type-icon" aria-hidden="true">${getNotificationTypeIcon(notification.type)}</span>
+      <span class="notification-item-content">
+        <span class="notification-item-meta"><span class="notification-type-pill">${escapeHtml(typeLabel)}</span><time>${escapeHtml(createdAt)}</time></span>
+        <span class="notification-item-heading"><strong>${escapeHtml(notification.title || typeLabel)}</strong>${notification.isRead ? '' : '<span class="notification-unread-dot" title="Chưa đọc"></span>'}</span>
+        <span class="notification-item-message">${escapeHtml(notification.message || '')}</span>
+        ${metadata ? `<span class="notification-item-context">${escapeHtml(metadata)}</span>` : ''}
+        <span class="notification-item-badges"><span class="notification-pill ${notification.isRead ? '' : 'is-unread'}">${notification.isRead ? 'Đã đọc' : 'Chưa đọc'}</span>${actionState}</span>
+      </span>
+      <span class="notification-item-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span>
     </button>`;
   }).join('');
   els.notificationList.querySelectorAll('[data-notification-id]').forEach((button) => {
@@ -521,8 +571,10 @@ async function loadNotifications(options = {}) {
 }
 
 function setNotificationPanelOpen(open) {
+  const wasOpen = qltdNotificationState.open;
   qltdNotificationState = { ...qltdNotificationState, open: !!open, navigationMessage: open ? qltdNotificationState.navigationMessage : '' };
   renderNotificationCenter();
+  if (open && !wasOpen && els.notificationCloseButton) els.notificationCloseButton.focus({ preventScroll: true });
   if (open) loadNotifications();
 }
 
@@ -8849,7 +8901,6 @@ export {
   fetchBackendProfile,
   getLocalRoleForEmail
 };
-
 
 
 

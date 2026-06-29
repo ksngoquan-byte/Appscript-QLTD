@@ -381,7 +381,9 @@
           </div>
           <div class="profile">
             <button id="notificationBellButton" class="icon-button notification-bell-button" type="button" title="Bạn có 0 thông báo chưa đọc" aria-label="Mở thông báo" aria-expanded="false" aria-controls="notificationPanel">
-              <span class="notification-bell-icon" aria-hidden="true">🔔</span>
+              <svg class="notification-bell-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>
+              </svg>
               <span id="notificationBadge" class="notification-badge hidden" aria-hidden="true"></span>
             </button>
             <img id="userAvatar" alt="" class="avatar">
@@ -400,20 +402,36 @@
         <aside id="notificationPanel" class="notification-panel hidden" aria-labelledby="notificationPanelTitle" aria-hidden="true">
           <div class="notification-panel-header">
             <div>
-              <span class="notification-panel-eyebrow">Trung tâm thông báo</span>
+              <span class="notification-panel-eyebrow">TRUNG TÂM THÔNG BÁO</span>
               <h2 id="notificationPanelTitle">Thông báo</h2>
+              <p>Theo dõi yêu cầu cần xử lý và các cập nhật mới.</p>
             </div>
-            <button id="notificationCloseButton" class="icon-button notification-close-button" type="button" title="Đóng thông báo" aria-label="Đóng thông báo">×</button>
+            <button id="notificationCloseButton" class="icon-button notification-close-button" type="button" title="Đóng thông báo" aria-label="Đóng thông báo">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+            </button>
           </div>
           <div class="notification-panel-summary" aria-live="polite">
-            <span id="notificationUnreadSummary">Chưa đọc: 0</span>
-            <span id="notificationActionSummary">Cần xử lý: 0</span>
+            <div class="notification-summary-card is-unread">
+              <span class="notification-summary-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+              </span>
+              <span><small>Chưa đọc</small><strong id="notificationUnreadSummary">0</strong></span>
+            </div>
+            <div class="notification-summary-card is-action">
+              <span class="notification-summary-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 8v5m0 4h.01M10.3 3.9 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+              </span>
+              <span><small>Cần xử lý</small><strong id="notificationActionSummary">0</strong></span>
+            </div>
           </div>
           <div class="notification-panel-toolbar">
             <p id="notificationPanelStatus" role="status"></p>
-            <button id="notificationReloadButton" class="secondary-button" type="button">Tải lại</button>
+            <button id="notificationReloadButton" class="notification-reload-button" type="button" aria-label="Tải lại thông báo">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+              <span>Tải lại</span>
+            </button>
           </div>
-          <div id="notificationList" class="notification-list"></div>
+          <div id="notificationList" class="notification-list" aria-busy="false"></div>
         </aside>
 
         <nav class="tabs" aria-label="Điều hướng chính">
