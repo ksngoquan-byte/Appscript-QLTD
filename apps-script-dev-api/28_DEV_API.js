@@ -10,6 +10,7 @@ const QLTD_DEV_DEPT_READ_ACTIONS = {
   weekly_taskupdates_get: true,
   weekly_masterapprovals_get: true,
   weekly_pbdetailapprovals_get: true,
+  notifications_list: true,
   weekly_getmyreports: true,
   weekly_getdeptreports: true,
   listdeptplans: true
@@ -142,6 +143,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdWeeklyPbDetailApprovalsGet_(params));
   }
 
+  if (action === 'notifications_list') {
+    return qltdDevApiJson_(qltdNotificationsList_(params));
+  }
+
   if (action === 'work_listassignees') {
     return qltdDevApiJson_(qltdWorkListAssignees_(params));
   }
@@ -241,6 +246,14 @@ function qltdDevApiHandlePost_(e) {
 
   if (action === 'user_register') {
     return qltdDevApiJson_(qltdUsersRegister_(payload));
+  }
+
+  if (action === 'notifications_markread') {
+    const notificationIdentity = qltdFirebaseResolveIdentity_(payload, true);
+    if (!notificationIdentity.success) return qltdDevApiJson_(notificationIdentity);
+    payload.email = notificationIdentity.email;
+    payload.actorEmail = notificationIdentity.email;
+    return qltdDevApiJson_(qltdNotificationsMarkRead_(payload));
   }
 
   const scopeResult = qltdDeptScopeAuthorizeWrite_(payload, action);

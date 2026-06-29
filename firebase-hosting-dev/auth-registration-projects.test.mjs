@@ -73,6 +73,7 @@ assert.match(scopeSource, /function qltdDeptScopeAuthorizeWrite_/);
 assert.match(apiSource, /qltdDeptScopeAuthorizeWrite_\(payload, action\)/);
 assert.match(apiSource, /weekly_masterapprovals_get:\s*true/);
 assert.match(apiSource, /weekly_pbdetailapprovals_get:\s*true/);
+assert.match(apiSource, /notifications_list:\s*true/);
 assert.match(scopeSource, /weekly_pbdetailapproval_review:\s*\['EDITOR'\]/);
 
 let identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: 'UID-1' }] } };
@@ -100,11 +101,13 @@ assert.equal(verifiedIdentity.email, 'admin@example.com');
 let routeIdentity = { success: false, message: 'ID_TOKEN_REQUIRED' };
 let approvalParams = null;
 let pbApprovalParams = null;
+let notificationParams = null;
 const approvalRouteContext = vm.createContext({
   qltdFirebaseResolveIdentity_: () => routeIdentity,
   qltdDevApiJson_: (payload) => payload,
   qltdWeeklyMasterApprovalsGet_: (params) => { approvalParams = { ...params }; return { success: true }; },
-  qltdWeeklyPbDetailApprovalsGet_: (params) => { pbApprovalParams = { ...params }; return { success: true }; }
+  qltdWeeklyPbDetailApprovalsGet_: (params) => { pbApprovalParams = { ...params }; return { success: true }; },
+  qltdNotificationsList_: (params) => { notificationParams = { ...params }; return { success: true }; }
 });
 const readActionDeclaration = apiSource.slice(apiSource.indexOf('const QLTD_DEV_DEPT_READ_ACTIONS'), apiSource.indexOf('function qltdDevApiHandleGet'));
 vm.runInContext(`${readActionDeclaration}\n${extractFunction(apiSource, 'qltdDevApiHandleGet')}`, approvalRouteContext);
@@ -126,6 +129,32 @@ approvalRouteContext.qltdDevApiHandleGet({
 assert.equal(pbApprovalParams.email, 'pmo@example.com');
 assert.equal(pbApprovalParams.projectCode, 'P1');
 assert.equal(pbApprovalParams.status, 'PENDING');
+approvalRouteContext.qltdDevApiHandleGet({
+  parameter: { action: 'notifications_list', email: 'spoofed@example.com', idToken: 'valid', limit: '25' }
+});
+assert.equal(notificationParams.email, 'pmo@example.com');
+assert.equal(notificationParams.limit, '25');
+
+let markReadPayload = null;
+let markReadIdentity = { success: true, email: 'viewer@example.com' };
+const markReadRouteContext = vm.createContext({
+  qltdBudgetParsePostJson_: (event) => ({ payload: { ...event.payload } }),
+  qltdFirebaseResolveIdentity_: () => markReadIdentity,
+  qltdDevApiJson_: (payload) => payload,
+  qltdNotificationsMarkRead_: (payload) => { markReadPayload = { ...payload }; return { success: true }; },
+  qltdDeptScopeAuthorizeWrite_: () => { throw new Error('notification mark-read must not require project/dept scope'); }
+});
+vm.runInContext(extractFunction(apiSource, 'qltdDevApiHandlePost_'), markReadRouteContext);
+const markReadResult = markReadRouteContext.qltdDevApiHandlePost_({ payload: {
+  action: 'notifications_markread', email: 'spoofed@example.com', idToken: 'valid', notificationId: 'NTF-1'
+} });
+assert.equal(markReadResult.success, true);
+assert.equal(markReadPayload.email, 'viewer@example.com');
+assert.equal(markReadPayload.notificationId, 'NTF-1');
+markReadIdentity = { success: false, message: 'ID_TOKEN_INVALID' };
+assert.equal(markReadRouteContext.qltdDevApiHandlePost_({ payload: {
+  action: 'notifications_markread', email: 'spoofed@example.com', idToken: 'invalid', notificationId: 'NTF-1'
+} }).message, 'ID_TOKEN_INVALID');
 
 assert.match(indexSource, /id="registrationView"/);
 assert.match(indexSource, /id="registrationForm"/);

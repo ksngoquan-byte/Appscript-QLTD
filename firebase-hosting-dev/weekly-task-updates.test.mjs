@@ -11,6 +11,8 @@ const masterProgressWritebackCalls = [];
 const budgetReportIds = new Set();
 const budgetWriteCalls = [];
 const aggregateCalls = [];
+const notificationPendingCalls = [];
+const notificationFinalizeCalls = [];
 const rawBudgetRows = [];
 let budgetItems = [];
 let allocations = [];
@@ -18,6 +20,7 @@ let failBudgetItemCode = '';
 let failAggregateBudgetItemCode = '';
 let authRole = 'ADMIN';
 let authEmail = 'user@example.com';
+let notificationFailureMode = false;
 const officialDetailWrites = [];
 const detailDtos = [
   { detailTaskId: 'DT-REPORTER', masterTaskCode: 'M1', owner: 'Reporter <reporter@example.com>', wbs: '1.1', taskName: 'Reporter task', progress: 10, status: 'Äang lÃ m', actualStart: '2026-06-01', actualFinish: '' },
@@ -81,6 +84,18 @@ const context = {
   qltdPbDetailApplyUpdateNoLock_: (_action, payload) => {
     officialDetailWrites.push({ ...payload });
     return { success: true, warnings: [] };
+  },
+  qltdNotificationsTryCreatePendingNoLock_: (update) => {
+    notificationPendingCalls.push({ ...update });
+    return notificationFailureMode
+      ? { createdCount: 0, warnings: [{ code: 'NOTIFICATION_CREATE_FAILED' }] }
+      : { createdCount: 1, warnings: [] };
+  },
+  qltdNotificationsTryFinalizeReviewNoLock_: (update) => {
+    notificationFinalizeCalls.push({ ...update });
+    return notificationFailureMode
+      ? { resolvedCount: 0, createdCount: 0, warnings: [{ code: 'NOTIFICATION_RESOLVE_FAILED' }] }
+      : { resolvedCount: 1, createdCount: 1, warnings: [] };
   },
   qltdBudgetNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
   qltdBudgetNormalizeKey_: (value) => String(value || '').trim().toLowerCase(),
@@ -235,6 +250,8 @@ assert.equal(buildItem('PB_DETAIL', 'DT-COORD', { ...base, coordinatorText: 'use
 assert.match(source, /capabilities:\s*\{/);
 assert.match(source, /canUpdate:\s*canManage \|\| role === 'REPORTER'/);
 assert.match(source, /canReviewWeekly:\s*qltdWorkCanReviewWeekly_/);
+const weeklySaveSource = source.slice(source.indexOf('function qltdWeeklyTaskUpdatesSave_'), source.indexOf('function qltdWorkListWeeklyItems_'));
+assert.ok(weeklySaveSource.indexOf('.setValues([') < weeklySaveSource.indexOf('qltdNotificationsTryCreatePendingNoLock_'));
 
 const sorted = [
   { eligibleReason: 'PLANNED', planFinish: '2026-06-12', wbs: '2' },
@@ -378,6 +395,7 @@ rawBudgetRows.length = 0;
 
 const beforePendingRows = sheetRows.length;
 const beforePendingWritebacks = masterProgressWritebackCalls.length;
+const beforeMasterNotifications = notificationPendingCalls.length;
 const pending = save({ ...saveBase, itemId: 'CV-100', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-20' });
 assert.equal(pending.update.approvalStatus, 'PENDING');
 assert.equal(pending.taskSync.approvalRequired, true);
@@ -386,6 +404,8 @@ assert.equal(pending.masterWriteback.reason, 'APPROVAL_REQUIRED');
 assert.equal(pending.ganttRefreshRequired, false);
 assert.equal(masterProgressWritebackCalls.length, beforePendingWritebacks);
 assert.equal(sheetRows.length, beforePendingRows + 1);
+assert.equal(notificationPendingCalls.length, beforeMasterNotifications + 1);
+assert.equal(notificationPendingCalls.at(-1).updateId, pending.update.updateId);
 const missingDecision = review({ email: 'admin@example.com', updateId: pending.update.updateId, approvalStatus: 'APPROVED' });
 assert.equal(missingDecision.code, 'DEPENDENCY_DECISION_REQUIRED');
 const reviewResult = review({
@@ -403,6 +423,8 @@ assert.equal(reviewResult.recalcTriggered, true);
 assert.equal(masterApprovalSyncCalls.length, 1);
 assert.equal(masterApprovalSyncCalls[0].dependencyDecision, 'KEEP_CURRENT');
 assert.equal(masterApprovalSyncCalls[0].recoveryPlan, 'Bù tiến độ');
+assert.equal(notificationFinalizeCalls.at(-1).updateId, pending.update.updateId);
+assert.equal(notificationFinalizeCalls.at(-1).approvalStatus, 'APPROVED');
 
 for (const role of ['ADMIN', 'PMO']) {
   authRole = role;
@@ -444,6 +466,8 @@ assert.equal(reporterPending.update.approvalStatus, 'PENDING');
 assert.equal(reporterPending.taskSync.skippedPbDetailSync, true);
 assert.equal(detailSyncCalls.length, syncCountBeforeReporter);
 assert.equal(budgetWriteCalls.length, budgetWriteCountBeforeReporter);
+assert.equal(notificationPendingCalls.at(-1).updateId, reporterPending.update.updateId);
+assert.equal(notificationPendingCalls.at(-1).itemType, 'PB_DETAIL');
 const duplicatePending = save({ ...reporterBase, progressEnd: 40 });
 assert.equal(duplicatePending.success, false);
 assert.equal(duplicatePending.code, 'PB_DETAIL_APPROVAL_ALREADY_PENDING');
@@ -477,6 +501,7 @@ assert.equal(rejected.success, true);
 assert.equal(rejected.approval.approvalStatus, 'REJECTED');
 assert.equal(rejected.approval.reviewedBy, authEmail);
 assert.equal(officialDetailWrites.length, officialWritesBeforeReject);
+assert.equal(notificationFinalizeCalls.at(-1).approvalStatus, 'REJECTED');
 
 authRole = 'REPORTER';
 authEmail = 'reporter@example.com';
@@ -495,11 +520,30 @@ assert.equal(approvedPb.success, true);
 assert.equal(approvedPb.pbDetailUpdated, true);
 assert.equal(officialDetailWrites.at(-1).detailTaskId, 'DT-REPORTER');
 assert.equal(officialDetailWrites.at(-1).progress, 45);
+assert.equal(notificationFinalizeCalls.at(-1).approvalStatus, 'APPROVED');
 assert.equal(reviewPb({ email: authEmail, updateId: resubmitted.update.updateId, approvalStatus: 'APPROVED' }).code, 'APPROVAL_NOT_PENDING');
 const directEditor = save({ ...reporterBase, email: authEmail, itemId: 'DT-EDITOR', progressEnd: 30, thisWeekResult: 'Editor direct' });
 assert.equal(directEditor.success, true);
 assert.equal(directEditor.update.approvalStatus, '');
 assert.equal(detailSyncCalls.at(-1).detailTaskId, 'DT-EDITOR');
+
+notificationFailureMode = true;
+authRole = 'REPORTER';
+authEmail = 'reporter@example.com';
+const notificationFailurePending = save({ ...reporterBase, weekCode: 'WEEK-2026-06-29', progressEnd: 55 });
+assert.equal(notificationFailurePending.success, true);
+assert.ok(notificationFailurePending.warnings.some((warning) => warning.code === 'NOTIFICATION_CREATE_FAILED'));
+authRole = 'EDITOR';
+authEmail = 'editor@example.com';
+const notificationFailureReview = reviewPb({
+  email: authEmail,
+  updateId: notificationFailurePending.update.updateId,
+  approvalStatus: 'REJECTED',
+  reviewReason: 'Trả lại nhưng notification hỏng'
+});
+assert.equal(notificationFailureReview.success, true);
+assert.ok(notificationFailureReview.warnings.some((warning) => warning.code === 'NOTIFICATION_RESOLVE_FAILED'));
+notificationFailureMode = false;
 
 authRole = 'VIEWER';
 authEmail = 'viewer@example.com';

@@ -313,6 +313,7 @@ function qltdWeeklyMasterApprovalReview_(payload) {
       dependencyDecision: dependencyDecision,
       recoveryPlan: recoveryPlan
     });
+    const notificationResult = qltdNotificationsTryFinalizeReviewNoLock_(reviewed);
     return qltdWorkOk_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, {
       approval: reviewed,
       masterAutoUpdated: !!masterSync,
@@ -323,8 +324,9 @@ function qltdWeeklyMasterApprovalReview_(payload) {
       recalcTriggered: !!(masterSync && masterSync.recalcTriggered),
       affectedProjectCode: target.projectCode,
       affectedMasterTaskCode: target.itemId,
-      masterSync: masterSync
-    }, masterSync && masterSync.warnings || [], meta);
+      masterSync: masterSync,
+      notifications: notificationResult
+    }, (masterSync && masterSync.warnings || []).concat(notificationResult.warnings || []), meta);
   } catch (error) {
     Logger.log(JSON.stringify({
       action: action,
@@ -419,13 +421,15 @@ function qltdWeeklyPbDetailApprovalReview_(payload) {
       reviewedBy: auth.email,
       reviewedAt: now
     });
+    const notificationResult = qltdNotificationsTryFinalizeReviewNoLock_(reviewed);
     return qltdWorkOk_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, {
       approval: reviewed,
       pbDetailUpdated: !!officialWrite,
       affectedProjectCode: target.projectCode,
       affectedDeptCode: target.deptCode,
-      affectedDetailTaskId: target.itemId
-    }, officialWrite && officialWrite.warnings || [], meta);
+      affectedDetailTaskId: target.itemId,
+      notifications: notificationResult
+    }, (officialWrite && officialWrite.warnings || []).concat(notificationResult.warnings || []), meta);
   } catch (error) {
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WRITE_ERROR', qltdBudgetSafeErrorMessage_(error), meta);
   } finally {
@@ -470,6 +474,7 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
   const lock = LockService.getScriptLock();
   let locked = false;
   let saved;
+  let notificationResult = null;
   const budgetResults = [];
   try {
     locked = lock.tryLock(QLTD_WORK_WRITE_LOCK_TIMEOUT_MS);
@@ -573,6 +578,10 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
       update: qltdWeeklyTaskUpdatesNormalize_(rowObject, rowNumber),
       warnings: scope.warnings.slice()
     };
+    if (approvalRequired) {
+      notificationResult = qltdNotificationsTryCreatePendingNoLock_(saved.update);
+      saved.warnings.push.apply(saved.warnings, notificationResult.warnings || []);
+    }
   } catch (error) {
     if (budgetPreparation.writes.length) {
       return qltdWeeklyTaskUpdatesPartialWriteError_(payload, scope, 'WEEKLY_ROW_WRITE', budgetResults, {
@@ -594,6 +603,7 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
     duplicatePrevented: saved.duplicatePrevented,
     update: saved.update,
     taskSync: sync.result,
+    notifications: notificationResult,
     masterWriteback: sync.masterWriteback || null,
     ganttRefreshRequired: !!(sync.masterWriteback && sync.masterWriteback.applied),
     task: {
