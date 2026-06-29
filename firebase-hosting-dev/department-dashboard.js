@@ -1,5 +1,8 @@
 import { getExecutiveTaskDueDate, isExecutiveCategoryRow, isExecutiveTaskCompleted, isExecutiveTaskOverdue } from './dashboard-overdue.js';
-import { getMainMilestoneTaskKey, normalizeMainMilestoneTaskKeys } from './main-milestone-logic.js';
+import {
+  getMainMilestoneStableKey,
+  migrateMainMilestoneKeys
+} from './main-milestone-logic.js';
 
 function text(value) {
   return String(value || '').trim().toLowerCase().normalize('NFD')
@@ -88,7 +91,9 @@ function enrichTask(task, payload, today, milestoneKeys) {
   item.projectName = payload.projectName || payload.projectCode || '';
   item.deptCode = getDeptCode(task.owner);
   item.contextLabel = getDepartmentTaskCategory(task);
-  item.isMainMilestone = milestoneKeys.has(getMainMilestoneTaskKey(task));
+  item.isMainMilestone = milestoneKeys.has(
+    getMainMilestoneStableKey(task, payload.projectCode)
+  );
   item.isOverdue = isExecutiveTaskOverdue(item, today);
   item.lateDays = item.isOverdue ? Math.round((today - endDate) / 86400000) : 0;
   return item;
@@ -101,9 +106,9 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
   const upcomingEnd = new Date(today); upcomingEnd.setDate(upcomingEnd.getDate() + 14);
   const all = [];
   (payloads || []).forEach((payload) => {
-    const milestoneKeys = normalizeMainMilestoneTaskKeys([
+    const milestoneKeys = migrateMainMilestoneKeys([
       ...(payload.mainMilestoneIds || []), ...(payload.mainMilestoneCodes || [])
-    ], payload.data || []);
+    ], payload.data || [], payload.projectCode).keys;
     (payload.data || []).forEach((task) => all.push(enrichTask(task, payload, today, milestoneKeys)));
   });
   const real = all.filter((task) => task.isRealTask);

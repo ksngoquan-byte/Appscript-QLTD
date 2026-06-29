@@ -20,9 +20,9 @@ import {
   isExecutiveTaskOverdue
 } from './dashboard-overdue.js';
 import {
-  getMainMilestoneTaskKey,
+  getMainMilestoneStableKey,
   isMainMilestoneKeySelected,
-  normalizeMainMilestoneTaskKeys,
+  migrateMainMilestoneKeys,
   toggleMainMilestoneTaskKey
 } from './main-milestone-logic.js';
 import { buildDepartmentDashboardModel } from './department-dashboard.js';
@@ -83,7 +83,16 @@ let qltdDhtmlxGanttInitialized = false;
 let qltdDhtmlxGanttRenderSeq = 0;
 let qltdProjectRegistry = [];
 let qltdCurrentMainMilestoneProjectKey = '';
-let qltdMainMilestoneIds = new Set();
+let qltdMainMilestoneKeys = new Set();
+let qltdMainMilestoneOrphanKeys = new Set();
+let qltdMainMilestoneMigration = {
+  rawCount: 0,
+  validCount: 0,
+  migratedCount: 0,
+  orphanCount: 0,
+  ambiguousCount: 0,
+  warnings: []
+};
 let qltdMainMilestoneSelectMode = false;
 let qltdMainMilestoneGanttClickEventId = null;
 let qltdDashboardMode = 'project';
@@ -6850,9 +6859,9 @@ function renderGanttPanel(payload) {
           <option value="main-milestones">Chỉ mốc chính</option>
         </select>
         ${canViewMilestoneColumn ? `
-          <button id="ganttMilestoneModeButton" type="button" class="${qltdMainMilestoneSelectMode ? 'active' : ''}" data-label="${escapeHtml(milestoneModeLabel)}">${escapeHtml(milestoneModeLabel)}${qltdMainMilestoneIds.size ? ` (${qltdMainMilestoneIds.size})` : ''}</button>
+          <button id="ganttMilestoneModeButton" type="button" class="${qltdMainMilestoneSelectMode ? 'active' : ''}" data-label="${escapeHtml(milestoneModeLabel)}">${escapeHtml(milestoneModeLabel)}${qltdMainMilestoneKeys.size ? ` (${qltdMainMilestoneKeys.size})` : ''}</button>
           ${canResetMilestone ? '<button id="ganttMilestoneResetButton" type="button">Reset mốc</button>' : ''}
-          <span id="ganttMilestoneBadge" class="web07-muted">Mốc chính: ${qltdMainMilestoneIds.size}</span>
+          <span id="ganttMilestoneBadge" class="web07-muted" title="${escapeHtml(getMainMilestoneBadgeTitle())}">${escapeHtml(getMainMilestoneBadgeText())}</span>
         ` : ''}
         <button id="ganttLinksToggle" type="button" class="${qltdGanttShowLinks ? 'active' : ''}">Mũi tên</button>
         <span id="ganttLinkLegend" class="web07-link-legend ${qltdGanttShowLinks ? '' : 'is-muted'}">
@@ -6962,7 +6971,8 @@ function bindGanttToolbar(payload) {
     milestoneResetButton.onclick = async () => {
       if (!canResetMainMilestone()) return;
       const scroll = getGanttScrollState();
-      qltdMainMilestoneIds = new Set();
+      qltdMainMilestoneKeys = new Set();
+      qltdMainMilestoneOrphanKeys = new Set();
       await resetMainMilestonesForProject(payload.projectCode || getStoredProjectCode());
       const depthFilter = document.getElementById('ganttDepthFilter');
       if (depthFilter && depthFilter.value === 'main-milestones') {
@@ -7086,7 +7096,11 @@ function qltdRecalculateVisibleStructuralSummaries(tasks, visibleIds) {
 
 function shouldShowByDepth(task, depthFilter) {
   if (depthFilter === 'main-milestones') {
-    return isMainMilestoneKeySelected(qltdMainMilestoneIds, task);
+    return isMainMilestoneKeySelected(
+      qltdMainMilestoneKeys,
+      task,
+      qltdCurrentMainMilestoneProjectKey
+    );
   }
   if (depthFilter === 'wbs-1-2') return getTaskWbsLevel(task) <= 2;
   if (depthFilter === 'wbs-1-3') return getTaskWbsLevel(task) <= 3;
@@ -8429,25 +8443,41 @@ function getMainMilestoneDocRef(projectKey = qltdCurrentMainMilestoneProjectKey 
 function readCachedMainMilestones(projectCode, payload = qltdGanttPayload) {
   try {
     const raw = localStorage.getItem(getMainMilestoneStorageKey(projectCode, payload));
-    const ids = raw ? JSON.parse(raw) : [];
-    return Array.isArray(ids) ? ids.map(String) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) return parsed.map(String);
+    return [
+      ...(Array.isArray(parsed.keys) ? parsed.keys : []),
+      ...(Array.isArray(parsed.orphanKeys) ? parsed.orphanKeys : [])
+    ].map(String);
   } catch (error) {
-    console.warn('Cannot read cached main milestone ids', error);
+    console.warn('Cannot read cached main milestone keys', error);
     return [];
   }
 }
 
 function cacheMainMilestonesForProject(projectCode = getStoredProjectCode(), payload = qltdGanttPayload) {
   try {
-    localStorage.setItem(getMainMilestoneStorageKey(projectCode, payload), JSON.stringify(Array.from(qltdMainMilestoneIds)));
+    localStorage.setItem(getMainMilestoneStorageKey(projectCode, payload), JSON.stringify({
+      version: 2,
+      projectCode: getMainMilestoneProjectKey(projectCode, payload),
+      keys: Array.from(qltdMainMilestoneKeys),
+      orphanKeys: Array.from(qltdMainMilestoneOrphanKeys),
+      migration: {
+        rawCount: qltdMainMilestoneMigration.rawCount,
+        migratedCount: qltdMainMilestoneMigration.migratedCount,
+        ambiguousCount: qltdMainMilestoneMigration.ambiguousCount
+      }
+    }));
   } catch (error) {
-    console.warn('Cannot cache main milestone ids', error);
+    console.warn('Cannot cache main milestone keys', error);
   }
 }
 
 function getMainMilestonesFromApiPayload(payload) {
   if (!payload) return [];
   const directValues = [
+    ...(Array.isArray(payload.keys) ? payload.keys : []),
+    ...(Array.isArray(payload.orphanKeys) ? payload.orphanKeys : []),
     ...(Array.isArray(payload.ids) ? payload.ids : []),
     ...(Array.isArray(payload.codes) ? payload.codes : []),
     ...(Array.isArray(payload.mainMilestoneIds) ? payload.mainMilestoneIds : []),
@@ -8465,6 +8495,31 @@ function getMainMilestonesFromApiPayload(payload) {
   return [...directValues, ...taskValues].map(String).filter(Boolean);
 }
 
+function applyMainMilestoneMigration(values, tasks, projectKey, source) {
+  const migration = migrateMainMilestoneKeys(values, tasks, projectKey);
+  qltdMainMilestoneKeys = migration.keys;
+  qltdMainMilestoneOrphanKeys = migration.orphanKeys;
+  qltdMainMilestoneMigration = {
+    rawCount: migration.rawCount,
+    validCount: migration.validCount,
+    migratedCount: migration.migratedCount,
+    orphanCount: migration.orphanCount,
+    ambiguousCount: migration.ambiguousCount,
+    warnings: migration.warnings
+  };
+  console.log('[mainMilestone] migration', {
+    source,
+    projectCode: projectKey,
+    raw: migration.rawCount,
+    valid: migration.validCount,
+    migrated: migration.migratedCount,
+    orphan: migration.orphanCount,
+    ambiguous: migration.ambiguousCount
+  });
+  migration.warnings.forEach((warning) => console.warn('[mainMilestone]', warning.code, warning.rawKey));
+  return migration;
+}
+
 function hasMainMilestoneApiSource(payload) {
   if (!payload) return false;
   const source = String(payload.mainMilestoneSource || '').toUpperCase();
@@ -8478,10 +8533,12 @@ async function loadMainMilestonesForProject(projectCode, payload = qltdGanttPayl
   const projectKey = getMainMilestoneProjectKey(projectCode, payload);
   const aliases = getMainMilestoneProjectKeyAliases(projectCode, payload);
   qltdCurrentMainMilestoneProjectKey = projectKey;
-  const payloadIds = getMainMilestonesFromApiPayload(payload);
-  qltdMainMilestoneIds = normalizeMainMilestoneTaskKeys(
-    payloadIds.length ? payloadIds : readCachedMainMilestones(projectKey, payload),
-    payload && payload.data
+  const payloadKeys = getMainMilestonesFromApiPayload(payload);
+  applyMainMilestoneMigration(
+    payloadKeys.length ? payloadKeys : readCachedMainMilestones(projectKey, payload),
+    payload && payload.data,
+    projectKey,
+    payloadKeys.length ? 'GANTT_PAYLOAD' : 'LOCAL_STORAGE'
   );
 
   try {
@@ -8490,10 +8547,17 @@ async function loadMainMilestonesForProject(projectCode, payload = qltdGanttPayl
       email: currentUserProfile && currentUserProfile.email || ''
     });
     if (response && response.success !== false) {
-      const backendIds = getMainMilestonesFromApiPayload(response);
-      qltdMainMilestoneIds = normalizeMainMilestoneTaskKeys(backendIds, payload && payload.data);
+      const backendKeys = getMainMilestonesFromApiPayload(response);
+      const migration = applyMainMilestoneMigration(
+        backendKeys,
+        payload && payload.data,
+        projectKey,
+        'APPS_SCRIPT_API'
+      );
       cacheMainMilestonesForProject(projectKey, payload);
-      console.log('[mainMilestone] loaded from Apps Script API', backendIds);
+      if (migration.migratedCount > 0 && canSelectMainMilestone()) {
+        await saveMainMilestonesForProject(projectKey, payload, { silent: true, migrated: true });
+      }
       return;
     }
     console.warn('Apps Script main milestone API rejected read; trying compatibility source', response);
@@ -8502,9 +8566,16 @@ async function loadMainMilestonesForProject(projectCode, payload = qltdGanttPayl
   }
 
   if (hasMainMilestoneApiSource(payload)) {
-    qltdMainMilestoneIds = normalizeMainMilestoneTaskKeys(payloadIds, payload && payload.data);
+    const migration = applyMainMilestoneMigration(
+      payloadKeys,
+      payload && payload.data,
+      projectKey,
+      'GANTT_PAYLOAD'
+    );
     cacheMainMilestonesForProject(projectKey, payload);
-    console.log('[mainMilestone] loaded from Apps Script API payload', payloadIds);
+    if (migration.migratedCount > 0 && canSelectMainMilestone()) {
+      await saveMainMilestonesForProject(projectKey, payload, { silent: true, migrated: true });
+    }
     return;
   }
 
@@ -8524,7 +8595,8 @@ async function loadMainMilestonesForProject(projectCode, payload = qltdGanttPayl
     }
 
     if (!matchedSnapshot) {
-      qltdMainMilestoneIds = new Set();
+      qltdMainMilestoneKeys = new Set();
+      qltdMainMilestoneOrphanKeys = new Set();
       cacheMainMilestonesForProject(projectKey, payload);
       console.log('[mainMilestone] projectKey', projectKey);
       console.log('[mainMilestone] loaded ids', []);
@@ -8533,20 +8605,33 @@ async function loadMainMilestonesForProject(projectCode, payload = qltdGanttPayl
     }
 
     const data = matchedSnapshot.data() || {};
+    const keys = Array.isArray(data.keys) ? data.keys : [];
+    const orphanKeys = Array.isArray(data.orphanKeys) ? data.orphanKeys : [];
     const ids = Array.isArray(data.milestoneIds) ? data.milestoneIds : [];
     const codes = Array.isArray(data.milestoneCodes) ? data.milestoneCodes : [];
-    qltdMainMilestoneIds = normalizeMainMilestoneTaskKeys([...ids, ...codes], payload && payload.data);
+    const migration = applyMainMilestoneMigration(
+      [...keys, ...orphanKeys, ...ids, ...codes],
+      payload && payload.data,
+      projectKey,
+      'FIRESTORE'
+    );
     cacheMainMilestonesForProject(projectKey, payload);
     console.log('[mainMilestone] projectKey', projectKey);
     if (matchedKey && matchedKey !== projectKey) console.log('[mainMilestone] matched legacy key', matchedKey);
-    console.log('[mainMilestone] loaded ids', Array.from(qltdMainMilestoneIds));
     console.log('[mainMilestone] role/canSelect', currentUserProfile && currentUserProfile.role, canSelectMainMilestone());
+    if (migration.migratedCount > 0 && canSelectMainMilestone()) {
+      await saveMainMilestonesForProject(projectKey, payload, { silent: true, migrated: true });
+    }
   } catch (error) {
-    console.warn('Cannot load global main milestone ids; using local cache', error);
+    console.warn('Cannot load global main milestone keys; using local cache', error);
   }
 }
 
-async function saveMainMilestonesForProject(projectCode = getStoredProjectCode(), payload = qltdGanttPayload) {
+async function saveMainMilestonesForProject(
+  projectCode = getStoredProjectCode(),
+  payload = qltdGanttPayload,
+  options = {}
+) {
   const projectKey = getMainMilestoneProjectKey(projectCode, payload);
   qltdCurrentMainMilestoneProjectKey = projectKey;
   cacheMainMilestonesForProject(projectKey, payload);
@@ -8554,16 +8639,22 @@ async function saveMainMilestonesForProject(projectCode = getStoredProjectCode()
   try {
     const response = await fetchBackendJson('saveMainMilestones', {
       projectCode: projectKey,
-      ids: JSON.stringify(Array.from(qltdMainMilestoneIds)),
-      codes: JSON.stringify([]),
+      ids: JSON.stringify(Array.from(qltdMainMilestoneKeys)),
+      codes: JSON.stringify(Array.from(qltdMainMilestoneOrphanKeys)),
       email: currentUserProfile && currentUserProfile.email || ''
     });
     if (response && response.success !== false) {
-      console.log('[mainMilestone] saved to Apps Script API', Array.from(qltdMainMilestoneIds));
+      console.log('[mainMilestone] saved stable keys to Apps Script API', {
+        valid: qltdMainMilestoneKeys.size,
+        orphan: qltdMainMilestoneOrphanKeys.size,
+        migrated: Boolean(options.migrated)
+      });
       return;
     }
     console.error('Apps Script rejected main milestone save', response);
-    alert('Không lưu được mốc chính: ' + String(response && (response.message || response.error) || 'API_ERROR'));
+    if (!options.silent) {
+      alert('Không lưu được mốc chính: ' + String(response && (response.message || response.error) || 'API_ERROR'));
+    }
     return;
   } catch (error) {
     console.warn('Apps Script main milestone save unavailable; trying Firestore compatibility source', error);
@@ -8573,23 +8664,38 @@ async function saveMainMilestonesForProject(projectCode = getStoredProjectCode()
   if (!ref) return;
 
   try {
-    await setDoc(ref, {
+    const firestoreData = {
       projectCode: String(projectKey || ''),
-      milestoneIds: Array.from(qltdMainMilestoneIds),
-      milestoneCodes: [],
+      keys: Array.from(qltdMainMilestoneKeys),
+      orphanKeys: Array.from(qltdMainMilestoneOrphanKeys),
+      milestoneIds: Array.from(qltdMainMilestoneKeys),
+      milestoneCodes: Array.from(qltdMainMilestoneOrphanKeys),
       updatedBy: currentUserProfile && currentUserProfile.email || '',
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    };
+    if (options.migrated) firestoreData.migratedAt = serverTimestamp();
+    await setDoc(ref, firestoreData, { merge: true });
   } catch (error) {
     console.error('Cannot save global main milestone ids', error);
-    alert('Không lưu được mốc chính dùng chung. Vui lòng kiểm tra quyền Firebase/Firestore.');
+    if (!options.silent) {
+      alert('Không lưu được mốc chính dùng chung. Vui lòng kiểm tra quyền Firebase/Firestore.');
+    }
   }
 }
 
 async function resetMainMilestonesForProject(projectCode = getStoredProjectCode(), payload = qltdGanttPayload) {
   const projectKey = getMainMilestoneProjectKey(projectCode, payload);
   qltdCurrentMainMilestoneProjectKey = projectKey;
-  qltdMainMilestoneIds = new Set();
+  qltdMainMilestoneKeys = new Set();
+  qltdMainMilestoneOrphanKeys = new Set();
+  qltdMainMilestoneMigration = {
+    rawCount: 0,
+    validCount: 0,
+    migratedCount: 0,
+    orphanCount: 0,
+    ambiguousCount: 0,
+    warnings: []
+  };
   cacheMainMilestonesForProject(projectKey, payload);
 
   try {
@@ -8613,6 +8719,8 @@ async function resetMainMilestonesForProject(projectCode = getStoredProjectCode(
   try {
     await setDoc(ref, {
       projectCode: String(projectKey || ''),
+      keys: [],
+      orphanKeys: [],
       milestoneIds: [],
       milestoneCodes: [],
       updatedBy: currentUserProfile && currentUserProfile.email || '',
@@ -8626,21 +8734,40 @@ async function resetMainMilestonesForProject(projectCode = getStoredProjectCode(
 
 function isMainMilestoneTask(taskId) {
   const task = (qltdGanttPayload && qltdGanttPayload.data || []).find((item) => String(item.id) === String(taskId));
-  return task ? isMainMilestoneSelectedTask(task) : qltdMainMilestoneIds.has(String(taskId));
+  return task ? isMainMilestoneSelectedTask(task) : false;
 }
 
 function isMainMilestoneSelectedTask(task) {
-  return isMainMilestoneKeySelected(qltdMainMilestoneIds, task);
+  return isMainMilestoneKeySelected(
+    qltdMainMilestoneKeys,
+    task,
+    qltdCurrentMainMilestoneProjectKey
+  );
+}
+
+function getMainMilestoneBadgeText() {
+  const valid = qltdMainMilestoneKeys.size;
+  const orphan = qltdMainMilestoneOrphanKeys.size;
+  return orphan ? `Mốc hợp lệ: ${valid} · Chưa khớp: ${orphan}` : `Mốc hợp lệ: ${valid}`;
+}
+
+function getMainMilestoneBadgeTitle() {
+  const valid = qltdMainMilestoneKeys.size;
+  const orphan = qltdMainMilestoneOrphanKeys.size;
+  return `Đã lưu: ${valid + orphan}\nHợp lệ: ${valid}\nChưa khớp dữ liệu hiện tại: ${orphan}`;
 }
 
 function updateMainMilestoneToolbarState() {
   const badge = document.getElementById('ganttMilestoneBadge');
-  if (badge) badge.textContent = `Mốc chính: ${qltdMainMilestoneIds.size}`;
+  if (badge) {
+    badge.textContent = getMainMilestoneBadgeText();
+    badge.title = getMainMilestoneBadgeTitle();
+  }
 
   const button = document.getElementById('ganttMilestoneModeButton');
   if (button) {
     const label = button.dataset.label || (canSelectMainMilestone() ? 'Chọn mốc chính' : 'Hiện sao mốc chính');
-    button.textContent = `${label}${qltdMainMilestoneIds.size ? ` (${qltdMainMilestoneIds.size})` : ''}`;
+    button.textContent = `${label}${qltdMainMilestoneKeys.size ? ` (${qltdMainMilestoneKeys.size})` : ''}`;
   }
 }
 
@@ -8659,7 +8786,20 @@ async function toggleMainMilestone(taskId) {
 
   const sourceTask = task || (qltdGanttPayload && qltdGanttPayload.data || [])
     .find((item) => String(item.id) === String(taskId)) || { id: taskId };
-  toggleMainMilestoneTaskKey(qltdMainMilestoneIds, sourceTask);
+  const stableKey = getMainMilestoneStableKey(
+    sourceTask,
+    qltdCurrentMainMilestoneProjectKey
+  );
+  if (!stableKey) {
+    alert('Công việc chưa có Mã công việc Master nên chưa thể chọn làm mốc chính.');
+    return;
+  }
+  toggleMainMilestoneTaskKey(
+    qltdMainMilestoneKeys,
+    sourceTask,
+    qltdCurrentMainMilestoneProjectKey
+  );
+  qltdMainMilestoneMigration.validCount = qltdMainMilestoneKeys.size;
 
   await saveMainMilestonesForProject(qltdGanttPayload && qltdGanttPayload.projectCode);
   updateMainMilestoneToolbarState();

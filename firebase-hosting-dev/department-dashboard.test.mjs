@@ -9,11 +9,11 @@ const payloads = [
     projectName: 'Hung Loc',
     mainMilestoneIds: ['a', 'g'],
     data: [
-      { id: 'a', text: 'A', owner: 'Phong Phat trien du an', status: 'Dang thuc hien', start_date: '2026-06-01', end_date: '2026-06-17', wbs: 'V.1', raw: { 'Hang muc': 'Phap ly' } },
+      { id: 'a', code: 'CV-A', masterTaskCode: 'CV-A', text: 'A', owner: 'Phong Phat trien du an', status: 'Dang thuc hien', start_date: '2026-06-01', end_date: '2026-06-17', wbs: 'V.1', raw: { 'Hang muc': 'Phap ly' } },
       { id: 'b', text: 'B', owner: 'PTDA', status: 'Chua bat dau', start_date: '2026-06-18', end_date: '2026-06-25', wbs: 'VIII.1', raw: { COL_6: '' } },
       { id: 'e', text: 'E', owner: 'PTDA', status: 'Chua bat dau', start_date: '2026-06-01', end_date: '2026-06-16' },
       { id: 'f', text: 'F', owner: 'PTDA', status: 'Dang thuc hien', start_date: '2026-06-01', end_date: '2026-06-15' },
-      { id: 'g', text: 'G', owner: 'PTDA', status: 'Hoan thanh', start_date: '2026-06-01', end_date: '2026-06-28', actualFinish: '2026-06-12' },
+      { id: 'g', code: 'CV-G', masterTaskCode: 'CV-G', text: 'G', owner: 'PTDA', status: 'Hoan thanh', start_date: '2026-06-01', end_date: '2026-06-28', actualFinish: '2026-06-12' },
       { id: 'c', text: 'C', owner: 'GPMB', status: 'Hoan thanh', start_date: '2026-06-01', end_date: '2026-06-10', actualFinish: '2026-06-10' },
       { id: 'cat', text: 'Hang muc', owner: 'PTDA', type: 'project' }
     ]
