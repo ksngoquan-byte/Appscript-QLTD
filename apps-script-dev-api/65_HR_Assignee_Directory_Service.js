@@ -36,7 +36,6 @@ const QLTD_HR_DEPT_CODE_BY_NAME = {
   'phong nhan su': 'NHANSU',
   'phong hanh chinh': 'HANHCHINH',
   'phong quan tri he thong': 'CNTT',
-  'entiz tech': 'CNTT',
   'bo phan tro ly tgd': 'TROLY',
   'bo phan tro ly hdqt': 'TROLY',
   'phong giai phong mat bang': 'GPMB'
