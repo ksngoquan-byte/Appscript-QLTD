@@ -69,6 +69,8 @@ function qltdDeptPlanListForProject_(projectCode, actorUser, actorEmail, request
     );
   }
 
+  const masterContextResult = qltdDeptPlanBuildMasterContextMap_(project.projectCode);
+  if (masterContextResult.warning) warnings.push(masterContextResult.warning);
   const ss = SpreadsheetApp.openById(project.deptSpreadsheetId);
 
   if (allowedMappedDepts.length) {
@@ -104,6 +106,12 @@ function qltdDeptPlanListForProject_(projectCode, actorUser, actorEmail, request
       deptPlan.deptName = dept.deptName || deptPlan.deptCode;
       deptPlan.projectUnitCode = dept.projectUnitCode || '';
       deptPlan.projectUnitCodeRaw = dept.projectUnitCodeRaw || deptPlan.projectUnitCode;
+      qltdDeptPlanEnrichWithMasterContext_(
+        deptPlan,
+        masterContextResult.byCode,
+        warnings,
+        project.projectCode
+      );
 
       if (deptPlan.masterCount > 0) {
         departments.push(deptPlan);
@@ -120,6 +128,12 @@ function qltdDeptPlanListForProject_(projectCode, actorUser, actorEmail, request
     ss.getSheets().forEach(function(sheet) {
       const deptPlan = qltdDeptPlanParseSheet_(sheet, project);
       if (deptPlan && deptPlan.masterCount > 0) {
+        qltdDeptPlanEnrichWithMasterContext_(
+          deptPlan,
+          masterContextResult.byCode,
+          warnings,
+          project.projectCode
+        );
         departments.push(deptPlan);
       }
     });
@@ -297,6 +311,77 @@ function qltdDeptPlanParseSheet_(sheet, project) {
     contexts: contexts,
     masters: masters
   };
+}
+
+function qltdDeptPlanBuildMasterContextMap_(projectCode) {
+  const byCode = {};
+  const result = qltdGanttGetDataForProject_(projectCode);
+  if (!result || result.success === false || !Array.isArray(result.data)) {
+    return {
+      byCode: byCode,
+      warning: {
+        type: 'MASTER_CONTEXT_UNAVAILABLE',
+        projectCode: projectCode
+      }
+    };
+  }
+  result.data.forEach(function(task) {
+    [task.masterTaskCode, task.code, task.taskId, task.id].forEach(function(value) {
+      const key = qltdDeptPlanNormalizeMasterCode_(value);
+      if (key && !byCode[key]) byCode[key] = task;
+    });
+  });
+  return { byCode: byCode, warning: null };
+}
+
+function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, projectCode) {
+  (deptPlan && deptPlan.masters || []).forEach(function(master) {
+    const key = qltdDeptPlanNormalizeMasterCode_(master.masterCode);
+    const official = masterByCode && masterByCode[key];
+    if (!official) {
+      master.zone = '';
+      master.loaiCongTrinh = '';
+      master.congTrinh = '';
+      master.hangMuc = '';
+      master.wbs = master.stt || '';
+      master.wbsPath = '';
+      master.contextPath = '';
+      master.mappingWarnings = ['MASTER_TASK_NOT_FOUND'];
+      warnings.push({
+        type: 'MASTER_TASK_NOT_FOUND',
+        projectCode: projectCode,
+        masterTaskCode: master.masterCode,
+        rowNumber: master.rowIndex
+      });
+      return;
+    }
+
+    master.zone = official.zone || '';
+    master.loaiCongTrinh = official.loaiCongTrinh || '';
+    master.congTrinh = official.congTrinh || '';
+    master.hangMuc = official.hangMuc || '';
+    master.wbs = official.wbs || master.stt || '';
+    master.wbsPath = official.wbsPath || '';
+    master.contextPath = official.contextPath || '';
+    master.mappingWarnings = Array.isArray(official.mappingWarnings)
+      ? official.mappingWarnings.slice()
+      : [];
+
+    (master.details || []).forEach(function(detail) {
+      detail.zone = master.zone;
+      detail.loaiCongTrinh = master.loaiCongTrinh;
+      detail.congTrinh = master.congTrinh;
+      detail.hangMuc = master.hangMuc;
+      detail.wbsPath = master.wbsPath;
+      detail.contextPath = master.contextPath;
+      detail.mappingWarnings = master.mappingWarnings.slice();
+    });
+  });
+  return deptPlan;
+}
+
+function qltdDeptPlanNormalizeMasterCode_(value) {
+  return String(value || '').trim().toUpperCase();
 }
 
 function qltdDeptPlanFindDeptCode_(values, fallbackSheetName) {

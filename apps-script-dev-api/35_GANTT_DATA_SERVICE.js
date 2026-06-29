@@ -76,14 +76,23 @@ function qltdGanttGetDataForProject_(projectCode) {
   });
 
   const tasks = qltdGanttBuildTasks_(values, detected, warnings, sheetResult.sheetName);
-  qltdGanttApplyWbsParents_(tasks, warnings);
-  const links = qltdGanttBuildLinks_(tasks, warnings);
+  qltdTaskContextResolveDataset_(tasks, {
+    projectCode: project.projectCode
+  }, warnings);
+  const links = qltdTaskContextFilterLinks_(qltdGanttBuildLinks_(tasks, warnings), tasks, warnings);
   tasks.forEach(function(task) {
     delete task._predecessor;
     delete task._linkType;
   });
 
-  return qltdGanttSuccess_(project, sheetResult.sheetName, tasks, links, qltdGanttSummarizeTasks_(tasks), warnings);
+  return qltdGanttSuccess_(
+    project,
+    sheetResult.sheetName,
+    qltdTaskContextBuildPublicDataset_(tasks),
+    links,
+    qltdGanttSummarizeTasks_(tasks),
+    warnings
+  );
 }
 
 function qltdGanttFindSourceSheet_(spreadsheet, project, warnings) {
@@ -359,6 +368,11 @@ function qltdGanttSummarizeTasks_(tasks) {
   const todayIso = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Ho_Chi_Minh', 'yyyy-MM-dd');
   const summary = {
     totalTasks: tasks.length,
+    totalRows: tasks.length,
+    realTasks: 0,
+    scheduledGroups: 0,
+    structuralGroups: 0,
+    zoneGroups: 0,
     completed: 0,
     inProgress: 0,
     notStarted: 0,
@@ -371,6 +385,19 @@ function qltdGanttSummarizeTasks_(tasks) {
   };
 
   tasks.forEach(function(task) {
+    if (task.rowType === 'ZONE_GROUP') {
+      summary.zoneGroups += 1;
+      return;
+    }
+    if (task.rowType === 'STRUCTURAL_GROUP') {
+      summary.structuralGroups += 1;
+      return;
+    }
+    if (task.rowType === 'SCHEDULED_GROUP') {
+      summary.scheduledGroups += 1;
+      return;
+    }
+    summary.realTasks += 1;
     const status = task.status || 'Chua ro';
     const owner = task.owner || 'Chua ro';
     const normalizedStatus = qltdGanttNormalizeKey_(status);

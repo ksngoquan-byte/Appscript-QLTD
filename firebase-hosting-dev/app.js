@@ -87,6 +87,7 @@ let qltdMainMilestoneIds = new Set();
 let qltdMainMilestoneSelectMode = false;
 let qltdMainMilestoneGanttClickEventId = null;
 let qltdDashboardMode = 'project';
+let qltdDashboardContextFilters = { zone: '', loaiCongTrinh: '', congTrinh: '', hangMuc: '' };
 let qltdDepartmentDashboardDeptCode = '';
 let qltdDepartmentDashboardProjectCode = '';
 const qltdDepartmentDashboardCache = new Map();
@@ -4043,6 +4044,7 @@ function renderDeptPlanTab(payload, dept, masters, selectedMaster) {
         <label for="weeklyMasterSelector">Chọn mục tiêu</label>
         <select id="weeklyMasterSelector" title="${escapeHtml(selectedMaster?.taskName || '')}">${masters.map((master) => `<option value="${escapeHtml(master.masterCode || '')}" ${master.masterCode === qltdSelectedMasterCode ? 'selected' : ''}>${escapeHtml(getDeptPlanMasterWbs(master) ? `${getDeptPlanMasterWbs(master)} · ${master.taskName || ''}` : master.taskName || '')}</option>`).join('')}</select>
       </div>
+      ${renderDeptObjectiveContext(selectedMaster)}
       <div class="dept-objective-hierarchy">
         <div><span>WBS</span><strong class="mono">${escapeHtml(getDeptPlanMasterWbs(selectedMaster) || '—')}</strong></div>
         <div><span>Bắt đầu</span><strong>${escapeHtml(formatIsoDateVi(selectedMaster?.planStart || '') || '—')}</strong></div>
@@ -4061,11 +4063,25 @@ function renderDeptPlanTab(payload, dept, masters, selectedMaster) {
       <div class="dept-plan-table-wrap"><table class="dept-plan-table report-master-table"><thead><tr><th>WBS</th><th>Mục tiêu/Công việc gốc</th><th>Bắt đầu KH</th><th>Kết thúc KH</th><th>Việc chi tiết</th><th>Tiến độ</th><th>Trạng thái</th></tr></thead><tbody>
         ${masterList.visible.map((master) => {
           const overdue = qltdDeptPlanIsOverdue(master, todayIso);
-          return `<tr data-master-select="${escapeHtml(master.masterCode || '')}" class="report-master-row ${overdue ? 'is-overdue' : ''}"><td class="mono">${escapeHtml(getDeptPlanMasterWbs(master))}</td><td><div class="task-title">${escapeHtml(master.taskName || '')}</div>${master.contextName ? `<div class="task-context">${escapeHtml(master.contextName)}</div>` : ''}${renderMasterCompletionWarning(master, true)}</td><td>${escapeHtml(formatIsoDateVi(master.planStart || '') || '—')}</td><td>${escapeHtml(formatIsoDateVi(master.planFinish || '') || '—')}</td><td><button type="button" class="detail-count-button" data-detail-popup="${escapeHtml(master.masterCode || '')}">${renderMasterDetailCount(master)}</button></td><td>${escapeHtml(master.progress ?? 0)}%</td><td>${escapeHtml(master.status || 'Chưa cập nhật')}${overdue ? '<span class="dept-overdue-badge">Quá hạn</span>' : ''}</td></tr>`;
+          return `<tr data-master-select="${escapeHtml(master.masterCode || '')}" class="report-master-row ${overdue ? 'is-overdue' : ''}"><td class="mono">${escapeHtml(getDeptPlanMasterWbs(master))}</td><td><div class="task-title">${escapeHtml(master.taskName || '')}</div>${renderDeptObjectiveContext(master, true)}${master.contextName ? `<div class="task-context">${escapeHtml(master.contextName)}</div>` : ''}${renderMasterCompletionWarning(master, true)}</td><td>${escapeHtml(formatIsoDateVi(master.planStart || '') || '—')}</td><td>${escapeHtml(formatIsoDateVi(master.planFinish || '') || '—')}</td><td><button type="button" class="detail-count-button" data-detail-popup="${escapeHtml(master.masterCode || '')}">${renderMasterDetailCount(master)}</button></td><td>${escapeHtml(master.progress ?? 0)}%</td><td>${escapeHtml(master.status || 'Chưa cập nhật')}${overdue ? '<span class="dept-overdue-badge">Quá hạn</span>' : ''}</td></tr>`;
         }).join('')}
       </tbody></table></div>
       ${masterList.total > 5 ? `<div class="dept-plan-list-footer"><button type="button" class="dept-plan-list-toggle" data-dept-master-list-toggle aria-expanded="${qltdDeptMasterListExpanded}">${qltdDeptMasterListExpanded ? 'Thu gọn' : `Xem thêm ${masterList.remaining} mục tiêu`}</button></div>` : ''}
     </section>`;
+}
+
+function renderDeptObjectiveContext(master, compact = false) {
+  if (!master) return '';
+  const badges = [master.zone, master.hangMuc].filter((value, index, values) => value && values.indexOf(value) === index);
+  const warning = (master.mappingWarnings || []).includes('MASTER_TASK_NOT_FOUND')
+    ? 'Không tìm thấy mã Master để resolve context.'
+    : '';
+  if (!badges.length && !master.contextPath && !warning) return '';
+  return `<div class="task-context ${compact ? 'compact' : ''}" title="${escapeHtml(master.contextPath || warning)}">
+    ${badges.map((badge) => `<span class="web07-chip">[${escapeHtml(badge)}]</span>`).join(' ')}
+    ${master.contextPath ? `<span>${escapeHtml(master.contextPath)}</span>` : ''}
+    ${warning ? `<span>${escapeHtml(warning)}</span>` : ''}
+  </div>`;
 }
 
 function renderMasterDetailCount(master) {
@@ -5825,7 +5841,8 @@ function renderDashboardFromGanttData(payload) {
     return;
   }
 
-  const model = buildExecutiveDashboardModel(payload);
+  const model = buildExecutiveDashboardModel(payload, qltdDashboardContextFilters);
+  const dashboardFilterTasks = (payload.data || []).filter(isNormalizedCountedTask);
 
   panel.innerHTML = `
     <div class="exec-dashboard">
@@ -5842,6 +5859,7 @@ function renderDashboardFromGanttData(payload) {
         </div>
         <button id="execRefreshButton" class="exec-refresh" type="button">Refresh</button>
       </section>
+      ${renderDashboardContextFilters(dashboardFilterTasks)}
 
       <section class="exec-kpi-grid" aria-label="KPI điều hành">
         ${renderExecutiveKpiCard('Tổng công việc', model.kpis.totalTasks, '100% dữ liệu thật', 'info')}
@@ -5850,6 +5868,7 @@ function renderDashboardFromGanttData(payload) {
         ${renderExecutiveKpiCard('Chưa bắt đầu', model.kpis.notStarted, `${model.notStartedPercent}% tổng số`, 'gray')}
         ${renderExecutiveKpiCard('Quá hạn', model.kpis.overdue, `${model.overduePercent}% tổng số`, 'red')}
         ${renderExecutiveKpiCard('Mốc lớn đang thực hiện', model.kpis.activeMilestones, model.usedMilestoneFallback ? 'WBS cấp I/II/III' : 'Mốc lớn hệ thống', 'blue')}
+        ${renderExecutiveKpiCard('Chưa mapping Hạng mục', model.kpis.unmappedContext, 'Cần rà soát context', model.kpis.unmappedContext ? 'red' : 'green')}
       </section>
 
       ${renderExecutiveAlerts(model.alerts)}
@@ -5865,6 +5884,7 @@ function renderDashboardFromGanttData(payload) {
 
   bindDashboardTaskLinks();
   bindDashboardModeSwitch();
+  bindDashboardContextFilters(payload);
   const refreshButton = document.getElementById('execRefreshButton');
   if (refreshButton) {
     refreshButton.onclick = () => loadGanttDataForSelectedProject(payload.projectCode || getStoredProjectCode());
@@ -6040,13 +6060,15 @@ function getDepartmentDueBadge(task) {
   return { text: `Còn ${remainingDays} ngày`, className: 'is-blue' };
 }
 
-function buildExecutiveDashboardModel(payload) {
+function buildExecutiveDashboardModel(payload, contextFilters = {}) {
   const today = parseIsoDate(toIsoDateLocal(new Date()));
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
   const upcomingLimit = addDays(today, 14);
   const enriched = buildExecutiveTaskContext(Array.isArray(payload.data) ? payload.data : []);
-  const realTasks = enriched.filter((task) => task.isRealTask);
+  const realTasks = enriched
+    .filter((task) => task.isRealTask)
+    .filter((task) => executiveTaskMatchesContextFilters(task, contextFilters));
   const dashboardTasks = realTasks.filter((task) => task.highestVisibleTask);
   const completed = realTasks.filter((task) => task.isCompleted);
   const openTasks = dashboardTasks.filter((task) => !task.isCompleted);
@@ -6054,6 +6076,10 @@ function buildExecutiveDashboardModel(payload) {
   const inProgress = realTasks.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress');
   const notStarted = realTasks.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started');
   const hasStrictMilestones = enriched.some((task) => task.isMilestone);
+  const unmappedContext = realTasks.filter((task) =>
+    !String(task.hangMuc || '').trim() ||
+    (task.mappingWarnings || []).includes('HANG_MUC_NOT_RESOLVED')
+  );
   const milestoneTasks = dashboardTasks.filter((task) => task.isMilestone || (!hasStrictMilestones && task.isMilestoneFallback));
 
   const allOverdue = allOpenTasks
@@ -6093,6 +6119,12 @@ function buildExecutiveDashboardModel(payload) {
   const lateMilestones = activeMilestones.filter((task) => task.lateDays > 0);
   const lateManagementTasks = overdue.filter((task) => task.wbsLevel <= 2);
   const alerts = [
+    ...(unmappedContext.length ? [{
+      tone: 'red',
+      taskId: unmappedContext[0].id,
+      title: 'Chưa xác định Hạng mục',
+      text: `${unmappedContext.length} công việc cần rà soát mapping context`
+    }] : []),
     ...severeOverdue.map((task) => ({
       tone: 'red',
       taskId: task.id,
@@ -6130,7 +6162,8 @@ function buildExecutiveDashboardModel(payload) {
       inProgress: inProgress.length,
       notStarted: notStarted.length,
       overdue: allOverdue.length,
-      activeMilestones: milestoneTasks.filter((task) => !task.isCompleted).length
+      activeMilestones: milestoneTasks.filter((task) => !task.isCompleted).length,
+      unmappedContext: unmappedContext.length
     },
     updatedAtLabel: getDashboardUpdatedAtLabel(payload),
     openTasks: openTasks.length,
@@ -6163,8 +6196,13 @@ function buildExecutiveTaskContext(tasks) {
     item.hasActionStatus = item.normalizedStatus !== 'unknown';
     item.isCompleted = isExecutiveTaskCompleted(item);
     item.durationDays = Number(task.duration || task.durationDays || task.planDays || task.plannedDays || task.soNgayKeHoach || 0);
-    item.isCategoryRow = isExecutiveCategoryRow(task, item, raw);
-    item.isRealTask = !item.isCategoryRow && !!String(task.text || '').trim() && (item.hasAnyDate || item.hasActionStatus);
+    const normalizedRowType = String(task.rowType || '').trim().toUpperCase();
+    item.isCategoryRow = normalizedRowType
+      ? !['TASK', 'MILESTONE'].includes(normalizedRowType)
+      : isExecutiveCategoryRow(task, item, raw);
+    item.isRealTask = normalizedRowType
+      ? ['TASK', 'MILESTONE'].includes(normalizedRowType)
+      : (!item.isCategoryRow && !!String(task.text || '').trim() && (item.hasAnyDate || item.hasActionStatus));
     item.isMilestone = isExecutiveStrictMilestone(task);
     item.isMilestoneFallback = item.wbsLevel >= 1 && item.wbsLevel <= 2;
     item.priorityIcon = getExecutivePriorityIcon(item);
@@ -6178,12 +6216,53 @@ function buildExecutiveTaskContext(tasks) {
     const incompleteRealAncestor = findIncompleteRealAncestor(item, byWbs);
     return {
       ...item,
-      parentPath: path.join(' > '),
+      parentPath: item.contextPath || path.join(' > '),
       parentLevel1: path[0] || '',
       parentLevel2: path[1] || '',
       parentLevel3: path[2] || '',
-      contextLabel: getExecutiveTaskCategoryFromColF(item),
+      contextLabel: item.hangMuc || getExecutiveTaskCategoryFromColF(item) || 'Chưa xác định Hạng mục',
       highestVisibleTask: !incompleteRealAncestor
+    };
+  });
+}
+
+function isNormalizedCountedTask(task) {
+  const rowType = String(task && task.rowType || '').trim().toUpperCase();
+  return rowType ? rowType === 'TASK' || rowType === 'MILESTONE' : true;
+}
+
+function executiveTaskMatchesContextFilters(task, filters = {}) {
+  return ['zone', 'loaiCongTrinh', 'congTrinh', 'hangMuc'].every((key) => {
+    const expected = String(filters[key] || '').trim();
+    return !expected || String(task[key] || '').trim() === expected;
+  });
+}
+
+function renderDashboardContextFilters(tasks) {
+  const fields = [
+    ['zone', 'Zone'],
+    ['loaiCongTrinh', 'Loại công trình'],
+    ['congTrinh', 'Công trình'],
+    ['hangMuc', 'Hạng mục']
+  ];
+  return `<section class="web07-toolbar exec-context-filters" aria-label="Lọc context Dashboard">
+    ${fields.map(([key, label]) => {
+      const values = getUniqueTaskValues(tasks, key);
+      return `<label>${escapeHtml(label)}<select data-dashboard-context-filter="${escapeHtml(key)}">
+        <option value="">Tất cả</option>
+        ${values.map((value) => `<option value="${escapeHtml(value)}" ${qltdDashboardContextFilters[key] === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}
+      </select></label>`;
+    }).join('')}
+  </section>`;
+}
+
+function bindDashboardContextFilters(payload) {
+  document.querySelectorAll('[data-dashboard-context-filter]').forEach((select) => {
+    select.onchange = () => {
+      const key = select.dataset.dashboardContextFilter;
+      if (!Object.prototype.hasOwnProperty.call(qltdDashboardContextFilters, key)) return;
+      qltdDashboardContextFilters = { ...qltdDashboardContextFilters, [key]: select.value || '' };
+      renderDashboardFromGanttData(payload);
     };
   });
 }
@@ -6701,6 +6780,8 @@ function renderGanttPanel(payload) {
   }
 
   const owners = getUniqueTaskValues(payload.data || [], 'owner');
+  const zones = getUniqueTaskValues(payload.data || [], 'zone');
+  const hangMucs = getUniqueTaskValues(payload.data || [], 'hangMuc');
   const canViewMilestoneColumn = canViewMainMilestoneColumn();
   const canResetMilestone = canResetMainMilestone();
   const canExport = canExportExcel();
@@ -6726,6 +6807,14 @@ function renderGanttPanel(payload) {
         <select id="ganttOwnerFilter">
           <option value="">Tất cả</option>
           ${owners.map((owner) => `<option value="${escapeHtml(owner || '__blank__')}">${escapeHtml(owner || 'Chưa rõ')}</option>`).join('')}
+        </select>
+        <select id="ganttZoneFilter">
+          <option value="">Tất cả Zone</option>
+          ${zones.map((zone) => `<option value="${escapeHtml(zone)}">${escapeHtml(zone)}</option>`).join('')}
+        </select>
+        <select id="ganttHangMucFilter">
+          <option value="">Tất cả Hạng mục</option>
+          ${hangMucs.map((hangMuc) => `<option value="${escapeHtml(hangMuc)}">${escapeHtml(hangMuc)}</option>`).join('')}
         </select>
         <select id="ganttStatusFilter">
           <option value="all">Tất cả</option>
@@ -6798,7 +6887,7 @@ function renderGanttPanel(payload) {
 }
 
 function bindGanttToolbar(payload) {
-  const controls = ['ganttSearchInput', 'ganttOwnerFilter', 'ganttStatusFilter', 'ganttProgressFilter', 'ganttDepthFilter'];
+  const controls = ['ganttSearchInput', 'ganttOwnerFilter', 'ganttZoneFilter', 'ganttHangMucFilter', 'ganttStatusFilter', 'ganttProgressFilter', 'ganttDepthFilter'];
   controls.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.oninput = applyGanttFilters;
@@ -6883,6 +6972,8 @@ function applyGanttFilters() {
   if (!qltdGanttPayload) return;
   const search = normalizeSearchText(document.getElementById('ganttSearchInput')?.value || '');
   const owner = document.getElementById('ganttOwnerFilter')?.value || '';
+  const zone = document.getElementById('ganttZoneFilter')?.value || '';
+  const hangMuc = document.getElementById('ganttHangMucFilter')?.value || '';
   const status = document.getElementById('ganttStatusFilter')?.value || 'all';
   const progressFilter = document.getElementById('ganttProgressFilter')?.value || 'all';
   const depthFilter = document.getElementById('ganttDepthFilter')?.value || 'all';
@@ -6891,30 +6982,99 @@ function applyGanttFilters() {
   const byMasterTaskCode = qltdGanttViewMode === 'budget'
     ? getGanttBudgetMapForProject(qltdGanttPayload.projectCode || getStoredProjectCode())
     : {};
-  const tasks = allTasks.filter((task) => {
-    const matchSearch = !search || normalizeSearchText(`${task.wbs || ''} ${task.id || ''} ${task.code || ''} ${task.text || ''}`).includes(search);
+  const byId = {};
+  allTasks.forEach((task) => { byId[String(task.id)] = task; });
+  const hasActiveFilter = !!search || !!owner || !!zone || !!hangMuc ||
+    status !== 'all' || progressFilter !== 'all' || depthFilter !== 'all';
+  const hasBusinessFilter = !!search || !!owner || !!zone || !!hangMuc ||
+    status !== 'all' || progressFilter !== 'all';
+  const matchedTasks = hasActiveFilter ? allTasks.filter((task) => {
+    const matchSearch = !search || normalizeSearchText(`${task.wbs || ''} ${task.id || ''} ${task.code || ''} ${task.text || ''} ${task.zone || ''} ${task.hangMuc || ''} ${task.contextPath || ''}`).includes(search);
     const taskOwner = task.owner || '__blank__';
     const matchOwner = !owner || taskOwner === owner;
+    const matchZone = !zone || String(task.zone || '') === zone;
+    const matchHangMuc = !hangMuc || String(task.hangMuc || '') === hangMuc;
     const matchStatus = status === 'all' || normalizeStatusForFilter(task.status) === status;
     const matchProgress = progressFilter === 'all' || getScheduleState(task) === progressFilter;
     const matchDepth = shouldShowByDepth(task, depthFilter);
-    return matchSearch && matchOwner && matchStatus && matchProgress && matchDepth;
-  });
+    return (!hasBusinessFilter || isNormalizedCountedTask(task)) &&
+      matchSearch && matchOwner && matchZone && matchHangMuc && matchStatus && matchProgress && matchDepth;
+  }) : allTasks.slice();
 
   const visibleIds = {};
-  tasks.forEach((task) => { visibleIds[String(task.id)] = true; });
+  matchedTasks.forEach((task) => {
+    let current = task;
+    const guard = {};
+    while (current && !guard[String(current.id)]) {
+      visibleIds[String(current.id)] = true;
+      guard[String(current.id)] = true;
+      const parentId = String(current.parent || '0');
+      if (parentId === '0') break;
+      current = byId[parentId];
+    }
+  });
+  const tasks = qltdRecalculateVisibleStructuralSummaries(
+    allTasks.filter((task) => visibleIds[String(task.id)]),
+    visibleIds
+  );
   const links = qltdGanttShowLinks
     ? (qltdGanttPayload.links || []).filter((link) => visibleIds[String(link.source)] && visibleIds[String(link.target)])
     : [];
-  const safeTasks = tasks.map((task) => {
-    const parent = String(task.parent || '0');
-    return visibleIds[parent] ? task : { ...task, parent: '0' };
-  });
-
   initDhtmlxGantt(
-    qltdGanttViewMode === 'budget' ? attachGanttBudgetToTasks(safeTasks, byMasterTaskCode) : safeTasks,
+    qltdGanttViewMode === 'budget' ? attachGanttBudgetToTasks(tasks, byMasterTaskCode) : tasks,
     links
   );
+}
+
+function qltdRecalculateVisibleStructuralSummaries(tasks, visibleIds) {
+  const byParent = {};
+  tasks.forEach((task) => {
+    const parent = String(task.parent || '0');
+    if (parent !== '0' && visibleIds[parent]) {
+      if (!byParent[parent]) byParent[parent] = [];
+      byParent[parent].push(task);
+    }
+  });
+  const copies = {};
+  tasks.forEach((task) => { copies[String(task.id)] = { ...task }; });
+
+  function visit(task, guard = {}) {
+    const id = String(task.id);
+    if (guard[id]) return { start: '', end: '' };
+    const nextGuard = { ...guard, [id]: true };
+    const ranges = (byParent[id] || []).map((child) => {
+      const childCopy = copies[String(child.id)];
+      const range = visit(childCopy, nextGuard);
+      if (childCopy.rowType === 'SCHEDULED_GROUP') {
+        const starts = [childCopy.sourceStart || childCopy.start_date || '', range.start].filter(Boolean).sort();
+        const ends = [childCopy.sourceEnd || childCopy.end_date || '', range.end].filter(Boolean).sort();
+        return { start: starts[0] || '', end: ends.at(-1) || '' };
+      }
+      return range;
+    }).filter((range) => range.start && range.end);
+    const rollupStart = ranges.map((range) => range.start).sort()[0] || '';
+    const rollupEnd = ranges.map((range) => range.end).sort().at(-1) || '';
+    task.rollupStart = rollupStart;
+    task.rollupEnd = rollupEnd;
+    if (task.rowType === 'ZONE_GROUP' || task.rowType === 'STRUCTURAL_GROUP') {
+      task.start_date = rollupStart;
+      task.end_date = rollupEnd;
+      task.$no_bar = !(rollupStart && rollupEnd);
+      task.unscheduled = task.$no_bar;
+    }
+    if (task.rowType === 'SCHEDULED_GROUP') {
+      const starts = [task.sourceStart || task.start_date || '', rollupStart].filter(Boolean).sort();
+      const ends = [task.sourceEnd || task.end_date || '', rollupEnd].filter(Boolean).sort();
+      return { start: starts[0] || '', end: ends.at(-1) || '' };
+    }
+    return {
+      start: task.start_date || task.displayStart || '',
+      end: task.end_date || task.displayEnd || ''
+    };
+  }
+
+  tasks.filter((task) => String(task.parent || '0') === '0').forEach((task) => visit(copies[String(task.id)]));
+  return tasks.map((task) => copies[String(task.id)]);
 }
 
 function shouldShowByDepth(task, depthFilter) {
@@ -7818,17 +7978,14 @@ async function initDhtmlxGantt(tasks, links) {
   qltdWeb07BindExcelButton();
   const renderSeq = ++qltdDhtmlxGanttRenderSeq;
 
-  const datedIds = {};
-  tasks.filter((task) => task.start_date && task.end_date).forEach((task) => {
-    datedIds[String(task.id)] = true;
-  });
-
-  const datedTasks = tasks
-    .filter((task) => task.start_date && task.end_date)
-    .map((task) => {
-      const parent = String(task.parent || '0');
-      return datedIds[parent] ? task : { ...task, parent: '0' };
-    });
+  const renderTasks = tasks.map((task) => ({
+    ...task,
+    type: task.rowType === 'MILESTONE'
+      ? 'milestone'
+      : (['ZONE_GROUP', 'STRUCTURAL_GROUP', 'SCHEDULED_GROUP'].includes(task.rowType) ? 'project' : (task.type || 'task')),
+    unscheduled: !(task.start_date && task.end_date),
+    $no_bar: Boolean(task.$no_bar || !(task.start_date && task.end_date))
+  }));
 
   const ganttInstance = await ensureDhtmlxGanttLoaded();
 
@@ -7836,7 +7993,7 @@ async function initDhtmlxGantt(tasks, links) {
     return;
   }
 
-  if (!datedTasks.length || !ganttInstance) {
+  if (!renderTasks.length || !ganttInstance) {
     renderGanttFallback(
       container,
       tasks,
@@ -7873,6 +8030,7 @@ async function initDhtmlxGantt(tasks, links) {
   gantt.config.bar_height = 16;
   gantt.config.fit_tasks = true;
   gantt.config.show_errors = false;
+  gantt.config.show_unscheduled = true;
   gantt.config.date_format = '%Y-%m-%d';
 
   gantt.config.columns = qltdBuildGanttColumns();
@@ -7886,6 +8044,10 @@ async function initDhtmlxGantt(tasks, links) {
       Mã công việc: ${escapeHtml(task.code || '')}<br>
       Chủ trì: ${escapeHtml(task.owner || '')}<br>
       Trạng thái: ${escapeHtml(task.status || '')}<br>
+      Zone: ${escapeHtml(task.zone || '')}<br>
+      Công trình: ${escapeHtml(task.congTrinh || '')}<br>
+      Hạng mục: ${escapeHtml(task.hangMuc || '')}<br>
+      Context: ${escapeHtml(task.contextPath || '')}<br>
       Bắt đầu kế hoạch: ${escapeHtml(formatIsoDateVi(task.baselineStart || task.start_date || ''))}<br>
       Kết thúc kế hoạch: ${escapeHtml(formatIsoDateVi(task.baselineEnd || task.end_date || ''))}<br>
       Bắt đầu thực tế: ${escapeHtml(formatIsoDateVi(task.actualStart || ''))}<br>
@@ -7979,7 +8141,7 @@ async function initDhtmlxGantt(tasks, links) {
   }
 
   try {
-    gantt.parse({ data: datedTasks, links: links || [] });
+    gantt.parse({ data: renderTasks, links: links || [] });
   } catch (error) {
     console.error('WEB07F: gantt.parse failed', error);
     renderGanttFallback(container, tasks, 'DHTMLX gặp lỗi khi đọc dữ liệu, đang hiển thị bảng fallback.');
@@ -8901,7 +9063,3 @@ export {
   fetchBackendProfile,
   getLocalRoleForEmail
 };
-
-
-
-

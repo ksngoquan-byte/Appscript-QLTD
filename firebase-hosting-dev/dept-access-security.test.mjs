@@ -94,7 +94,9 @@ const planContext = vm.createContext({
     contexts: [],
     masters: [{ masterCode: `${sheet.getName()}-1` }]
   }),
-  qltdDeptPlanFindMappedSortOrder_: (_depts, dept) => mappedDepts.find((item) => item.deptCode === dept.deptCode)?.sortOrder || 9999
+  qltdDeptPlanFindMappedSortOrder_: (_depts, dept) => mappedDepts.find((item) => item.deptCode === dept.deptCode)?.sortOrder || 9999,
+  qltdDeptPlanBuildMasterContextMap_: () => ({ byCode: {}, warning: null }),
+  qltdDeptPlanEnrichWithMasterContext_: (deptPlan) => deptPlan
 });
 vm.runInContext(extractFunction(planSource, 'qltdDeptPlanMatchesRequestedDept_'), planContext);
 vm.runInContext(extractFunction(planSource, 'qltdDeptPlanListForProject_'), planContext);
@@ -214,7 +216,8 @@ const cardContext = vm.createContext({
   qltdDeptPlanBuildListView: (items) => ({ visible: items.slice(0, 5), total: items.length, remaining: Math.max(0, items.length - 5) }),
   qltdDeptPlanIsOverdue: () => false,
   renderMasterCompletionWarning: () => '',
-  renderMasterDetailCount: () => '0 việc'
+  renderMasterDetailCount: () => '0 việc',
+  renderDeptObjectiveContext: () => ''
 });
 vm.runInContext(extractFunction(appSource, 'getDeptObjectiveProgress'), cardContext);
 vm.runInContext(extractFunction(appSource, 'getDeptObjectiveStatusClass'), cardContext);
