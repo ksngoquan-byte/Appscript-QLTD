@@ -47,6 +47,43 @@ for (const owner of ['KinhDoanh', 'BQLDA', 'PTDA']) {
 const countedDashboardTasks = pilot.data.filter((task) =>
   ['TASK', 'MILESTONE'].includes(task.rowType)
 );
+const byWbs = Object.fromEntries(pilot.data.filter((task) => task.wbs).map((task) => [task.wbs, task]));
+const scheduledChecks = {
+  'VI.3': ['2025-12-11', '2027-01-14', 400],
+  'VII.4': ['2025-12-11', '2027-01-08', 394],
+  'IX.4': ['2026-02-13', '2027-03-14', 395],
+  'X.4': ['2026-02-13', '2027-02-13', 366]
+};
+const scheduledResults = {};
+for (const [wbs, expected] of Object.entries(scheduledChecks)) {
+  const task = byWbs[wbs];
+  assert.equal(task.rowType, 'SCHEDULED_GROUP', `${wbs}: rowType`);
+  assert.equal(task.sourceStart, expected[0], `${wbs}: sourceStart`);
+  assert.equal(task.sourceEnd, expected[1], `${wbs}: sourceEnd`);
+  assert.equal(task.duration, expected[2], `${wbs}: duration`);
+  assert.ok(isMainMilestoneKeySelected(migration.keys, task, '37-5.HL'), `${wbs}: selected`);
+  const dependencyLinks = pilot.links.filter((link) =>
+    String(link.source) === String(task.id) || String(link.target) === String(task.id)
+  );
+  assert.ok(dependencyLinks.length > 0, `${wbs}: dependency`);
+  assert.ok(dependencyLinks.some((link) => ['FS', 'SS', 'FF'].includes(link.relation)), `${wbs}: relation`);
+  const ancestors = [];
+  let current = task;
+  const byId = Object.fromEntries(pilot.data.map((item) => [String(item.id), item]));
+  while (current && String(current.parent || '0') !== '0') {
+    current = byId[String(current.parent)];
+    if (current) ancestors.push(current.rowType);
+  }
+  assert.ok(ancestors.includes('STRUCTURAL_GROUP'), `${wbs}: structural ancestor`);
+  assert.ok(ancestors.includes('ZONE_GROUP'), `${wbs}: zone ancestor`);
+  scheduledResults[wbs] = {
+    start: task.sourceStart,
+    end: task.sourceEnd,
+    duration: task.duration,
+    dependencyRelations: [...new Set(dependencyLinks.map((link) => link.relation))],
+    ancestors
+  };
+}
 
 assert.equal(pilot.data.length, 499);
 assert.equal(pilot.links.length, 581);
@@ -70,6 +107,10 @@ assert.equal(selectedOwnerRowTypes.BQLDA.TASK, 26);
 assert.equal(selectedByOwner.PTDA, 13);
 assert.equal(selectedOwnerRowTypes.PTDA.TASK, 13);
 assert.equal(countedDashboardTasks.length, 405);
+assert.deepEqual(
+  [byWbs.III.start_date, byWbs.III.end_date],
+  ['2025-09-21', '2028-04-22']
+);
 assert.ok(selectedKinhDoanh.some((task) => task.wbs === 'XII.5'));
 
 const mixedTasks = [
@@ -126,6 +167,7 @@ console.log(JSON.stringify({
     ['STRUCTURAL_GROUP', 'ZONE_GROUP'].includes(task.rowType)
   ).length,
   dashboardCountedTasks: countedDashboardTasks.length,
+  scheduledResults,
   selectedMixedStableKeys: [...mixedKeys],
   reloadValid: reloaded.validCount,
   tasks: pilot.data.length,

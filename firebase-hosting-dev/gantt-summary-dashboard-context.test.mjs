@@ -27,9 +27,12 @@ const context = vm.createContext({
 });
 vm.runInContext(extractFunction(app, 'qltdWeb07GetTaskDuration'), context);
 vm.runInContext(extractFunction(app, 'qltdResolveDhtmlxTaskType'), context);
+vm.runInContext(extractFunction(app, 'qltdPrepareDhtmlxTask'), context);
+vm.runInContext(extractFunction(app, 'qltdWeb07GetTaskDisplayStart'), context);
+vm.runInContext(extractFunction(app, 'qltdWeb07GetTaskDisplayEnd'), context);
 
 assert.equal(context.qltdResolveDhtmlxTaskType({ rowType: 'MILESTONE' }), 'milestone');
-assert.equal(context.qltdResolveDhtmlxTaskType({ rowType: 'SCHEDULED_GROUP' }), 'project');
+assert.equal(context.qltdResolveDhtmlxTaskType({ rowType: 'SCHEDULED_GROUP' }), 'task');
 assert.equal(context.qltdResolveDhtmlxTaskType({ rowType: 'ZONE_GROUP' }), 'task');
 assert.equal(context.qltdResolveDhtmlxTaskType({ rowType: 'STRUCTURAL_GROUP' }), 'task');
 assert.equal(context.qltdResolveDhtmlxTaskType({ rowType: 'TASK' }), 'task');
@@ -39,6 +42,31 @@ assert.equal(context.qltdWeb07GetTaskDuration({
   start_date: '2025-09-21',
   end_date: '2028-04-22'
 }), 945);
+
+const scheduled = context.qltdPrepareDhtmlxTask({
+  id: '82',
+  rowType: 'SCHEDULED_GROUP',
+  start_date: '2025-12-11',
+  end_date: '2028-04-22',
+  sourceStart: '2025-12-11',
+  sourceEnd: '2027-01-14',
+  duration: 400,
+  rollupEnd: '2028-04-22'
+});
+assert.equal(scheduled.type, 'task');
+assert.equal(scheduled.start_date, '2025-12-11');
+assert.equal(scheduled.end_date, '2027-01-14');
+assert.equal(scheduled.duration, 400);
+assert.equal(scheduled.sourceDuration, 400);
+assert.equal(scheduled.$no_bar, false);
+assert.equal(context.qltdWeb07GetTaskDuration({
+  ...scheduled,
+  start_date: '2025-12-11',
+  end_date: '2025-12-12',
+  duration: 1
+}), 400, 'DHTMLX-mutated duration must not replace source duration');
+assert.equal(context.qltdWeb07GetTaskDisplayStart(scheduled), '2025-12-11');
+assert.equal(context.qltdWeb07GetTaskDisplayEnd({ ...scheduled, end_date: '2025-12-12' }), '2027-01-14');
 
 assert.doesNotMatch(app, /function getExecutiveTaskCategoryFromColF/);
 assert.match(app, /contextLabel: String\(item\.hangMuc \|\| ''\)\.trim\(\)/);

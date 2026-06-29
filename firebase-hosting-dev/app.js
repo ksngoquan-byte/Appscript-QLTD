@@ -7175,6 +7175,19 @@ function qltdWeb07GetTaskDuration(task) {
     return summaryDays > 0 ? summaryDays : '';
   }
 
+  if (task.rowType === 'SCHEDULED_GROUP') {
+    const sourceDuration = Number(task.sourceDuration);
+    if (Number.isFinite(sourceDuration) && sourceDuration > 0) {
+      return Math.round(sourceDuration);
+    }
+    const sourceStart = parseIsoDate(task.sourceStart || task.start_date);
+    const sourceEnd = parseIsoDate(task.sourceEnd || task.end_date);
+    if (sourceStart && sourceEnd) {
+      const sourceDays = Math.round((sourceEnd.getTime() - sourceStart.getTime()) / 86400000) + 1;
+      if (sourceDays > 0) return sourceDays;
+    }
+  }
+
   const explicit = Number(task.duration);
   if (Number.isFinite(explicit) && explicit > 0) {
     return Math.round(explicit);
@@ -7191,8 +7204,45 @@ function qltdWeb07GetTaskDuration(task) {
 
 function qltdResolveDhtmlxTaskType(task) {
   if (task && task.rowType === 'MILESTONE') return 'milestone';
-  if (task && task.rowType === 'SCHEDULED_GROUP') return 'project';
   return 'task';
+}
+
+function qltdPrepareDhtmlxTask(task) {
+  const isScheduledGroup = task && task.rowType === 'SCHEDULED_GROUP';
+  const startDate = isScheduledGroup ? (task.sourceStart || task.start_date) : task.start_date;
+  const endDate = isScheduledGroup ? (task.sourceEnd || task.end_date) : task.end_date;
+  const explicitDuration = Number(task && (task.sourceDuration ?? task.duration));
+  const sourceDuration = isScheduledGroup && Number.isFinite(explicitDuration) && explicitDuration > 0
+    ? explicitDuration
+    : task && task.sourceDuration;
+  return {
+    ...task,
+    start_date: startDate || '',
+    end_date: endDate || '',
+    sourceDuration,
+    duration: isScheduledGroup
+      ? qltdWeb07GetTaskDuration({ ...task, start_date: startDate, end_date: endDate, sourceDuration })
+      : task.duration,
+    type: qltdResolveDhtmlxTaskType(task),
+    unscheduled: !(startDate && endDate),
+    $no_bar: isScheduledGroup
+      ? !(startDate && endDate)
+      : Boolean(task.$no_bar || !(startDate && endDate))
+  };
+}
+
+function qltdWeb07GetTaskDisplayStart(task) {
+  if (task && task.rowType === 'SCHEDULED_GROUP') {
+    return task.sourceStart || task.start_date || task.baselineStart || '';
+  }
+  return task && (task.start_date || task.baselineStart) || '';
+}
+
+function qltdWeb07GetTaskDisplayEnd(task) {
+  if (task && task.rowType === 'SCHEDULED_GROUP') {
+    return task.sourceEnd || task.end_date || task.baselineEnd || '';
+  }
+  return task && (task.end_date || task.baselineEnd) || '';
 }
 
 function qltdWeb07EnsureGanttPolishStyles() {
@@ -7979,14 +8029,14 @@ function qltdBuildGanttColumns() {
         label: 'BĐ',
         width: 76,
         align: 'center',
-        template: (task) => qltdWeb07FormatDdMmYy(task.start_date || task.baselineStart || '')
+        template: (task) => qltdWeb07FormatDdMmYy(qltdWeb07GetTaskDisplayStart(task))
       },
       {
         name: 'end_plan',
         label: 'KT',
         width: 76,
         align: 'center',
-        template: (task) => qltdWeb07FormatDdMmYy(task.end_date || task.baselineEnd || '')
+        template: (task) => qltdWeb07FormatDdMmYy(qltdWeb07GetTaskDisplayEnd(task))
       }
     ];
   }
@@ -8007,14 +8057,14 @@ function qltdBuildGanttColumns() {
       label: 'BĐ',
       width: 86,
       align: 'center',
-      template: (task) => qltdWeb07FormatDdMmYy(task.start_date || task.baselineStart || '')
+      template: (task) => qltdWeb07FormatDdMmYy(qltdWeb07GetTaskDisplayStart(task))
     },
     {
       name: 'end_plan',
       label: 'KT',
       width: 86,
       align: 'center',
-      template: (task) => qltdWeb07FormatDdMmYy(task.end_date || task.baselineEnd || '')
+      template: (task) => qltdWeb07FormatDdMmYy(qltdWeb07GetTaskDisplayEnd(task))
     }
   ];
   if (qltdMainMilestoneSelectMode) {
@@ -8046,12 +8096,7 @@ async function initDhtmlxGantt(tasks, links) {
   qltdWeb07BindExcelButton();
   const renderSeq = ++qltdDhtmlxGanttRenderSeq;
 
-  const renderTasks = tasks.map((task) => ({
-    ...task,
-    type: qltdResolveDhtmlxTaskType(task),
-    unscheduled: !(task.start_date && task.end_date),
-    $no_bar: Boolean(task.$no_bar || !(task.start_date && task.end_date))
-  }));
+  const renderTasks = tasks.map(qltdPrepareDhtmlxTask);
 
   const ganttInstance = await ensureDhtmlxGanttLoaded();
 
