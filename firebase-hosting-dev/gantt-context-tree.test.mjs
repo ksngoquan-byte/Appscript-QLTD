@@ -38,6 +38,6 @@ assert.match(app, /data-dashboard-context-filter/);
 assert.match(app, /isNormalizedCountedTask/);
 assert.match(app, /renderDeptObjectiveContext/);
 assert.match(app, /Chưa mapping Hạng mục/);
-assert.match(app, /HANG_MUC_NOT_RESOLVED/);
+assert.doesNotMatch(app, /HANG_MUC_NOT_RESOLVED/);
 
 console.log('Gantt context tree/filter/dashboard/PB UI: PASS');

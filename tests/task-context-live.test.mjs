@@ -37,6 +37,10 @@ const afterPayload = { ...pilot, data: publicTasks, links, warnings: [...pilot.w
 const afterBytes = Buffer.byteLength(JSON.stringify(afterPayload));
 const byWbs = Object.fromEntries(tasks.filter((task) => task.wbs).map((task) => [task.wbs, task]));
 const zones = tasks.filter((task) => task.rowType === 'ZONE_GROUP');
+const countedTasks = tasks.filter((task) => ['TASK', 'MILESTONE'].includes(task.rowType));
+const publicByWbs = Object.fromEntries(publicTasks.filter((task) => task.wbs).map((task) => [task.wbs, task]));
+const hangMucValues = [...new Set(countedTasks.map((task) => task.hangMuc).filter(Boolean))].sort();
+const lk14Tasks = countedTasks.filter((task) => task.hangMuc === 'LK 14');
 
 assert.equal(tasks.length, 499);
 assert.equal(new Set(tasks.map((task) => String(task.id))).size, 499);
@@ -47,6 +51,29 @@ assert.equal(byWbs['II.3'].parent, byWbs.II.id);
 assert.equal(byWbs.II.parent, zones[0].id);
 assert.equal(byWbs['II.3.2'].zone, 'Zone 1');
 assert.equal(byWbs['II.3.2'].hangMuc, 'LK 05');
+assert.equal(publicByWbs['II.3.2'].zone, 'Zone 1');
+assert.equal(publicByWbs['II.3.2'].hangMuc, 'LK 05');
+assert.ok(publicByWbs['II.3.2'].contextPath);
+assert.equal(byWbs['III.3.2'].hangMuc, 'LK 14');
+assert.equal(byWbs['IV.2.2'].hangMuc, 'LK 15');
+assert.deepEqual(
+  ['III', 'IV', 'V'].map((wbs) => [
+    byWbs[wbs].start_date,
+    byWbs[wbs].end_date,
+    byWbs[wbs].duration
+  ]),
+  [
+    ['2025-09-21', '2028-04-22', 945],
+    ['2025-10-10', '2028-04-22', 926],
+    ['2025-09-21', '2028-04-22', 945]
+  ]
+);
+assert.equal(countedTasks.filter((task) => !String(task.hangMuc || '').trim()).length, 0);
+assert.ok(lk14Tasks.length > 0);
+assert.ok(lk14Tasks.every((task) => task.hangMuc === 'LK 14'));
+for (const hangMuc of ['LK 05', 'LK 14', 'LK 15', 'LK 19']) {
+  assert.ok(hangMucValues.includes(hangMuc), `missing Hạng mục ${hangMuc}`);
+}
 assert.equal(links.length, 581);
 assert.deepEqual(
   zones.map((zone) => [zone.start_date, zone.end_date]),
@@ -80,6 +107,9 @@ console.log(JSON.stringify({
   status: 'PASS',
   pilotTasks: tasks.length,
   pilotLinks: links.length,
+  countedTasks: countedTasks.length,
+  unmappedHangMuc: countedTasks.filter((task) => !String(task.hangMuc || '').trim()).length,
+  hangMucValues,
   rowTypes: Object.fromEntries(
     Object.entries(Object.groupBy(tasks, (task) => task.rowType)).map(([key, rows]) => [key, rows.length])
   ),

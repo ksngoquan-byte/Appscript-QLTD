@@ -5841,8 +5841,12 @@ function renderDashboardFromGanttData(payload) {
     return;
   }
 
-  const model = buildExecutiveDashboardModel(payload, qltdDashboardContextFilters);
   const dashboardFilterTasks = (payload.data || []).filter(isNormalizedCountedTask);
+  qltdDashboardContextFilters = qltdNormalizeDashboardContextFilters(
+    dashboardFilterTasks,
+    qltdDashboardContextFilters
+  );
+  const model = buildExecutiveDashboardModel(payload, qltdDashboardContextFilters);
 
   panel.innerHTML = `
     <div class="exec-dashboard">
@@ -6076,10 +6080,7 @@ function buildExecutiveDashboardModel(payload, contextFilters = {}) {
   const inProgress = realTasks.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress');
   const notStarted = realTasks.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started');
   const hasStrictMilestones = enriched.some((task) => task.isMilestone);
-  const unmappedContext = realTasks.filter((task) =>
-    !String(task.hangMuc || '').trim() ||
-    (task.mappingWarnings || []).includes('HANG_MUC_NOT_RESOLVED')
-  );
+  const unmappedContext = realTasks.filter((task) => !String(task.hangMuc || '').trim());
   const milestoneTasks = dashboardTasks.filter((task) => task.isMilestone || (!hasStrictMilestones && task.isMilestoneFallback));
 
   const allOverdue = allOpenTasks
@@ -6220,7 +6221,7 @@ function buildExecutiveTaskContext(tasks) {
       parentLevel1: path[0] || '',
       parentLevel2: path[1] || '',
       parentLevel3: path[2] || '',
-      contextLabel: item.hangMuc || getExecutiveTaskCategoryFromColF(item) || 'Chưa xác định Hạng mục',
+      contextLabel: String(item.hangMuc || '').trim(),
       highestVisibleTask: !incompleteRealAncestor
     };
   });
@@ -6244,16 +6245,34 @@ function renderDashboardContextFilters(tasks) {
     ['loaiCongTrinh', 'Loại công trình'],
     ['congTrinh', 'Công trình'],
     ['hangMuc', 'Hạng mục']
-  ];
-  return `<section class="web07-toolbar exec-context-filters" aria-label="Lọc context Dashboard">
-    ${fields.map(([key, label]) => {
-      const values = getUniqueTaskValues(tasks, key);
+  ].map(([key, label]) => {
+    const scopedTasks = key === 'hangMuc' && qltdDashboardContextFilters.zone
+      ? tasks.filter((task) => String(task.zone || '') === qltdDashboardContextFilters.zone)
+      : tasks;
+    return { key, label, values: getUniqueTaskValues(scopedTasks, key) };
+  }).filter((field) => field.values.length);
+  if (!fields.length) return '';
+  return `<section class="exec-context-filter-card" aria-label="Lọc context Dashboard">
+    <strong class="exec-context-filter-title">Bộ lọc</strong>
+    <div class="exec-context-filters">
+    ${fields.map(({ key, label, values }) => {
       return `<label>${escapeHtml(label)}<select data-dashboard-context-filter="${escapeHtml(key)}">
         <option value="">Tất cả</option>
         ${values.map((value) => `<option value="${escapeHtml(value)}" ${qltdDashboardContextFilters[key] === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}
       </select></label>`;
     }).join('')}
+    </div>
   </section>`;
+}
+
+function qltdNormalizeDashboardContextFilters(tasks, filters = {}) {
+  const next = {};
+  ['zone', 'loaiCongTrinh', 'congTrinh', 'hangMuc'].forEach((key) => {
+    const value = String(filters[key] || '').trim();
+    const values = getUniqueTaskValues(tasks, key);
+    next[key] = value && values.includes(value) ? value : '';
+  });
+  return next;
 }
 
 function bindDashboardContextFilters(payload) {
@@ -6265,21 +6284,6 @@ function bindDashboardContextFilters(payload) {
       renderDashboardFromGanttData(payload);
     };
   });
-}
-
-function getExecutiveTaskCategoryFromColF(task) {
-  const raw = task && task.raw || {};
-  const values = [
-    task && task.hangMuc,
-    raw['Hạng mục'],
-    raw['Hang muc'],
-    raw['HANG_MUC'],
-    raw.hang_muc,
-    raw.hangMuc,
-    raw.COL_6
-  ];
-  const value = values.find((item) => String(item || '').trim());
-  return value === undefined ? '' : String(value).trim();
 }
 
 function findIncompleteRealAncestor(task, byWbs) {
@@ -6456,9 +6460,10 @@ function renderExecutiveListSection(title, headers, rows, rowRenderer, emptyText
 }
 
 function renderExecutiveOverdueRow(task) {
+  const hangMuc = task.hangMuc || 'Chưa xác định Hạng mục';
   return `
     <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-      <td class="exec-context" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(task.contextLabel || '')}</td>
+      <td class="exec-context" title="${escapeHtml(task.contextPath || '')}">${escapeHtml(hangMuc)}</td>
       <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
       <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
       <td>${escapeHtml(formatIsoDateVi(toIsoDateLocal(task.endDate)))}</td>
@@ -6470,9 +6475,10 @@ function renderExecutiveOverdueRow(task) {
 function renderExecutiveMilestoneRow(task) {
   const timeText = task.lateDays > 0 ? `Trễ ${task.lateDays} ngày` : `Còn ${task.remainingDays ?? 0} ngày`;
   const badgeClass = task.lateDays > 0 ? 'is-red' : 'is-blue';
+  const hangMuc = task.hangMuc || 'Chưa xác định Hạng mục';
   return `
     <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-      <td class="exec-context" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(task.contextLabel || '')}</td>
+      <td class="exec-context" title="${escapeHtml(task.contextPath || '')}">${escapeHtml(hangMuc)}</td>
       <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
       <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
       <td>${escapeHtml(task.endDate ? formatIsoDateVi(toIsoDateLocal(task.endDate)) : '')}</td>
@@ -6482,9 +6488,10 @@ function renderExecutiveMilestoneRow(task) {
 }
 
 function renderExecutiveUpcomingRow(task) {
+  const hangMuc = task.hangMuc || 'Chưa xác định Hạng mục';
   return `
     <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-      <td class="exec-context" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(task.contextLabel || '')}</td>
+      <td class="exec-context" title="${escapeHtml(task.contextPath || '')}">${escapeHtml(hangMuc)}</td>
       <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
       <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
       <td>${escapeHtml(formatIsoDateVi(toIsoDateLocal(task.endDate)))}</td>
@@ -6514,7 +6521,7 @@ function renderExecutiveCompletedSection(rows) {
             <tbody>
               ${rows.map((task) => `
                 <tr class="web07-alert-row" data-task-id="${escapeHtml(task.id || '')}">
-                  <td class="exec-context" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(task.contextLabel || '')}</td>
+                  <td class="exec-context" title="${escapeHtml(task.contextPath || '')}">${escapeHtml(task.hangMuc || 'Chưa xác định Hạng mục')}</td>
                   <td class="exec-task" title="${escapeHtml(task.text || '')}"><span>${escapeHtml(task.priorityIcon)}</span>${escapeHtml(task.text || '')}</td>
                   <td>${escapeHtml(task.owner || 'Chưa rõ')}</td>
                   <td>${escapeHtml(formatIsoDateVi(toIsoDateLocal(task.actualFinishDate)))}</td>
@@ -7134,6 +7141,15 @@ function qltdWeb07FormatDdMm(value) {
 function qltdWeb07GetTaskDuration(task) {
   if (!task) return '';
 
+  const isStructuralSummary = task.rowType === 'ZONE_GROUP' || task.rowType === 'STRUCTURAL_GROUP';
+  if (isStructuralSummary) {
+    const summaryStart = parseIsoDate(task.start_date);
+    const summaryEnd = parseIsoDate(task.end_date);
+    if (!summaryStart || !summaryEnd) return '';
+    const summaryDays = Math.round((summaryEnd.getTime() - summaryStart.getTime()) / 86400000) + 1;
+    return summaryDays > 0 ? summaryDays : '';
+  }
+
   const explicit = Number(task.duration);
   if (Number.isFinite(explicit) && explicit > 0) {
     return Math.round(explicit);
@@ -7146,6 +7162,12 @@ function qltdWeb07GetTaskDuration(task) {
 
   const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
   return days > 0 ? days : '';
+}
+
+function qltdResolveDhtmlxTaskType(task) {
+  if (task && task.rowType === 'MILESTONE') return 'milestone';
+  if (task && task.rowType === 'SCHEDULED_GROUP') return 'project';
+  return 'task';
 }
 
 function qltdWeb07EnsureGanttPolishStyles() {
@@ -7261,6 +7283,27 @@ function qltdWeb07EnsureGanttPolishStyles() {
     #web07GanttContainer .gantt_task_line.qltd-task-unknown .gantt_task_content {
       background: #94a3b8 !important;
       border-color: #64748b !important;
+      color: #fff !important;
+    }
+
+    #web07GanttContainer .gantt_task_line.qltd-zone-summary,
+    #web07GanttContainer .gantt_task_line.qltd-zone-summary .gantt_task_content {
+      background: #1e3a8a !important;
+      border-color: #172554 !important;
+      color: #fff !important;
+    }
+
+    #web07GanttContainer .gantt_task_line.qltd-structural-summary,
+    #web07GanttContainer .gantt_task_line.qltd-structural-summary .gantt_task_content {
+      background: #7c3aed !important;
+      border-color: #5b21b6 !important;
+      color: #fff !important;
+    }
+
+    #web07GanttContainer .gantt_task_line.qltd-scheduled-group,
+    #web07GanttContainer .gantt_task_line.qltd-scheduled-group .gantt_task_content {
+      background: #0f766e !important;
+      border-color: #115e59 !important;
       color: #fff !important;
     }
 
@@ -7980,9 +8023,7 @@ async function initDhtmlxGantt(tasks, links) {
 
   const renderTasks = tasks.map((task) => ({
     ...task,
-    type: task.rowType === 'MILESTONE'
-      ? 'milestone'
-      : (['ZONE_GROUP', 'STRUCTURAL_GROUP', 'SCHEDULED_GROUP'].includes(task.rowType) ? 'project' : (task.type || 'task')),
+    type: qltdResolveDhtmlxTaskType(task),
     unscheduled: !(task.start_date && task.end_date),
     $no_bar: Boolean(task.$no_bar || !(task.start_date && task.end_date))
   }));
@@ -8066,6 +8107,13 @@ async function initDhtmlxGantt(tasks, links) {
 
     if (isMainMilestoneSelectedTask(task)) classes.push('main-milestone-row');
     if (task.type === 'milestone') classes.push('qltd-gantt-milestone');
+    if (task.rowType === 'ZONE_GROUP') classes.push('qltd-zone-summary');
+    if (task.rowType === 'STRUCTURAL_GROUP') classes.push('qltd-structural-summary');
+    if (task.rowType === 'SCHEDULED_GROUP') classes.push('qltd-scheduled-group');
+
+    if (['ZONE_GROUP', 'STRUCTURAL_GROUP', 'SCHEDULED_GROUP'].includes(task.rowType)) {
+      return classes.join(' ');
+    }
 
     const status = normalizeStatusForFilter(task.status);
     const scheduleState = getScheduleState(task);
