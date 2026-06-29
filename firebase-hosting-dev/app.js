@@ -7014,7 +7014,10 @@ function applyGanttFilters() {
     const matchStatus = status === 'all' || normalizeStatusForFilter(task.status) === status;
     const matchProgress = progressFilter === 'all' || getScheduleState(task) === progressFilter;
     const matchDepth = shouldShowByDepth(task, depthFilter);
-    return (!hasBusinessFilter || isNormalizedCountedTask(task)) &&
+    const matchRowType = depthFilter === 'main-milestones'
+      ? isGanttBusinessRow(task, depthFilter)
+      : (!hasBusinessFilter || isGanttBusinessRow(task, depthFilter));
+    return matchRowType &&
       matchSearch && matchOwner && matchZone && matchHangMuc && matchStatus && matchProgress && matchDepth;
   }) : allTasks.slice();
 
@@ -7041,6 +7044,14 @@ function applyGanttFilters() {
     qltdGanttViewMode === 'budget' ? attachGanttBudgetToTasks(tasks, byMasterTaskCode) : tasks,
     links
   );
+}
+
+function isGanttBusinessRow(task, depthFilter) {
+  const rowType = String(task && task.rowType || '').trim().toUpperCase();
+  if (depthFilter === 'main-milestones') {
+    return ['TASK', 'MILESTONE', 'SCHEDULED_GROUP'].includes(rowType);
+  }
+  return rowType ? ['TASK', 'MILESTONE'].includes(rowType) : true;
 }
 
 function qltdRecalculateVisibleStructuralSummaries(tasks, visibleIds) {
@@ -8049,10 +8060,15 @@ async function initDhtmlxGantt(tasks, links) {
   }
 
   if (!renderTasks.length || !ganttInstance) {
+    const depthFilter = document.getElementById('ganttDepthFilter')?.value || 'all';
     renderGanttFallback(
       container,
       tasks,
-      !ganttInstance ? 'DHTMLX chưa load được, đang hiển thị bảng fallback.' : 'Chưa có công việc đủ ngày bắt đầu/kết thúc.'
+      !ganttInstance
+        ? 'DHTMLX chưa load được, đang hiển thị bảng fallback.'
+        : (depthFilter === 'main-milestones'
+          ? 'Không có mốc chính phù hợp với bộ lọc hiện tại.'
+          : 'Chưa có công việc đủ ngày bắt đầu/kết thúc.')
     );
     return;
   }
@@ -8497,6 +8513,14 @@ function getMainMilestonesFromApiPayload(payload) {
 
 function applyMainMilestoneMigration(values, tasks, projectKey, source) {
   const migration = migrateMainMilestoneKeys(values, tasks, projectKey);
+  const nonRenderableGroupWarnings = (tasks || []).filter((task) =>
+    ['ZONE_GROUP', 'STRUCTURAL_GROUP'].includes(task.rowType) &&
+    migration.keys.has(getMainMilestoneStableKey(task, projectKey))
+  ).map((task) => ({
+    code: 'MAIN_MILESTONE_NON_RENDERABLE_GROUP_KEY',
+    rawKey: getMainMilestoneStableKey(task, projectKey),
+    rowType: task.rowType
+  }));
   qltdMainMilestoneKeys = migration.keys;
   qltdMainMilestoneOrphanKeys = migration.orphanKeys;
   qltdMainMilestoneMigration = {
@@ -8505,7 +8529,7 @@ function applyMainMilestoneMigration(values, tasks, projectKey, source) {
     migratedCount: migration.migratedCount,
     orphanCount: migration.orphanCount,
     ambiguousCount: migration.ambiguousCount,
-    warnings: migration.warnings
+    warnings: [...migration.warnings, ...nonRenderableGroupWarnings]
   };
   console.log('[mainMilestone] migration', {
     source,
@@ -8517,6 +8541,12 @@ function applyMainMilestoneMigration(values, tasks, projectKey, source) {
     ambiguous: migration.ambiguousCount
   });
   migration.warnings.forEach((warning) => console.warn('[mainMilestone]', warning.code, warning.rawKey));
+  if (nonRenderableGroupWarnings.length) {
+    console.warn('[mainMilestone] MAIN_MILESTONE_NON_RENDERABLE_GROUP_KEY', {
+      count: nonRenderableGroupWarnings.length,
+      keys: nonRenderableGroupWarnings.map((warning) => warning.rawKey)
+    });
+  }
   return migration;
 }
 
