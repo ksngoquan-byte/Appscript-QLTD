@@ -114,7 +114,8 @@ let qltdWeeklyForcedItem = null;
 const qltdDetailPopupCache = new Map();
 let qltdDetailPopupRequestSeq = 0;
 let qltdAdminApprovalRequestSeq = 0;
-let qltdAdminApprovalView = { loading: false, error: '', approvals: [] };
+let qltdAdminApprovalReviewSeq = 0;
+let qltdAdminApprovalView = { projectCode: '', loading: false, error: '', approvals: [], reviewing: null, reviewDrafts: {} };
 let qltdBudgetDashboardRequestSeq = 0;
 let qltdBudgetDashboardView = { loading: false, error: '', data: null, deptCode: '', view: 'project', showAllBusinessAlerts: false, showAllDataAlerts: false };
 
@@ -327,7 +328,7 @@ function applyPermissions(profile = {}) {
   setNavVisibility(NAV_LABELS.help, currentPermissions.help);
   setNavVisibility('B\u00e1o c\u1eadp nh\u1eadt', false);
   setNavVisibility(NAV_LABELS.report, currentPermissions.reportUpdate);
-  setNavVisibility(NAV_LABELS.admin, currentPermissions.admin);
+  setNavVisibility(NAV_LABELS.admin, canApprove(profile));
 }
 
 
@@ -2006,27 +2007,59 @@ function renderHelpPanel() {
   </div>`;
 }
 
+function getMasterApprovalDraft(updateId) {
+  return qltdAdminApprovalView.reviewDrafts?.[String(updateId || '')] || {};
+}
+
+function updateMasterApprovalDraft(updateId, patch = {}) {
+  const key = String(updateId || '');
+  if (!key) return;
+  qltdAdminApprovalView = {
+    ...qltdAdminApprovalView,
+    reviewDrafts: {
+      ...(qltdAdminApprovalView.reviewDrafts || {}),
+      [key]: { ...getMasterApprovalDraft(key), ...patch }
+    }
+  };
+}
+
+function removeMasterApprovalDraft(updateId) {
+  const key = String(updateId || '');
+  const reviewDrafts = { ...(qltdAdminApprovalView.reviewDrafts || {}) };
+  delete reviewDrafts[key];
+  qltdAdminApprovalView = { ...qltdAdminApprovalView, reviewDrafts };
+}
+
 function renderAdminPanel() {
   const panel = document.getElementById('web07AdminPanel');
   if (!panel) return;
-  if (!canAdmin()) {
+  if (!canApprove()) {
     panel.innerHTML = '<div class="web07-card"><p class="empty-state">Bạn không có quyền Admin.</p></div>';
     return;
   }
   const state = qltdAdminApprovalView;
   panel.innerHTML = `<div class="web07-card admin-approval-card">
     <div class="admin-approval-heading">
-      <div><span>Weekly workflow</span><h2>YÊU CẦU CẬP NHẬT HOÀN THÀNH MASTER</h2><p>Duyệt APPROVED sẽ cập nhật Cong_viec, cột W và tính lại tiến độ trước khi lưu trạng thái duyệt.</p></div>
-      <button type="button" class="secondary-button" id="reloadMasterApprovalsButton">${state.loading ? 'Đang tải...' : 'Tải lại'}</button>
+      <div><span>Weekly workflow · ${state.approvals.length} yêu cầu đang chờ</span><h2>YÊU CẦU CẬP NHẬT HOÀN THÀNH MASTER</h2><p>Duyệt APPROVED sẽ cập nhật Cong_viec, cột W và tính lại tiến độ trước khi lưu trạng thái duyệt.</p></div>
+      <button type="button" class="secondary-button" id="reloadMasterApprovalsButton" ${state.loading || state.reviewing ? 'disabled' : ''}>${state.loading ? 'Đang tải...' : 'Tải lại'}</button>
     </div>
     ${state.error ? `<p class="weekly-update-note is-error">${escapeHtml(state.error)}</p>` : ''}
     ${renderAdminMasterApprovals(state.approvals || [])}
   </div>`;
   const reload = document.getElementById('reloadMasterApprovalsButton');
-  if (reload) reload.onclick = () => loadAdminMasterApprovals({ force: true });
+  if (reload) reload.onclick = () => { if (!qltdAdminApprovalView.reviewing) loadAdminMasterApprovals({ force: true }); };
   document.querySelectorAll('[data-master-dependency-decision]').forEach((select) => {
-    select.onchange = () => updateMasterApprovalRecoveryVisibility(select.dataset.masterDependencyDecision || '');
+    select.onchange = () => {
+      const updateId = select.dataset.masterDependencyDecision || '';
+      const patch = { dependencyDecision: select.value || '' };
+      if (select.value !== 'KEEP_CURRENT') patch.recoveryPlan = '';
+      updateMasterApprovalDraft(updateId, patch);
+      updateMasterApprovalRecoveryVisibility(updateId);
+    };
     updateMasterApprovalRecoveryVisibility(select.dataset.masterDependencyDecision || '');
+  });
+  document.querySelectorAll('[data-master-recovery-plan]').forEach((textarea) => {
+    textarea.oninput = () => updateMasterApprovalDraft(textarea.dataset.masterRecoveryPlan || '', { recoveryPlan: textarea.value || '' });
   });
   document.querySelectorAll('[data-master-approval-approve]').forEach((button) => {
     button.onclick = () => {
@@ -2042,8 +2075,9 @@ function renderAdminPanel() {
   document.querySelectorAll('[data-master-approval-reject]').forEach((button) => {
     button.onclick = () => {
       const updateId = button.dataset.masterApprovalReject || '';
-      const reason = window.prompt('Nhập lý do không duyệt yêu cầu hoàn thành MASTER:');
+      const reason = window.prompt('Nhập lý do không duyệt yêu cầu hoàn thành MASTER:', getMasterApprovalDraft(updateId).reviewReason || '');
       if (!String(reason || '').trim()) return;
+      updateMasterApprovalDraft(updateId, { reviewReason: String(reason).trim() });
       reviewMasterApproval(updateId, 'REJECTED', reason);
     };
   });
@@ -2051,18 +2085,27 @@ function renderAdminPanel() {
 
 function renderAdminMasterApprovals(approvals) {
   if (!approvals.length) return '<p class="empty-state">Không có yêu cầu PENDING.</p>';
-  return `<div class="admin-approval-table-wrap"><table class="dept-plan-table admin-approval-table"><thead><tr><th>Dự án</th><th>Phòng/Ban</th><th>WBS</th><th>Công việc</th><th>Trạng thái đề xuất</th><th>Ngày HT đề xuất</th><th>Người gửi</th><th>Xử lý liên kết</th><th>Trạng thái duyệt</th><th>Thao tác</th></tr></thead><tbody>${approvals.map((item) => `<tr><td>${escapeHtml(item.projectCode || '')}</td><td>${escapeHtml(item.deptCode || '')}</td><td class="mono">${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.taskStatus || '')} · ${escapeHtml(item.progressEnd ?? '')}%</td><td>${escapeHtml(formatIsoDateVi(item.actualFinish || '') || '—')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td>${renderMasterApprovalDependencyControls(item)}</td><td><span class="approval-status-badge is-${escapeHtml(String(item.approvalStatus || '').toLowerCase())}">${escapeHtml(formatApprovalStatus(item.approvalStatus))}</span></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-master-approval-approve="${escapeHtml(item.updateId || '')}">Duyệt</button><button type="button" class="secondary-button" data-master-approval-reject="${escapeHtml(item.updateId || '')}">Không duyệt</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  const reviewing = qltdAdminApprovalView.reviewing;
+  return `<div class="admin-approval-table-wrap"><table class="dept-plan-table admin-approval-table"><thead><tr><th>Dự án</th><th>Phòng/Ban</th><th>WBS</th><th>Công việc</th><th>Trạng thái đề xuất</th><th>Ngày HT đề xuất</th><th>Người gửi</th><th>Xử lý liên kết</th><th>Trạng thái duyệt</th><th>Thao tác</th></tr></thead><tbody>${approvals.map((item) => {
+    const isCurrent = reviewing?.updateId === item.updateId;
+    const approveLabel = isCurrent && reviewing.approvalStatus === 'APPROVED' ? 'Đang duyệt...' : 'Duyệt';
+    const rejectLabel = isCurrent && reviewing.approvalStatus === 'REJECTED' ? 'Đang trả lại...' : 'Không duyệt';
+    const disabled = reviewing ? 'disabled' : '';
+    return `<tr><td>${escapeHtml(item.projectCode || '')}</td><td>${escapeHtml(item.deptCode || '')}</td><td class="mono">${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.taskStatus || '')} · ${escapeHtml(item.progressEnd ?? '')}%</td><td>${escapeHtml(formatIsoDateVi(item.actualFinish || '') || '—')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td>${renderMasterApprovalDependencyControls(item)}</td><td><span class="approval-status-badge is-${escapeHtml(String(item.approvalStatus || '').toLowerCase())}">${escapeHtml(formatApprovalStatus(item.approvalStatus))}</span></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-master-approval-approve="${escapeHtml(item.updateId || '')}" ${disabled}>${approveLabel}</button><button type="button" class="secondary-button" data-master-approval-reject="${escapeHtml(item.updateId || '')}" ${disabled}>${rejectLabel}</button></div></td></tr>`;
+  }).join('')}</tbody></table></div>`;
 }
 
 function renderMasterApprovalDependencyControls(item) {
   const updateId = escapeHtml(item.updateId || '');
+  const draft = getMasterApprovalDraft(item.updateId);
+  const decision = String(draft.dependencyDecision || '');
   return `<div class="admin-approval-dependency">
     <select data-master-dependency-decision="${updateId}">
       <option value="">Chọn quyết định</option>
-      <option value="KEEP_CURRENT">${escapeHtml(MASTER_APPROVAL_DEPENDENCY_OPTIONS.KEEP_CURRENT)}</option>
-      <option value="RECALCULATE_DEPENDENCIES">${escapeHtml(MASTER_APPROVAL_DEPENDENCY_OPTIONS.RECALCULATE_DEPENDENCIES)}</option>
+      <option value="KEEP_CURRENT" ${decision === 'KEEP_CURRENT' ? 'selected' : ''}>${escapeHtml(MASTER_APPROVAL_DEPENDENCY_OPTIONS.KEEP_CURRENT)}</option>
+      <option value="RECALCULATE_DEPENDENCIES" ${decision === 'RECALCULATE_DEPENDENCIES' ? 'selected' : ''}>${escapeHtml(MASTER_APPROVAL_DEPENDENCY_OPTIONS.RECALCULATE_DEPENDENCIES)}</option>
     </select>
-    <textarea data-master-recovery-plan="${updateId}" rows="2" placeholder="Biện pháp bù tiến độ"></textarea>
+    <textarea data-master-recovery-plan="${updateId}" rows="2" placeholder="Biện pháp bù tiến độ">${escapeHtml(draft.recoveryPlan || '')}</textarea>
   </div>`;
 }
 
@@ -2106,30 +2149,45 @@ function formatApprovalStatus(status, compact = false) {
 }
 
 async function loadAdminMasterApprovals() {
-  if (!canAdmin()) return;
+  if (!canApprove()) return;
   const seq = ++qltdAdminApprovalRequestSeq;
-  qltdAdminApprovalView = { loading: true, error: '', approvals: qltdAdminApprovalView.approvals || [] };
+  const projectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+  qltdAdminApprovalView = { ...qltdAdminApprovalView, projectCode, loading: true, error: '', approvals: qltdAdminApprovalView.approvals || [] };
   renderAdminPanel();
   try {
-    const projectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
-    const result = await fetchBackendJson('weekly_masterapprovals_get', { email: currentUserProfile?.email || '', projectCode, status: 'PENDING' });
+    const result = await fetchBackendJson('weekly_masterapprovals_get', { email: currentUserProfile?.email || '', projectCode, status: 'PENDING' }, { auth: true });
     if (seq !== qltdAdminApprovalRequestSeq) return;
     if (!result.success) throw new Error(result.message || result.error?.message || result.code || result.error?.code || 'Không tải được yêu cầu duyệt.');
     const data = result.data || result;
-    qltdAdminApprovalView = { loading: false, error: '', approvals: Array.isArray(data.approvals) ? data.approvals : [] };
+    qltdAdminApprovalView = { ...qltdAdminApprovalView, projectCode, loading: false, error: '', approvals: Array.isArray(data.approvals) ? data.approvals : [] };
   } catch (error) {
     if (seq !== qltdAdminApprovalRequestSeq) return;
-    qltdAdminApprovalView = { loading: false, error: error.message || 'Không tải được yêu cầu duyệt.', approvals: [] };
+    qltdAdminApprovalView = { ...qltdAdminApprovalView, projectCode, loading: false, error: error.message || 'Không tải được yêu cầu duyệt.', approvals: [] };
   }
   renderAdminPanel();
 }
 
 async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '', reviewOptions = {}) {
-  if (!updateId) return;
+  if (!updateId || qltdAdminApprovalView.reviewing) return;
   if (approvalStatus === 'APPROVED') {
     const ok = window.confirm('Hệ thống sẽ cập nhật Cong_viec, cột W và chạy lại tiến độ trước khi lưu APPROVED. Tiếp tục?');
     if (!ok) return;
   }
+  const approval = (qltdAdminApprovalView.approvals || []).find((item) => item.updateId === updateId) || {};
+  const sourceProjectCode = qltdAdminApprovalView.projectCode;
+  const reviewSeq = ++qltdAdminApprovalReviewSeq;
+  const draftPatch = { reviewReason: String(reviewReason || '').trim() };
+  if (approvalStatus === 'APPROVED') {
+    draftPatch.dependencyDecision = reviewOptions.dependencyDecision || '';
+    draftPatch.recoveryPlan = reviewOptions.recoveryPlan || '';
+  }
+  updateMasterApprovalDraft(updateId, draftPatch);
+  qltdAdminApprovalView = {
+    ...qltdAdminApprovalView,
+    error: '',
+    reviewing: { seq: reviewSeq, updateId, approvalStatus }
+  };
+  renderAdminPanel();
   try {
     const result = await postBackendJson({
       action: 'weekly_masterapproval_review',
@@ -2140,23 +2198,60 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
       dependencyDecision: reviewOptions.dependencyDecision || '',
       recoveryPlan: reviewOptions.recoveryPlan || ''
     });
-    if (!result.success) throw new Error(result.message || result.error?.message || result.code || result.error?.code || 'Không cập nhật được trạng thái duyệt.');
-    await refreshAfterMasterApproval(result.data || result);
-    await loadAdminMasterApprovals({ force: true });
+    if (!result.success) {
+      if (getBackendErrorCode(result) === 'APPROVAL_NOT_PENDING') {
+        markMasterApprovalDataDirty(result.data || result, approval);
+        removeMasterApprovalDraft(updateId);
+        if (qltdAdminApprovalView.projectCode === sourceProjectCode) {
+          qltdAdminApprovalView = {
+            ...qltdAdminApprovalView,
+            approvals: (qltdAdminApprovalView.approvals || []).filter((item) => item.updateId !== updateId),
+            error: 'Yêu cầu này đã được người khác xử lý.'
+          };
+        }
+        return;
+      }
+      const backendError = new Error(getBackendErrorMessage(result, 'Không cập nhật được trạng thái duyệt.'));
+      backendError.backendResult = result;
+      throw backendError;
+    }
+    const data = result.data || result;
+    markMasterApprovalDataDirty(data, approval);
+    removeMasterApprovalDraft(updateId);
+    if (qltdAdminApprovalView.projectCode === sourceProjectCode) {
+      qltdAdminApprovalView = {
+        ...qltdAdminApprovalView,
+        approvals: (qltdAdminApprovalView.approvals || []).filter((item) => item.updateId !== updateId),
+        error: ''
+      };
+    }
   } catch (error) {
-    window.alert(error.message || 'Không cập nhật được trạng thái duyệt.');
+    if (qltdAdminApprovalView.reviewing?.seq === reviewSeq) {
+      qltdAdminApprovalView = {
+        ...qltdAdminApprovalView,
+        error: error.message || 'Không cập nhật được trạng thái duyệt.'
+      };
+    }
+  } finally {
+    if (qltdAdminApprovalView.reviewing?.seq === reviewSeq) {
+      qltdAdminApprovalView = { ...qltdAdminApprovalView, reviewing: null };
+      renderAdminPanel();
+    }
   }
 }
 
-async function refreshAfterMasterApproval(result) {
-  const approval = result?.approval || {};
-  const projectCode = result?.affectedProjectCode || approval.projectCode || document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+function markMasterApprovalDataDirty(result, fallbackApproval = {}) {
+  const approval = result?.approval || fallbackApproval || {};
+  const projectCode = result?.affectedProjectCode || approval.projectCode || '';
   const deptCode = approval.deptCode || '';
   const weekCode = approval.weekCode || '';
-  if (projectCode && deptCode && weekCode) invalidateWeeklyTaskCacheKey(getWeeklyTaskCacheKey(projectCode, deptCode, weekCode));
-  if (projectCode && deptCode) invalidateWeeklyTaskCachePrefix(`${projectCode}::${deptCode}::`);
-  await loadWeeklyTaskDataForCurrent({ force: true });
-  if (projectCode) await loadGanttDataForSelectedProject(projectCode);
+  if (result?.approval && projectCode && deptCode && weekCode) {
+    const local = applyWeeklySavedUpdateToView(approval, approval);
+    if (!local.applied) invalidateWeeklyTaskCacheKey(getWeeklyTaskCacheKey(projectCode, deptCode, weekCode));
+  } else if (projectCode && deptCode && weekCode) {
+    invalidateWeeklyTaskCacheKey(getWeeklyTaskCacheKey(projectCode, deptCode, weekCode));
+  }
+  if (projectCode) qltdGanttDirtyProjects.add(projectCode);
 }
 
 

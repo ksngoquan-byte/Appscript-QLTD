@@ -71,6 +71,51 @@ assert.match(extractFunction(usersSource, 'qltdUsersRegister_'), /if \(existing\
 assert.match(scopeSource, /function qltdFirebaseResolveIdentity_/);
 assert.match(scopeSource, /function qltdDeptScopeAuthorizeWrite_/);
 assert.match(apiSource, /qltdDeptScopeAuthorizeWrite_\(payload, action\)/);
+assert.match(apiSource, /weekly_masterapprovals_get:\s*true/);
+
+let identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: 'UID-1' }] } };
+const identityContext = vm.createContext({
+  qltdUsersNormalizeEmail_: (value) => String(value || '').trim().toLowerCase(),
+  qltdUsersBuildAuthError_: (code, message, extra = {}) => ({ success: false, message: code, errorMessage: message, ...extra }),
+  qltdFirebaseGetWebApiKey_: () => 'test-api-key',
+  UrlFetchApp: {
+    fetch: () => ({
+      getResponseCode: () => identityResponse.statusCode,
+      getContentText: () => JSON.stringify(identityResponse.payload)
+    })
+  }
+});
+vm.runInContext(extractFunction(scopeSource, 'qltdFirebaseResolveIdentity_'), identityContext);
+assert.equal(identityContext.qltdFirebaseResolveIdentity_({ email: 'admin@example.com' }, true).message, 'ID_TOKEN_REQUIRED');
+identityResponse = { statusCode: 400, payload: { error: { message: 'INVALID_ID_TOKEN' } } };
+assert.equal(identityContext.qltdFirebaseResolveIdentity_({ email: 'admin@example.com', idToken: 'invalid' }, true).message, 'ID_TOKEN_INVALID');
+identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: 'UID-1' }] } };
+assert.equal(identityContext.qltdFirebaseResolveIdentity_({ email: 'other@example.com', idToken: 'valid' }, true).message, 'EMAIL_MISMATCH');
+const verifiedIdentity = identityContext.qltdFirebaseResolveIdentity_({ email: 'admin@example.com', idToken: 'valid' }, true);
+assert.equal(verifiedIdentity.success, true);
+assert.equal(verifiedIdentity.email, 'admin@example.com');
+
+let routeIdentity = { success: false, message: 'ID_TOKEN_REQUIRED' };
+let approvalParams = null;
+const approvalRouteContext = vm.createContext({
+  qltdFirebaseResolveIdentity_: () => routeIdentity,
+  qltdDevApiJson_: (payload) => payload,
+  qltdWeeklyMasterApprovalsGet_: (params) => { approvalParams = { ...params }; return { success: true }; }
+});
+const readActionDeclaration = apiSource.slice(apiSource.indexOf('const QLTD_DEV_DEPT_READ_ACTIONS'), apiSource.indexOf('function qltdDevApiHandleGet'));
+vm.runInContext(`${readActionDeclaration}\n${extractFunction(apiSource, 'qltdDevApiHandleGet')}`, approvalRouteContext);
+assert.equal(
+  approvalRouteContext.qltdDevApiHandleGet({ parameter: { action: 'weekly_masterapprovals_get', email: 'admin@example.com' } }).message,
+  'ID_TOKEN_REQUIRED'
+);
+routeIdentity = { success: true, email: 'pmo@example.com' };
+approvalRouteContext.qltdDevApiHandleGet({
+  parameter: { action: 'weekly_masterapprovals_get', email: 'spoofed@example.com', idToken: 'valid', projectCode: 'P1', deptCode: 'D1', status: 'PENDING' }
+});
+assert.equal(approvalParams.email, 'pmo@example.com');
+assert.equal(approvalParams.projectCode, 'P1');
+assert.equal(approvalParams.deptCode, 'D1');
+assert.equal(approvalParams.status, 'PENDING');
 
 assert.match(indexSource, /id="registrationView"/);
 assert.match(indexSource, /id="registrationForm"/);

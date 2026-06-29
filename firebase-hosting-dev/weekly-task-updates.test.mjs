@@ -16,6 +16,7 @@ let budgetItems = [];
 let allocations = [];
 let failBudgetItemCode = '';
 let failAggregateBudgetItemCode = '';
+let authRole = 'ADMIN';
 const RAW_BUDGET_HEADERS = [
   'Report ID', 'Ma du an', 'Trang thai xac nhan', 'Sync status', 'Loai ban ghi',
   'Ma khoan ngan sach', 'Ma phan bo', 'Huong dong tien', 'Gia tri thuc hien ky nay',
@@ -39,7 +40,7 @@ const context = {
   qltdBudgetToNumber_: (value) => Number(value || 0),
   qltdWeeklyCellText_: (value) => String(value || ''),
   getCurrentSpreadsheet_: () => ({ getSheetByName: () => mockSheet }),
-  qltdWorkAuthUser_: () => ({ email: 'user@example.com', user: { role: 'ADMIN' } }),
+  qltdWorkAuthUser_: () => ({ email: 'user@example.com', user: { role: authRole } }),
   qltdWorkResolveProjectDept_: () => ({ projectCode: 'P1', deptCode: 'PTDA', project: { projectCode: 'P1' }, dept: { deptCode: 'PTDA' }, requestedDeptCode: 'PTDA', warnings: [] }),
   qltdWorkCanReadDept_: () => true,
   qltdWorkNowIso_: () => '2026-06-20T00:00:00.000Z',
@@ -53,7 +54,7 @@ const context = {
   qltdGanttGetDataForProject_: () => ({ success: true, data: [] }),
   qltdBudgetReadBudgetItems_: () => ({ items: budgetItems, warnings: [] }),
   qltdBudgetReadAllocations_: () => ({ allocations, warnings: [] }),
-  qltdWorkIsAdminScope_: () => true,
+  qltdWorkIsAdminScope_: (user) => ['ADMIN', 'PMO'].includes(String(user?.role || '').toUpperCase()),
   qltdBudgetNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
   qltdBudgetNormalizeKey_: (value) => String(value || '').trim().toLowerCase(),
   qltdBudgetNormalizeAmount_: (value) => {
@@ -129,8 +130,8 @@ const context = {
   console
 };
 vm.createContext(context);
-vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_ };`, context);
-const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, review, resolveActualDate, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext } = context.api;
+vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, getApprovals: qltdWeeklyMasterApprovalsGet_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_ };`, context);
+const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, getApprovals, review, resolveActualDate, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext } = context.api;
 context.qltdWeeklyMasterApprovalApplyToMaster_ = (target, auth, dependencyDecision, recoveryPlan) => {
   masterApprovalSyncCalls.push({ target, auth, dependencyDecision, recoveryPlan });
   return {
@@ -375,6 +376,23 @@ assert.equal(reviewResult.recalcTriggered, true);
 assert.equal(masterApprovalSyncCalls.length, 1);
 assert.equal(masterApprovalSyncCalls[0].dependencyDecision, 'KEEP_CURRENT');
 assert.equal(masterApprovalSyncCalls[0].recoveryPlan, 'Bù tiến độ');
+
+for (const role of ['ADMIN', 'PMO']) {
+  authRole = role;
+  const approvals = getApprovals({ projectCode: 'P1', deptCode: 'PTDA', status: 'APPROVED' });
+  assert.equal(approvals.success, true);
+  assert.equal(approvals.count, 1);
+  assert.equal(approvals.approvals[0].updateId, pending.update.updateId);
+  assert.equal(getApprovals({ projectCode: 'OTHER', deptCode: 'PTDA', status: 'APPROVED' }).count, 0);
+  assert.equal(getApprovals({ projectCode: 'P1', deptCode: 'OTHER', status: 'APPROVED' }).count, 0);
+}
+for (const role of ['EDITOR', 'REPORTER', 'VIEWER']) {
+  authRole = role;
+  const denied = getApprovals({ projectCode: 'P1', deptCode: 'PTDA', status: 'APPROVED' });
+  assert.equal(denied.success, false);
+  assert.equal(denied.code, 'ACCESS_DENIED');
+}
+authRole = 'ADMIN';
 
 assert.match(source, /function qltdWeeklyMasterProgressWriteback_/);
 assert.match(source, /if \(update\.actualStart\) changes\.push/);

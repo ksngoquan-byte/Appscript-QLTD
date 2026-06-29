@@ -8,6 +8,7 @@ const QLTD_DEV_DEPT_READ_ACTIONS = {
   work_listweeklyitems: true,
   work_listassignees: true,
   weekly_taskupdates_get: true,
+  weekly_masterapprovals_get: true,
   weekly_getmyreports: true,
   weekly_getdeptreports: true,
   listdeptplans: true

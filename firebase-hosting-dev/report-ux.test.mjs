@@ -102,6 +102,129 @@ masterToggle.onclick();
 assert.equal(masterToggleContext.qltdDeptMasterListExpanded, false);
 assert.equal(masterToggleContext.renderCount, 2);
 
+const approvalRoleContext = { normalizeRoleKey: (value) => String(value || '').trim().toUpperCase() };
+vm.createContext(approvalRoleContext);
+vm.runInContext(extractFunction(app, 'canApprove'), approvalRoleContext);
+assert.equal(approvalRoleContext.canApprove({ role: 'ADMIN' }), true);
+assert.equal(approvalRoleContext.canApprove({ role: 'PMO' }), true);
+for (const role of ['EDITOR', 'REPORTER', 'VIEWER']) assert.equal(approvalRoleContext.canApprove({ role }), false);
+
+const permissionsBinding = latestFunction('applyPermissions', 'getStoredProjectCode');
+assert.match(permissionsBinding, /setNavVisibility\(NAV_LABELS\.admin, canApprove\(profile\)\)/);
+const adminPanelSource = latestFunction('renderAdminPanel', 'renderAdminMasterApprovals');
+assert.match(adminPanelSource, /if \(!canApprove\(\)\)/);
+assert.match(adminPanelSource, /yêu cầu đang chờ/);
+const approvalLoaderSource = latestFunction('loadAdminMasterApprovals', 'reviewMasterApproval');
+assert.match(approvalLoaderSource, /weekly_masterapprovals_get/);
+assert.match(approvalLoaderSource, /\{ auth: true \}/);
+const approvalReviewSource = latestFunction('reviewMasterApproval', 'markMasterApprovalDataDirty');
+assert.match(approvalReviewSource, /qltdAdminApprovalView\.reviewing/);
+assert.match(approvalReviewSource, /finally/);
+assert.match(approvalReviewSource, /APPROVAL_NOT_PENDING/);
+assert.doesNotMatch(approvalReviewSource, /loadAdminMasterApprovals|loadGanttDataForSelectedProject|location\.reload/);
+const approvalDirtySource = latestFunction('markMasterApprovalDataDirty', 'escapeHtml');
+assert.match(approvalDirtySource, /qltdGanttDirtyProjects\.add/);
+assert.doesNotMatch(approvalDirtySource, /loadWeeklyTaskDataForCurrent|loadGanttDataForSelectedProject/);
+
+const approvalRenderContext = {
+  qltdAdminApprovalView: {
+    reviewing: { updateId: 'A1', approvalStatus: 'APPROVED' }
+  },
+  escapeHtml: (value) => String(value ?? ''),
+  formatIsoDateVi: (value) => String(value || ''),
+  formatApprovalStatus: (value) => String(value || ''),
+  renderMasterApprovalDependencyControls: () => '<CONTROLS>'
+};
+vm.createContext(approvalRenderContext);
+vm.runInContext(extractFunction(app, 'renderAdminMasterApprovals'), approvalRenderContext);
+const approvingHtml = approvalRenderContext.renderAdminMasterApprovals([{ updateId: 'A1', approvalStatus: 'PENDING' }]);
+assert.match(approvingHtml, /Đang duyệt\.\.\./);
+assert.equal((approvingHtml.match(/disabled/g) || []).length, 2);
+approvalRenderContext.qltdAdminApprovalView.reviewing = { updateId: 'A1', approvalStatus: 'REJECTED' };
+assert.match(approvalRenderContext.renderAdminMasterApprovals([{ updateId: 'A1', approvalStatus: 'PENDING' }]), /Đang trả lại\.\.\./);
+
+function createApprovalReviewContext({ result, delayed = false } = {}) {
+  let releasePost;
+  const context = {
+    qltdAdminApprovalReviewSeq: 0,
+    qltdAdminApprovalView: {
+      projectCode: 'P1',
+      approvals: [{ updateId: 'A1', projectCode: 'P1', deptCode: 'D1', weekCode: 'W1' }],
+      reviewing: null,
+      reviewDrafts: { A1: { dependencyDecision: 'KEEP_CURRENT', recoveryPlan: 'Bù tiến độ cũ' } },
+      error: ''
+    },
+    currentUserProfile: { email: 'admin@example.com' },
+    window: { confirm: () => true },
+    postCount: 0,
+    postBackendJson: async () => {
+      context.postCount += 1;
+      if (delayed) await new Promise((resolve) => { releasePost = resolve; });
+      return result || { success: true, data: { approval: { updateId: 'A1', projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', approvalStatus: 'APPROVED' } } };
+    },
+    updateMasterApprovalDraft: (updateId, patch) => {
+      context.qltdAdminApprovalView.reviewDrafts[updateId] = {
+        ...(context.qltdAdminApprovalView.reviewDrafts[updateId] || {}),
+        ...patch
+      };
+    },
+    removeMasterApprovalDraft: (updateId) => { delete context.qltdAdminApprovalView.reviewDrafts[updateId]; },
+    getBackendErrorCode: (payload) => payload?.errors?.[0]?.code || payload?.code || '',
+    getBackendErrorMessage: (payload, fallback) => payload?.errors?.[0]?.message || payload?.message || fallback,
+    dirtyCount: 0,
+    markMasterApprovalDataDirty: () => { context.dirtyCount += 1; },
+    renderCount: 0,
+    renderAdminPanel: () => { context.renderCount += 1; }
+  };
+  context.releasePost = () => releasePost?.();
+  vm.createContext(context);
+  vm.runInContext(`async ${approvalReviewSource}`, context);
+  return context;
+}
+
+const duplicateApprovalContext = createApprovalReviewContext({ delayed: true });
+const firstApproval = duplicateApprovalContext.reviewMasterApproval('A1', 'APPROVED', '', { dependencyDecision: 'KEEP_CURRENT', recoveryPlan: 'Bù tiến độ' });
+await Promise.resolve();
+const duplicateApproval = duplicateApprovalContext.reviewMasterApproval('A1', 'APPROVED', '', { dependencyDecision: 'KEEP_CURRENT', recoveryPlan: 'Bù tiến độ' });
+const oppositeApproval = duplicateApprovalContext.reviewMasterApproval('A1', 'REJECTED', 'Trả lại');
+assert.equal(duplicateApprovalContext.postCount, 1);
+assert.equal(duplicateApprovalContext.qltdAdminApprovalView.reviewing.approvalStatus, 'APPROVED');
+duplicateApprovalContext.releasePost();
+await Promise.all([firstApproval, duplicateApproval, oppositeApproval]);
+assert.equal(duplicateApprovalContext.postCount, 1);
+assert.equal(duplicateApprovalContext.qltdAdminApprovalView.approvals.length, 0);
+assert.equal(duplicateApprovalContext.qltdAdminApprovalView.reviewing, null);
+assert.equal(duplicateApprovalContext.dirtyCount, 1);
+
+const failedApprovalContext = createApprovalReviewContext({
+  result: { success: false, errors: [{ code: 'WRITE_ERROR', message: 'Không duyệt được' }] }
+});
+await failedApprovalContext.reviewMasterApproval('A1', 'REJECTED', 'Cần bổ sung');
+assert.equal(failedApprovalContext.qltdAdminApprovalView.approvals.length, 1);
+assert.equal(failedApprovalContext.qltdAdminApprovalView.reviewing, null);
+assert.equal(failedApprovalContext.qltdAdminApprovalView.error, 'Không duyệt được');
+assert.equal(failedApprovalContext.qltdAdminApprovalView.reviewDrafts.A1.reviewReason, 'Cần bổ sung');
+assert.equal(failedApprovalContext.qltdAdminApprovalView.reviewDrafts.A1.dependencyDecision, 'KEEP_CURRENT');
+assert.equal(failedApprovalContext.qltdAdminApprovalView.reviewDrafts.A1.recoveryPlan, 'Bù tiến độ cũ');
+
+const alreadyHandledContext = createApprovalReviewContext({
+  result: { success: false, errors: [{ code: 'APPROVAL_NOT_PENDING', message: 'Already handled' }] }
+});
+await alreadyHandledContext.reviewMasterApproval('A1', 'REJECTED', 'Cần bổ sung');
+assert.equal(alreadyHandledContext.qltdAdminApprovalView.approvals.length, 0);
+assert.equal(alreadyHandledContext.qltdAdminApprovalView.error, 'Yêu cầu này đã được người khác xử lý.');
+assert.equal(alreadyHandledContext.qltdAdminApprovalView.reviewing, null);
+
+const staleApprovalContext = createApprovalReviewContext({ delayed: true });
+const staleApproval = staleApprovalContext.reviewMasterApproval('A1', 'APPROVED', '', { dependencyDecision: 'RECALCULATE_DEPENDENCIES' });
+await Promise.resolve();
+staleApprovalContext.qltdAdminApprovalView.projectCode = 'P2';
+staleApprovalContext.qltdAdminApprovalView.approvals = [{ updateId: 'B1', projectCode: 'P2' }];
+staleApprovalContext.releasePost();
+await staleApproval;
+assert.deepEqual(Array.from(staleApprovalContext.qltdAdminApprovalView.approvals, (item) => item.updateId), ['B1']);
+assert.equal(staleApprovalContext.qltdAdminApprovalView.reviewing, null);
+
 const weeklyPanel = latestFunction('renderWeeklyTaskUpdatePanel', 'renderWeeklyTaskList');
 assert.match(weeklyPanel, /single-week-toolbar/);
 assert.match(weeklyPanel, /Thứ Hai – Chủ nhật/);
