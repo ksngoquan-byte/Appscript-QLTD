@@ -107,7 +107,9 @@ vm.createContext(approvalRoleContext);
 vm.runInContext(extractFunction(app, 'canApprove'), approvalRoleContext);
 assert.equal(approvalRoleContext.canApprove({ role: 'ADMIN' }), true);
 assert.equal(approvalRoleContext.canApprove({ role: 'PMO' }), true);
-for (const role of ['EDITOR', 'REPORTER', 'VIEWER']) assert.equal(approvalRoleContext.canApprove({ role }), false);
+assert.equal(approvalRoleContext.canApprove({ role: 'EDITOR' }), true);
+for (const role of ['REPORTER', 'VIEWER']) assert.equal(approvalRoleContext.canApprove({ role }), false);
+assert.match(app, /admin:\s*'Phê duyệt'/);
 
 const permissionsBinding = latestFunction('applyPermissions', 'getStoredProjectCode');
 assert.match(permissionsBinding, /setNavVisibility\(NAV_LABELS\.admin, canApprove\(profile\)\)/);
@@ -125,6 +127,64 @@ assert.doesNotMatch(approvalReviewSource, /loadAdminMasterApprovals|loadGanttDat
 const approvalDirtySource = latestFunction('markMasterApprovalDataDirty', 'escapeHtml');
 assert.match(approvalDirtySource, /qltdGanttDirtyProjects\.add/);
 assert.doesNotMatch(approvalDirtySource, /loadWeeklyTaskDataForCurrent|loadGanttDataForSelectedProject/);
+const pbApprovalLoaderSource = app.slice(app.indexOf('async function loadPbDetailApprovals'), app.indexOf('async function reviewPbDetailApproval'));
+assert.match(pbApprovalLoaderSource, /weekly_pbdetailapprovals_get/);
+assert.match(pbApprovalLoaderSource, /\{ auth: true \}/);
+const pbApprovalReviewSource = app.slice(app.indexOf('async function reviewPbDetailApproval'), app.indexOf('async function reviewMasterApproval'));
+assert.match(pbApprovalReviewSource, /qltdPbDetailApprovalView\.reviewing/);
+assert.match(pbApprovalReviewSource, /APPROVAL_NOT_PENDING/);
+assert.match(pbApprovalReviewSource, /finally/);
+assert.doesNotMatch(pbApprovalReviewSource, /loadWeeklyTaskDataForCurrent|loadGanttDataForSelectedProject|qltdGanttDirtyProjects|location\.reload/);
+
+function createPbApprovalReviewContext({ result, delayed = false } = {}) {
+  let releasePost;
+  const context = {
+    qltdPbDetailApprovalReviewSeq: 0,
+    qltdPbDetailApprovalView: {
+      projectCode: 'P1',
+      approvals: [{ updateId: 'PB1', projectCode: 'P1', deptCode: 'D1', weekCode: 'W1' }],
+      reviewing: null,
+      error: ''
+    },
+    currentUserProfile: { email: 'editor@example.com' },
+    postCount: 0,
+    postBackendJson: async () => {
+      context.postCount += 1;
+      if (delayed) await new Promise((resolve) => { releasePost = resolve; });
+      return result || { success: true, data: { approval: { updateId: 'PB1', projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', approvalStatus: 'APPROVED' } } };
+    },
+    getBackendErrorCode: (payload) => payload?.errors?.[0]?.code || payload?.code || '',
+    getBackendErrorMessage: (payload, fallback) => payload?.errors?.[0]?.message || payload?.message || fallback,
+    applyCount: 0,
+    applyWeeklySavedUpdateToView: () => { context.applyCount += 1; return { applied: true }; },
+    invalidateWeeklyTaskCacheKey: () => {},
+    getWeeklyTaskCacheKey: () => 'P1::D1::W1',
+    renderCount: 0,
+    renderAdminPanel: () => { context.renderCount += 1; }
+  };
+  context.releasePost = () => releasePost?.();
+  vm.createContext(context);
+  vm.runInContext(pbApprovalReviewSource, context);
+  return context;
+}
+
+const duplicatePbReviewContext = createPbApprovalReviewContext({ delayed: true });
+const firstPbReview = duplicatePbReviewContext.reviewPbDetailApproval('PB1', 'APPROVED');
+await Promise.resolve();
+const duplicatePbReview = duplicatePbReviewContext.reviewPbDetailApproval('PB1', 'REJECTED', 'Trả lại');
+assert.equal(duplicatePbReviewContext.postCount, 1);
+assert.equal(duplicatePbReviewContext.qltdPbDetailApprovalView.reviewing.approvalStatus, 'APPROVED');
+duplicatePbReviewContext.releasePost();
+await Promise.all([firstPbReview, duplicatePbReview]);
+assert.equal(duplicatePbReviewContext.applyCount, 1);
+assert.equal(duplicatePbReviewContext.qltdPbDetailApprovalView.approvals.length, 0);
+assert.equal(duplicatePbReviewContext.qltdPbDetailApprovalView.reviewing, null);
+
+const failedPbReviewContext = createPbApprovalReviewContext({ result: { success: false, code: 'WRITE_ERROR', message: 'Không ghi được' } });
+await failedPbReviewContext.reviewPbDetailApproval('PB1', 'REJECTED', 'Thiếu dữ liệu');
+assert.equal(failedPbReviewContext.qltdPbDetailApprovalView.approvals.length, 1);
+assert.equal(failedPbReviewContext.qltdPbDetailApprovalView.reviewing, null);
+assert.equal(failedPbReviewContext.qltdPbDetailApprovalView.error, 'Không ghi được');
 
 const approvalRenderContext = {
   qltdAdminApprovalView: {
@@ -228,8 +288,8 @@ assert.equal(staleApprovalContext.qltdAdminApprovalView.reviewing, null);
 const weeklyPanel = latestFunction('renderWeeklyTaskUpdatePanel', 'renderWeeklyTaskList');
 assert.match(weeklyPanel, /single-week-toolbar/);
 assert.match(weeklyPanel, /Thứ Hai – Chủ nhật/);
-assert.match(weeklyPanel, /editorOpen && canUpdate \? renderWeeklySelectedForm/);
-assert.match(weeklyPanel, /selected && canUpdate \? renderWeeklySavedSelectionPlaceholder/);
+assert.match(weeklyPanel, /editorOpen && canUpdateSelected \? renderWeeklySelectedForm/);
+assert.match(weeklyPanel, /selected && canUpdateSelected \? renderWeeklySavedSelectionPlaceholder/);
 assert.match(weeklyPanel, /qltdWeeklyEditingItemKey === qltdSelectedWeeklyItemKey/);
 assert.match(weeklyPanel, /renderStandaloneBudgetWeeklyBlock/);
 assert.match(weeklyPanel, /weekly-split-view/);
@@ -269,6 +329,7 @@ const weeklyPanelContext = {
   qltdSelectedWeeklyItemKey: 'PB_DETAIL:DT-LOCAL',
   qltdWeeklyEditingItemKey: '',
   currentUserProfile: { email: 'user@example.com', role: 'EDITOR' },
+  normalizeRoleKey: (value) => String(value || '').trim().toUpperCase(),
   getWeeklyTaskCacheKey: () => 'P1::D1::W1',
   qltdWeeklyBuildWorkspaceModel: () => ({ objectives: [], tasks: [panelItem], visibleTasks: [], notUpdated: 0, pending: 0 }),
   findWeeklySavedUpdate: () => panelSaved,
@@ -287,6 +348,7 @@ const weeklyPanelContext = {
 };
 vm.createContext(weeklyPanelContext);
 vm.runInContext(`${[
+  extractFunction(app, 'canUpdateWeeklyItem'),
   extractFunction(app, 'renderWeeklySavedSelectionPlaceholder'),
   extractFunction(app, 'renderWeeklySaveActions'),
   extractFunction(app.slice(app.lastIndexOf('function renderWeeklyTaskUpdatePanel')), 'renderWeeklyTaskUpdatePanel')
@@ -310,6 +372,13 @@ const weeklySaved = { projectCode: 'P1', deptCode: 'KEHOACH', weekCode: 'WEEK-1'
 assert.equal(weeklyStateContext.findSaved([weeklySaved], weeklyItem, { projectCode: 'p1', deptCode: 'kehoach', weekCode: 'week-1' }), weeklySaved);
 assert.equal(weeklyStateContext.findSaved([weeklySaved], weeklyItem, { projectCode: 'P1', deptCode: 'PTDA', weekCode: 'WEEK-1' }), null);
 assert.deepEqual({ ...weeklyStateContext.effective(weeklyItem, weeklySaved) }, { progress: 1, status: 'Đang thực hiện', actualStart: '2026-06-21', actualFinish: '' });
+const rejectedRound = { ...weeklySaved, updateId: 'OLD', updatedAt: '2026-06-20T00:00:00.000Z', rowNumber: 2, approvalStatus: 'REJECTED', progressEnd: 40 };
+const pendingRound = { ...weeklySaved, updateId: 'NEW', updatedAt: '2026-06-21T00:00:00.000Z', rowNumber: 3, approvalStatus: 'PENDING', progressEnd: 60 };
+assert.equal(weeklyStateContext.findSaved([rejectedRound, pendingRound], weeklyItem, { projectCode: 'P1', deptCode: 'KEHOACH', weekCode: 'WEEK-1' }).updateId, 'NEW');
+assert.deepEqual(
+  { ...weeklyStateContext.effective(weeklyItem, pendingRound) },
+  { progress: 0, status: 'Chưa bắt đầu', actualStart: '', actualFinish: '' }
+);
 
 const weekContext = { pad2: (value) => String(value).padStart(2, '0'), qltdSelectedWeekId: 'WEEK-2026-06-29', qltdSelectedWeeklyItemKey: 'PB_DETAIL:DT-1', qltdWeeklyForcedItem: {} };
 vm.createContext(weekContext);
@@ -422,7 +491,7 @@ const objectiveRenderContext = {
   qltdSelectedWeeklyItemKey: ''
 };
 vm.createContext(objectiveRenderContext);
-vm.runInContext(extractFunction(app, 'renderWeeklyObjectiveList'), objectiveRenderContext);
+vm.runInContext(`${extractFunction(app, 'canUpdateWeeklyItem')}\n${extractFunction(app, 'renderWeeklyObjectiveList')}`, objectiveRenderContext);
 const readonlyObjective = objectiveRenderContext.renderWeeklyObjectiveList([{ itemType: 'MASTER', itemId: 'M1', taskName: 'Mục tiêu', progress: 20 }], [], {}, {}, false);
 assert.match(readonlyObjective, /Chỉ xem/);
 assert.doesNotMatch(readonlyObjective, /data-weekly-select/);
@@ -452,6 +521,10 @@ const savedMultiTaskBudgetHtml = savedUpdatesContext.renderSavedUpdates([
   { itemType: 'MASTER', itemId: 'D5-036', thisWeekResult: 'Done', progressEnd: 10, taskStatus: 'Doing', updatedBy: 'u', updatedAt: 't' }
 ], [{ itemType: 'MASTER', itemId: 'D5-036', taskName: 'Task', taskLinkedBudgetItems: [{ actualThisWeek: 400000 }, { actualThisWeek: 600000 }] }]);
 assert.match(savedMultiTaskBudgetHtml, /1\.000\.000/);
+const readonlyHistoryHtml = savedUpdatesContext.renderSavedUpdates([
+  { itemType: 'MASTER', itemId: 'M-READONLY', thisWeekResult: 'Done', progressEnd: 10, taskStatus: 'Doing', updatedBy: 'u', updatedAt: 't' }
+], [{ itemType: 'MASTER', itemId: 'M-READONLY', taskName: 'Readonly', canUpdate: false }], true);
+assert.doesNotMatch(readonlyHistoryHtml, /data-weekly-item=/);
 
 const weeklyExportStart = app.indexOf('const QLTD_WEEKLY_EXPORT_HEADERS');
 const weeklyExportEnd = app.indexOf('async function exportWeeklyReportExcel', weeklyExportStart);
@@ -675,6 +748,10 @@ assert.match(weeklyForm, /renderWeeklyActualDateLifecycle/);
 assert.match(weeklyForm, /weekly-form-close/);
 assert.match(weeklyForm, /Cong_viec/);
 assert.equal((weeklyForm.match(/saveWeeklyTaskUpdateButton/g) || []).length, 1);
+assert.match(weeklyForm, /Lý do trả lại/);
+const weeklySaveActionsSource = extractFunction(app, 'renderWeeklySaveActions');
+assert.match(weeklySaveActionsSource, /Gửi duyệt/);
+assert.match(weeklySaveActionsSource, /data-default-label/);
 
 const taskBudget = latestFunction('renderWeeklyBudgetBlock', 'renderStandaloneBudgetWeeklyBlock');
 assert.match(taskBudget, /data-task-budget-item-code/);
@@ -867,8 +944,8 @@ assert.match(extractFunction(app, 'resetDeptScopedSelectionState'), /qltdWeeklyE
 assert.match(extractFunction(app, 'clearWeeklyTaskSessionState'), /qltdWeeklyEditingItemKey = ''/);
 assert.match(extractFunction(app, 'qltdShiftSelectedWeek'), /qltdWeeklyEditingItemKey = ''/);
 
-function createWeeklySaveContext({ postResult, postError = null, verified = null, delayed = false } = {}) {
-  const button = { disabled: false, dataset: {}, textContent: 'Lưu báo cáo tuần' };
+function createWeeklySaveContext({ postResult, postError = null, verified = null, delayed = false, role = 'EDITOR', budgetUpdates = [] } = {}) {
+  const button = { disabled: false, dataset: role === 'REPORTER' ? { defaultLabel: 'Gửi duyệt' } : {}, textContent: role === 'REPORTER' ? 'Gửi duyệt' : 'Lưu báo cáo tuần' };
   const status = { textContent: '' };
   const inputs = {
     saveWeeklyTaskUpdateButton: button,
@@ -881,7 +958,7 @@ function createWeeklySaveContext({ postResult, postError = null, verified = null
   };
   let releasePost;
   const context = {
-    qltdWeeklyTaskView: { items: [{ itemType: 'PB_DETAIL', itemId: 'DT-1', progress: 20 }], updates: [] },
+    qltdWeeklyTaskView: { items: [{ itemType: 'PB_DETAIL', itemId: 'DT-1', progress: 20 }], updates: [], capabilities: { role } },
     qltdSelectedWeeklyItemKey: 'PB_DETAIL:DT-1',
     qltdWeeklyEditingItemKey: 'PB_DETAIL:DT-1',
     qltdDeptPlanPayload: { projectCode: 'P1', departments: [{ deptCode: 'D1' }] },
@@ -891,22 +968,26 @@ function createWeeklySaveContext({ postResult, postError = null, verified = null
     qltdWeeklySaveRequestId: 'REQ-1',
     qltdWeeklyTaskFilters: { search: 'không đổi', ownership: 'OWNED', statuses: ['NOT_UPDATED'] },
     qltdWeeklyWorkspaceTab: 'tasks',
-    currentUserProfile: { email: 'user@example.com' },
+    currentUserProfile: { email: 'user@example.com', role },
+    normalizeRoleKey: (value) => String(value || '').trim().toUpperCase(),
     qltdGanttDirtyProjects: new Set(),
     document: { getElementById: (id) => inputs[id] || null },
     window: { confirm: () => true },
     validateWeeklyTaskForm: () => ({ error: '', progressEnd: 30, status: 'Đang thực hiện', dates: { actualStart: '', actualFinish: '', actualStartEdit: '', actualFinishEdit: '' } }),
-    buildWeeklyBudgetUpdates: () => ({ error: '', updates: [] }),
+    buildWeeklyBudgetUpdates: () => ({ error: '', updates: budgetUpdates.slice() }),
     findWeeklySavedUpdate: () => null,
     getWeeklyEffectiveTaskState: () => ({ progress: 20 }),
     getWeeklySaveRequestId: () => 'REQ-1',
     postCount: 0,
-    postBackendJson: async () => {
+    postedBodies: [],
+    postBackendJson: async (body) => {
       context.postCount += 1;
+      context.postedBodies.push(body);
       if (delayed) await new Promise((resolve) => { releasePost = resolve; });
       if (postError) throw postError;
       return postResult || { success: true, data: { update: { projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', itemType: 'PB_DETAIL', itemId: 'DT-1', progressEnd: 30, approvalStatus: '' }, budget: { savedCount: 0, results: [] } } };
     },
+    getBackendErrorMessage: (payload, fallback) => payload?.errors?.[0]?.message || payload?.message || fallback,
     appliedUpdates: [],
     applyWeeklySavedUpdateToView: (_body, update) => {
       context.appliedUpdates.push(update);
@@ -920,7 +1001,8 @@ function createWeeklySaveContext({ postResult, postError = null, verified = null
     renderWeeklyTaskRegion: () => { context.renderCount += 1; },
     loadCount: 0,
     loadWeeklyTaskDataForCurrent: async () => { context.loadCount += 1; },
-    markWeeklyGanttRefreshRequired: async () => {},
+    ganttMarkCount: 0,
+    markWeeklyGanttRefreshRequired: async () => { context.ganttMarkCount += 1; },
     verifyCount: 0,
     verifyWeeklyTaskUpdateSaved: async () => { context.verifyCount += 1; return verified; },
     console
@@ -951,6 +1033,20 @@ const pendingSave = createWeeklySaveContext({
 await pendingSave.context.saveWeeklyTaskUpdate();
 assert.equal(pendingSave.context.appliedUpdates[0].approvalStatus, 'PENDING');
 assert.equal(pendingSave.context.appliedUpdates[0].officialComplete, false);
+
+const reporterSave = createWeeklySaveContext({
+  role: 'REPORTER',
+  budgetUpdates: [{ budgetItemCode: 'IGNORED-FOR-APPROVAL' }],
+  postResult: { success: true, data: { update: { updateId: 'PB-PENDING', projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', itemType: 'PB_DETAIL', itemId: 'DT-1', progressEnd: 30, approvalStatus: 'PENDING' }, budget: { savedCount: 0, results: [] }, ganttRefreshRequired: false } }
+});
+await reporterSave.context.saveWeeklyTaskUpdate();
+assert.equal(reporterSave.context.qltdSelectedWeeklyItemKey, 'PB_DETAIL:DT-1');
+assert.equal(reporterSave.context.qltdWeeklyEditingItemKey, '');
+assert.equal(reporterSave.context.appliedUpdates[0].approvalStatus, 'PENDING');
+assert.equal(reporterSave.context.ganttMarkCount, 0);
+assert.equal(reporterSave.context.postedBodies[0].budgetUpdates.length, 0);
+assert.equal(reporterSave.context.postedBodies[0].expectedApprovalStatus, 'PENDING');
+assert.match(reporterSave.context.toastMessages[0], /Trưởng\/Phó phòng duyệt/);
 
 const backendFailure = createWeeklySaveContext({ postResult: { success: false, message: 'Backend từ chối' } });
 await backendFailure.context.saveWeeklyTaskUpdate();
@@ -993,7 +1089,7 @@ const localApplyContext = {
   qltdWeeklyTaskView: {
     key: 'P1::D1::W1',
     items: [{ itemType: 'PB_DETAIL', itemId: 'T1', progress: 10, status: 'Đang làm', taskLinkedBudgetItems: [{ budgetItemCode: 'TL-1', actualThisWeek: 100, actualCumulative: 500, remainingBudget: 500 }] }],
-    updates: [{ projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', itemType: 'PB_DETAIL', itemId: 'T1', progressEnd: 20 }],
+    updates: [{ updateId: 'OLD', projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', itemType: 'PB_DETAIL', itemId: 'T1', progressEnd: 20, approvalStatus: 'REJECTED' }],
     standaloneBudgetItems: [{ budgetItemCode: 'ST-1', actualThisWeek: 50, actualCumulative: 200, remainingBudget: 800 }],
     budgetDrafts: { 'TL-1': { amount: '300', dirty: true } },
     capabilities: { canUpdate: true }
@@ -1009,7 +1105,7 @@ vm.runInContext([
   extractFunction(app, 'applyWeeklySavedUpdateToView')
 ].join('\n'), localApplyContext);
 const localPayload = { projectCode: 'P1', deptCode: 'D1', weekCode: 'W1' };
-const localSaved = { ...localPayload, itemType: 'PB_DETAIL', itemId: 'T1', progressEnd: 60, taskStatus: 'Đang thực hiện', approvalStatus: 'PENDING', actualStart: '2026-06-22' };
+const localSaved = { updateId: 'NEW', ...localPayload, itemType: 'PB_DETAIL', itemId: 'T1', progressEnd: 60, taskStatus: 'Đang thực hiện', approvalStatus: 'PENDING', actualStart: '2026-06-22' };
 const localResult = localApplyContext.applyWeeklySavedUpdateToView(localPayload, localSaved, {
   budgetUpdates: [{ budgetItemCode: 'TL-1' }, { budgetItemCode: 'ST-1' }],
   budgetResults: [
@@ -1019,17 +1115,18 @@ const localResult = localApplyContext.applyWeeklySavedUpdateToView(localPayload,
   clearBudgetDrafts: true
 });
 assert.deepEqual({ ...localResult }, { applied: true, budgetComplete: true });
-assert.equal(localApplyContext.qltdWeeklyTaskView.updates.length, 1);
-assert.equal(localApplyContext.qltdWeeklyTaskView.updates[0].progressEnd, 60);
-assert.equal(localApplyContext.qltdWeeklyTaskView.updates[0].approvalStatus, 'PENDING');
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates.length, 2);
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates[1].progressEnd, 60);
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates[1].approvalStatus, 'PENDING');
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates[0].approvalStatus, 'REJECTED');
 assert.equal(localApplyContext.qltdWeeklyTaskView.items[0].taskLinkedBudgetItems[0].actualCumulative, 700);
 assert.equal(localApplyContext.qltdWeeklyTaskView.standaloneBudgetItems[0].remainingBudget, 770);
 assert.deepEqual({ ...localApplyContext.qltdWeeklyTaskView.budgetDrafts }, {});
 assert.deepEqual(localApplyContext.qltdWeeklyTaskCache.get('P1::D1::W1'), localApplyContext.qltdWeeklyTaskView);
 assert.notEqual(localApplyContext.qltdWeeklyTaskCache.get('P1::D1::W1'), localApplyContext.qltdWeeklyTaskView);
 localApplyContext.applyWeeklySavedUpdateToView(localPayload, { ...localSaved, progressEnd: 65 }, { clearBudgetDrafts: true });
-assert.equal(localApplyContext.qltdWeeklyTaskView.updates.length, 1);
-assert.equal(localApplyContext.qltdWeeklyTaskView.updates[0].progressEnd, 65);
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates.length, 2);
+assert.equal(localApplyContext.qltdWeeklyTaskView.updates[1].progressEnd, 65);
 
 const ganttDirtyContext = {
   qltdGanttDirtyProjects: new Set(),

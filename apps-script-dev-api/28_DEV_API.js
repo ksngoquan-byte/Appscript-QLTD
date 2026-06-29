@@ -9,6 +9,7 @@ const QLTD_DEV_DEPT_READ_ACTIONS = {
   work_listassignees: true,
   weekly_taskupdates_get: true,
   weekly_masterapprovals_get: true,
+  weekly_pbdetailapprovals_get: true,
   weekly_getmyreports: true,
   weekly_getdeptreports: true,
   listdeptplans: true
@@ -135,6 +136,10 @@ function qltdDevApiHandleGet(e) {
 
   if (action === 'weekly_masterapprovals_get') {
     return qltdDevApiJson_(qltdWeeklyMasterApprovalsGet_(params));
+  }
+
+  if (action === 'weekly_pbdetailapprovals_get') {
+    return qltdDevApiJson_(qltdWeeklyPbDetailApprovalsGet_(params));
   }
 
   if (action === 'work_listassignees') {
@@ -293,6 +298,10 @@ function qltdDevApiHandlePost_(e) {
 
   if (action === 'weekly_masterapproval_review') {
     return qltdDevApiJson_(qltdWeeklyMasterApprovalReview_(payload));
+  }
+
+  if (action === 'weekly_pbdetailapproval_review') {
+    return qltdDevApiJson_(qltdWeeklyPbDetailApprovalReview_(payload));
   }
 
   if (action === 'weekly_savedraft') {

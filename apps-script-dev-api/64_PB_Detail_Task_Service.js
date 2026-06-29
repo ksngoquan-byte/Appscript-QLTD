@@ -146,54 +146,58 @@ function qltdWorkCreateDetailTask_(payload) {
 
 function qltdWorkUpdateDetailTask_(payload) {
   return qltdPbDetailWriteWithLock_('work_updateDetailTask', payload || {}, function(action, context, sheetContext, warnings) {
-    const validation = qltdPbDetailValidateUpdatePayload_(payload || {}, context, warnings);
-    if (validation.error) return validation.error;
-
-    const fileIdScan = qltdPbDetailScanIdsInFile_(action, context, sheetContext);
-    warnings.push.apply(warnings, fileIdScan.warnings || []);
-    if (fileIdScan.error) return fileIdScan.error;
-
-    const matches = qltdPbDetailFindById_(sheetContext, validation.detailTaskId);
-    if (!matches.length) {
-      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'DETAIL_TASK_NOT_FOUND', 'Detail task not found.', context.meta, warnings);
-    }
-    if (matches.length > 1) {
-      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'DETAIL_TASK_DUPLICATE', 'DetailTaskId is duplicated.', context.meta, warnings, {
-        detailTaskId: validation.detailTaskId
-      });
-    }
-
-    const target = matches[0];
-    const row = target.values.slice();
-    qltdPbDetailApplyUpdates_(row, sheetContext.columns, validation.updates);
-    const mergedDateError = qltdPbDetailValidateMergedDateRow_(row, sheetContext.columns);
-    if (mergedDateError) {
-      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, mergedDateError.code, mergedDateError.message, context.meta, warnings, mergedDateError.extra);
-    }
-    const block = qltdPbDetailFindMasterBlock_(sheetContext, target.masterTaskCode);
-    if (block.error) {
-      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, block.error.code, block.error.message, context.meta, warnings);
-    }
-    const parentFinishError = qltdPbDetailValidateParentFinish_(
-      row[sheetContext.columns.planFinish],
-      block.masterRow,
-      sheetContext.columns,
-      block.masterTaskCode
-    );
-    if (parentFinishError) {
-      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, parentFinishError.code, parentFinishError.message, context.meta, warnings, parentFinishError.extra);
-    }
-    sheetContext.sheet.getRange(target.rowNumber, 1, 1, QLTD_PB_DETAIL_LAST_COLUMN).setValues([row]);
-
-    warnings.push(qltdWorkWarning_('DETAIL_TASK_LOG_SKIPPED', 'Budget log helper is not available in this repo.'));
-    return qltdWorkOk_(QLTD_PB_DETAIL_TASK_SOURCE, action, {
-      projectCode: context.projectCode,
-      deptCode: context.deptCode,
-      sheetName: sheetContext.sheet.getName(),
-      detailTaskId: validation.detailTaskId,
-      rowNumber: target.rowNumber
-    }, warnings, context.meta);
+    return qltdPbDetailApplyUpdateNoLock_(action, payload || {}, context, sheetContext, warnings);
   });
+}
+
+function qltdPbDetailApplyUpdateNoLock_(action, payload, context, sheetContext, warnings) {
+  const validation = qltdPbDetailValidateUpdatePayload_(payload || {}, context, warnings);
+  if (validation.error) return validation.error;
+
+  const fileIdScan = qltdPbDetailScanIdsInFile_(action, context, sheetContext);
+  warnings.push.apply(warnings, fileIdScan.warnings || []);
+  if (fileIdScan.error) return fileIdScan.error;
+
+  const matches = qltdPbDetailFindById_(sheetContext, validation.detailTaskId);
+  if (!matches.length) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'DETAIL_TASK_NOT_FOUND', 'Detail task not found.', context.meta, warnings);
+  }
+  if (matches.length > 1) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'DETAIL_TASK_DUPLICATE', 'DetailTaskId is duplicated.', context.meta, warnings, {
+      detailTaskId: validation.detailTaskId
+    });
+  }
+
+  const target = matches[0];
+  const row = target.values.slice();
+  qltdPbDetailApplyUpdates_(row, sheetContext.columns, validation.updates);
+  const mergedDateError = qltdPbDetailValidateMergedDateRow_(row, sheetContext.columns);
+  if (mergedDateError) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, mergedDateError.code, mergedDateError.message, context.meta, warnings, mergedDateError.extra);
+  }
+  const block = qltdPbDetailFindMasterBlock_(sheetContext, target.masterTaskCode);
+  if (block.error) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, block.error.code, block.error.message, context.meta, warnings);
+  }
+  const parentFinishError = qltdPbDetailValidateParentFinish_(
+    row[sheetContext.columns.planFinish],
+    block.masterRow,
+    sheetContext.columns,
+    block.masterTaskCode
+  );
+  if (parentFinishError) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, parentFinishError.code, parentFinishError.message, context.meta, warnings, parentFinishError.extra);
+  }
+  sheetContext.sheet.getRange(target.rowNumber, 1, 1, QLTD_PB_DETAIL_LAST_COLUMN).setValues([row]);
+
+  warnings.push(qltdWorkWarning_('DETAIL_TASK_LOG_SKIPPED', 'Budget log helper is not available in this repo.'));
+  return qltdWorkOk_(QLTD_PB_DETAIL_TASK_SOURCE, action, {
+    projectCode: context.projectCode,
+    deptCode: context.deptCode,
+    sheetName: sheetContext.sheet.getName(),
+    detailTaskId: validation.detailTaskId,
+    rowNumber: target.rowNumber
+  }, warnings, context.meta);
 }
 
 function qltdPbDetailWriteWithLock_(action, payload, handler) {

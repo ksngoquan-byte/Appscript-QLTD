@@ -17,6 +17,13 @@ let allocations = [];
 let failBudgetItemCode = '';
 let failAggregateBudgetItemCode = '';
 let authRole = 'ADMIN';
+let authEmail = 'user@example.com';
+const officialDetailWrites = [];
+const detailDtos = [
+  { detailTaskId: 'DT-REPORTER', masterTaskCode: 'M1', owner: 'Reporter <reporter@example.com>', wbs: '1.1', taskName: 'Reporter task', progress: 10, status: 'Äang lÃ m', actualStart: '2026-06-01', actualFinish: '' },
+  { detailTaskId: 'DT-OTHER', masterTaskCode: 'M1', owner: 'Other <other@example.com>', wbs: '1.2', taskName: 'Other task', progress: 10, status: 'Äang lÃ m', actualStart: '2026-06-01', actualFinish: '' },
+  { detailTaskId: 'DT-EDITOR', masterTaskCode: 'M1', owner: '', wbs: '1.3', taskName: 'Editor task', progress: 10, status: 'Äang lÃ m', actualStart: '2026-06-01', actualFinish: '' }
+];
 const RAW_BUDGET_HEADERS = [
   'Report ID', 'Ma du an', 'Trang thai xac nhan', 'Sync status', 'Loai ban ghi',
   'Ma khoan ngan sach', 'Ma phan bo', 'Huong dong tien', 'Gia tri thuc hien ky nay',
@@ -40,7 +47,8 @@ const context = {
   qltdBudgetToNumber_: (value) => Number(value || 0),
   qltdWeeklyCellText_: (value) => String(value || ''),
   getCurrentSpreadsheet_: () => ({ getSheetByName: () => mockSheet }),
-  qltdWorkAuthUser_: () => ({ email: 'user@example.com', user: { role: authRole } }),
+  qltdWorkAuthUser_: () => ({ email: authEmail, user: { role: authRole, deptCode: 'PTDA' } }),
+  qltdWorkNormalizeRole_: (value) => String(value || '').trim().toUpperCase(),
   qltdWorkResolveProjectDept_: () => ({ projectCode: 'P1', deptCode: 'PTDA', project: { projectCode: 'P1' }, dept: { deptCode: 'PTDA' }, requestedDeptCode: 'PTDA', warnings: [] }),
   qltdWorkCanReadDept_: () => true,
   qltdWorkNowIso_: () => '2026-06-20T00:00:00.000Z',
@@ -50,11 +58,30 @@ const context = {
   qltdBudgetSafeErrorMessage_: (error) => error.message,
   qltdWorkBuildDeptContext_: () => ({}),
   qltdWorkReadTaskTarget_: () => ({ error: true }),
-  qltdPbDetailBuildSheetContext_: () => ({ error: true }),
+  qltdPbDetailBuildSheetContext_: () => ({
+    error: null,
+    columns: {},
+    warnings: [],
+    dataRows: detailDtos.map((dto, index) => ({ rowType: 'PB_DETAIL', detailTaskId: dto.detailTaskId, rowNumber: index + 2, dto }))
+  }),
+  qltdPbDetailBuildDetailDto_: (row) => ({ ...row.dto }),
+  QLTD_PB_DETAIL_ROW_TYPE_DETAIL: 'PB_DETAIL',
   qltdGanttGetDataForProject_: () => ({ success: true, data: [] }),
   qltdBudgetReadBudgetItems_: () => ({ items: budgetItems, warnings: [] }),
   qltdBudgetReadAllocations_: () => ({ allocations, warnings: [] }),
   qltdWorkIsAdminScope_: (user) => ['ADMIN', 'PMO'].includes(String(user?.role || '').toUpperCase()),
+  qltdMasterDeptCanonicalCode_: (value) => String(value || '').trim().toUpperCase(),
+  qltdWorkSameDept_: (user, deptCode) => String(user?.deptCode || '').toUpperCase() === String(deptCode || '').toUpperCase(),
+  qltdWorkResolveAssignees_: (value) => {
+    const match = String(value || '').match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+    return { ok: !!match, users: match ? [{ email: match[0].toLowerCase() }] : [], unresolved: match ? [] : [value] };
+  },
+  qltdWorkUserMatchesAssignees_: (email, resolution) => resolution.users.some((user) => user.email === String(email || '').toLowerCase()),
+  qltdUsersGetByEmail_: (email) => ({ email, role: 'REPORTER', status: 'ACTIVE', deptCode: 'PTDA' }),
+  qltdPbDetailApplyUpdateNoLock_: (_action, payload) => {
+    officialDetailWrites.push({ ...payload });
+    return { success: true, warnings: [] };
+  },
   qltdBudgetNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
   qltdBudgetNormalizeKey_: (value) => String(value || '').trim().toLowerCase(),
   qltdBudgetNormalizeAmount_: (value) => {
@@ -130,8 +157,8 @@ const context = {
   console
 };
 vm.createContext(context);
-vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, getApprovals: qltdWeeklyMasterApprovalsGet_, review: qltdWeeklyMasterApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_ };`, context);
-const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, getApprovals, review, resolveActualDate, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext } = context.api;
+vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, getApprovals: qltdWeeklyMasterApprovalsGet_, review: qltdWeeklyMasterApprovalReview_, getPbApprovals: qltdWeeklyPbDetailApprovalsGet_, reviewPb: qltdWeeklyPbDetailApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_ };`, context);
+const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, getApprovals, review, getPbApprovals, reviewPb, resolveActualDate, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext } = context.api;
 context.qltdWeeklyMasterApprovalApplyToMaster_ = (target, auth, dependencyDecision, recoveryPlan) => {
   masterApprovalSyncCalls.push({ target, auth, dependencyDecision, recoveryPlan });
   return {
@@ -206,7 +233,7 @@ assert.equal(buildItem('MASTER', 'CV-1', { wbs: '1', taskName: 'Không lịch', 
 assert.equal(buildItem('MASTER', 'CV-1', base, '2026-06-08', '2026-06-14', 'không khớp').eligible, false);
 assert.equal(buildItem('PB_DETAIL', 'DT-COORD', { ...base, coordinatorText: 'user@example.com; other@example.com' }, '2026-06-08', '2026-06-14', '').coordinator, 'user@example.com; other@example.com');
 assert.match(source, /capabilities:\s*\{/);
-assert.match(source, /canUpdate:\s*qltdWorkCanWriteTask_/);
+assert.match(source, /canUpdate:\s*canManage \|\| role === 'REPORTER'/);
 assert.match(source, /canReviewWeekly:\s*qltdWorkCanReviewWeekly_/);
 
 const sorted = [
@@ -393,6 +420,92 @@ for (const role of ['EDITOR', 'REPORTER', 'VIEWER']) {
   assert.equal(denied.code, 'ACCESS_DENIED');
 }
 authRole = 'ADMIN';
+
+authRole = 'REPORTER';
+authEmail = 'reporter@example.com';
+const reporterBase = {
+  email: authEmail,
+  projectCode: 'P1',
+  deptCode: 'PTDA',
+  weekCode: 'WEEK-2026-06-22',
+  itemType: 'PB_DETAIL',
+  itemId: 'DT-REPORTER',
+  progressEnd: 35,
+  taskStatus: 'Äang thá»±c hiá»‡n',
+  actualStart: '2026-06-01',
+  thisWeekResult: 'Reporter update'
+};
+const syncCountBeforeReporter = detailSyncCalls.length;
+const budgetWriteCountBeforeReporter = budgetWriteCalls.length;
+const reporterPending = save({ ...reporterBase, budgetUpdates: [standaloneBudget] });
+assert.equal(reporterPending.success, true);
+assert.equal(reporterPending.inserted, true);
+assert.equal(reporterPending.update.approvalStatus, 'PENDING');
+assert.equal(reporterPending.taskSync.skippedPbDetailSync, true);
+assert.equal(detailSyncCalls.length, syncCountBeforeReporter);
+assert.equal(budgetWriteCalls.length, budgetWriteCountBeforeReporter);
+const duplicatePending = save({ ...reporterBase, progressEnd: 40 });
+assert.equal(duplicatePending.success, false);
+assert.equal(duplicatePending.code, 'PB_DETAIL_APPROVAL_ALREADY_PENDING');
+assert.equal(duplicatePending.existingUpdate.updateId, reporterPending.update.updateId);
+assert.equal(save({ ...reporterBase, itemType: 'MASTER', itemId: 'M1' }).code, 'REPORTER_PB_DETAIL_ONLY');
+assert.equal(save({ ...reporterBase, itemId: 'DT-OTHER' }).code, 'PB_DETAIL_NOT_ASSIGNED');
+const otherDeptPending = {
+  UpdateId: 'WTU-OTHER-DEPT', ProjectCode: 'P1', DeptCode: 'OTHER', WeekCode: reporterBase.weekCode,
+  ItemType: 'PB_DETAIL', ItemId: 'DT-REPORTER', ProgressEnd: 50, TaskStatus: 'Äang thá»±c hiá»‡n',
+  UpdatedBy: 'other@example.com', UpdatedAt: '2026-06-20T00:00:00.000Z', ApprovalStatus: 'PENDING'
+};
+sheetRows.push(headers.map((header) => otherDeptPending[header] || ''));
+
+authRole = 'EDITOR';
+authEmail = 'editor@example.com';
+const pendingList = getPbApprovals({ projectCode: 'P1', status: 'PENDING' });
+assert.equal(pendingList.success, true);
+assert.equal(pendingList.count, 1);
+assert.equal(pendingList.approvals[0].officialProgress, 10);
+authRole = 'ADMIN';
+assert.equal(getPbApprovals({ projectCode: 'P1', status: 'PENDING' }).code, 'ACCESS_DENIED');
+authRole = 'EDITOR';
+const officialWritesBeforeReject = officialDetailWrites.length;
+const rejected = reviewPb({
+  email: authEmail,
+  updateId: reporterPending.update.updateId,
+  approvalStatus: 'REJECTED',
+  reviewReason: 'Bá»• sung káº¿t quáº£'
+});
+assert.equal(rejected.success, true);
+assert.equal(rejected.approval.approvalStatus, 'REJECTED');
+assert.equal(rejected.approval.reviewedBy, authEmail);
+assert.equal(officialDetailWrites.length, officialWritesBeforeReject);
+
+authRole = 'REPORTER';
+authEmail = 'reporter@example.com';
+const resubmitted = save({ ...reporterBase, progressEnd: 45, thisWeekResult: 'Reporter resubmit' });
+assert.equal(resubmitted.success, true);
+assert.notEqual(resubmitted.update.updateId, reporterPending.update.updateId);
+assert.equal(sheetRows.find((row) => row[0] === reporterPending.update.updateId)[17], 'REJECTED');
+assert.equal(sheetRows.find((row) => row[0] === resubmitted.update.updateId)[17], 'PENDING');
+
+authRole = 'EDITOR';
+authEmail = 'editor@example.com';
+const missingRejectReason = reviewPb({ email: authEmail, updateId: resubmitted.update.updateId, approvalStatus: 'REJECTED' });
+assert.equal(missingRejectReason.code, 'REVIEW_REASON_REQUIRED');
+const approvedPb = reviewPb({ email: authEmail, updateId: resubmitted.update.updateId, approvalStatus: 'APPROVED' });
+assert.equal(approvedPb.success, true);
+assert.equal(approvedPb.pbDetailUpdated, true);
+assert.equal(officialDetailWrites.at(-1).detailTaskId, 'DT-REPORTER');
+assert.equal(officialDetailWrites.at(-1).progress, 45);
+assert.equal(reviewPb({ email: authEmail, updateId: resubmitted.update.updateId, approvalStatus: 'APPROVED' }).code, 'APPROVAL_NOT_PENDING');
+const directEditor = save({ ...reporterBase, email: authEmail, itemId: 'DT-EDITOR', progressEnd: 30, thisWeekResult: 'Editor direct' });
+assert.equal(directEditor.success, true);
+assert.equal(directEditor.update.approvalStatus, '');
+assert.equal(detailSyncCalls.at(-1).detailTaskId, 'DT-EDITOR');
+
+authRole = 'VIEWER';
+authEmail = 'viewer@example.com';
+assert.equal(save({ ...reporterBase, email: authEmail }).code, 'ACCESS_DENIED');
+authRole = 'ADMIN';
+authEmail = 'user@example.com';
 
 assert.match(source, /function qltdWeeklyMasterProgressWriteback_/);
 assert.match(source, /if \(update\.actualStart\) changes\.push/);

@@ -128,10 +128,13 @@ function qltdWeeklyTaskUpdatesGet_(params) {
 
   const itemType = qltdWeeklyTaskUpdatesNormalizeType_(params.itemType);
   const itemId = String(params.itemId || '').trim();
+  const role = qltdWorkNormalizeRole_(auth.user && auth.user.role);
   const updates = read.updates.filter(function(update) {
-    return update.projectCode === scope.projectCode && update.deptCode === scope.deptCode &&
+    const inScope = update.projectCode === scope.projectCode && update.deptCode === scope.deptCode &&
       update.weekCode === scope.weekCode && (!itemType || update.itemType === itemType) &&
       (!itemId || update.itemId === itemId);
+    if (!inScope) return false;
+    return role !== 'REPORTER' || update.itemType !== 'PB_DETAIL' || update.updatedBy === auth.email;
   });
   updates.forEach(function(update) {
     update.budgetCumulative = read.updates.filter(function(candidate) {
@@ -180,6 +183,73 @@ function qltdWeeklyMasterApprovalsGet_(params) {
     count: approvals.length,
     status: statusFilter
   }, [], { email: auth.email });
+}
+
+function qltdWeeklyPbDetailApprovalsGet_(params) {
+  const action = 'weekly_pbdetailapprovals_get';
+  const auth = qltdWorkAuthUser_(params && params.email, action, QLTD_WEEKLY_TASK_UPDATE_SOURCE);
+  if (auth.error) return auth.error;
+  if (qltdWorkNormalizeRole_(auth.user && auth.user.role) !== 'EDITOR') {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Only same-department Editors can review PB_DETAIL updates.', { email: auth.email });
+  }
+  const read = qltdWeeklyTaskUpdatesRead_();
+  if (read.error) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, read.error.code, read.error.message, { email: auth.email });
+
+  const projectCode = qltdWorkNormalizeCode_(params && params.projectCode);
+  const status = qltdWeeklyTaskUpdatesNormalizeApprovalStatus_(params && params.status) || QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING;
+  const candidates = read.updates.filter(function(update) {
+    return update.itemType === 'PB_DETAIL' &&
+      update.approvalStatus === status &&
+      (!projectCode || update.projectCode === projectCode) &&
+      qltdMasterDeptCanonicalCode_(update.deptCode) === qltdMasterDeptCanonicalCode_(auth.user.deptCode);
+  });
+  const detailCache = {};
+  const approvals = [];
+  candidates.forEach(function(update) {
+    const cacheKey = update.projectCode + '|' + update.deptCode;
+    if (!Object.prototype.hasOwnProperty.call(detailCache, cacheKey)) {
+      const resolved = qltdWorkResolveProjectDept_(action, update, QLTD_WEEKLY_TASK_UPDATE_SOURCE, {
+        requireDeptSpreadsheet: true,
+        actorUser: auth.user,
+        meta: { email: auth.email, projectCode: update.projectCode, deptCode: update.deptCode }
+      });
+      if (resolved.error || !qltdWorkSameDept_(auth.user, resolved.deptCode, resolved.dept)) {
+        detailCache[cacheKey] = null;
+      } else {
+        const context = Object.assign({}, resolved, {
+          meta: { email: auth.email, projectCode: resolved.projectCode, deptCode: resolved.deptCode },
+          warnings: resolved.warnings || []
+        });
+        const sheetContext = qltdPbDetailBuildSheetContext_(action, context);
+        const map = {};
+        if (!sheetContext.error) {
+          sheetContext.dataRows.forEach(function(row) {
+            if (row.rowType === QLTD_PB_DETAIL_ROW_TYPE_DETAIL) {
+              const dto = qltdPbDetailBuildDetailDto_(row, sheetContext.columns);
+              map[dto.detailTaskId] = dto;
+            }
+          });
+        }
+        detailCache[cacheKey] = map;
+      }
+    }
+    const official = detailCache[cacheKey] && detailCache[cacheKey][update.itemId];
+    if (!official) return;
+    approvals.push(Object.assign({}, update, {
+      wbs: official.wbs,
+      taskName: official.taskName,
+      owner: official.owner,
+      officialProgress: official.progress,
+      officialStatus: official.status,
+      officialActualStart: official.actualStart,
+      officialActualFinish: official.actualFinish
+    }));
+  });
+  return qltdWorkOk_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, {
+    approvals: approvals,
+    count: approvals.length,
+    status: status
+  }, [], { email: auth.email, projectCode: projectCode });
 }
 
 function qltdWeeklyMasterApprovalReview_(payload) {
@@ -270,6 +340,99 @@ function qltdWeeklyMasterApprovalReview_(payload) {
   }
 }
 
+function qltdWeeklyPbDetailApprovalReview_(payload) {
+  const action = 'weekly_pbdetailapproval_review';
+  const auth = qltdWorkAuthUser_(payload && payload.email, action, QLTD_WEEKLY_TASK_UPDATE_SOURCE);
+  if (auth.error) return auth.error;
+  if (qltdWorkNormalizeRole_(auth.user && auth.user.role) !== 'EDITOR') {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Only same-department Editors can review PB_DETAIL updates.', { email: auth.email });
+  }
+  const updateId = String(payload && payload.updateId || '').trim();
+  const nextStatus = qltdWeeklyTaskUpdatesNormalizeApprovalStatus_(payload && (payload.approvalStatus || payload.status));
+  const reason = String(payload && (payload.reviewReason || payload.reason) || '').trim();
+  const meta = { email: auth.email, updateId: updateId, approvalStatus: nextStatus };
+  if (!updateId) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'UPDATE_ID_REQUIRED', 'updateId is required.', meta);
+  if ([QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED, QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED].indexOf(nextStatus) === -1) {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'APPROVAL_STATUS_INVALID', 'Approval status must be APPROVED or REJECTED.', meta);
+  }
+  if (nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED && !reason) {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'REVIEW_REASON_REQUIRED', 'ReviewReason is required when rejecting.', meta);
+  }
+
+  const lock = LockService.getScriptLock();
+  let locked = false;
+  try {
+    locked = lock.tryLock(QLTD_WORK_WRITE_LOCK_TIMEOUT_MS);
+    if (!locked) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WRITE_LOCK_TIMEOUT', 'Cannot acquire approval review lock.', meta);
+    const read = qltdWeeklyTaskUpdatesRead_();
+    if (read.error) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, read.error.code, read.error.message, meta);
+    const target = read.updates.find(function(update) { return update.updateId === updateId; });
+    if (!target || target.itemType !== 'PB_DETAIL' || !target.approvalStatus) {
+      return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'APPROVAL_NOT_FOUND', 'PB_DETAIL approval request not found.', meta);
+    }
+    if (target.approvalStatus !== QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING) {
+      return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'APPROVAL_NOT_PENDING', 'Only PENDING approval requests can be reviewed.', Object.assign({ currentStatus: target.approvalStatus }, meta));
+    }
+    const submitter = qltdUsersGetByEmail_(target.updatedBy);
+    if (!submitter || submitter.status !== 'ACTIVE' || qltdWorkNormalizeRole_(submitter.role) !== 'REPORTER') {
+      return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PROPOSAL_SUBMITTER_INVALID', 'PB_DETAIL proposal submitter is not an active Reporter.', meta);
+    }
+    const scope = qltdWeeklyTaskUpdatesResolveScope_(action, target, auth);
+    if (scope.error) return scope.error;
+    if (!qltdWorkSameDept_(auth.user, scope.deptCode, scope.dept)) {
+      return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Editor cannot review another department.', scope.meta, scope.warnings);
+    }
+
+    const detailContext = qltdPbDetailBuildSheetContext_(action, Object.assign({}, scope, { meta: scope.meta }));
+    if (detailContext.error) return detailContext.error;
+    const detailRow = detailContext.dataRows.find(function(row) {
+      return row.rowType === QLTD_PB_DETAIL_ROW_TYPE_DETAIL && row.detailTaskId === target.itemId;
+    });
+    if (!detailRow) {
+      return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PB_DETAIL_NOT_FOUND', 'PB_DETAIL task not found.', scope.meta, scope.warnings);
+    }
+    const currentDetail = qltdPbDetailBuildDetailDto_(detailRow, detailContext.columns);
+
+    let officialWrite = null;
+    if (nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED) {
+      const ownership = qltdWeeklyTaskUpdatesValidateReporterOwnership_(currentDetail, { email: target.updatedBy }, scope, action);
+      if (ownership.error) return ownership.error;
+      officialWrite = qltdPbDetailApplyUpdateNoLock_('work_updateDetailTask', {
+        projectCode: target.projectCode,
+        deptCode: target.deptCode,
+        detailTaskId: target.itemId,
+        progress: target.progressEnd,
+        status: qltdWeeklyTaskUpdatesMapPbDetailStatus_(target.taskStatus),
+        actualStart: target.actualStart,
+        actualFinish: target.actualFinish
+      }, scope, detailContext, detailContext.warnings.slice());
+      if (!officialWrite || !officialWrite.success) return officialWrite;
+    }
+
+    const now = qltdWorkNowIso_();
+    const startColumn = QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length + 1;
+    read.sheet.getRange(target.rowNumber, startColumn, 1, QLTD_WEEKLY_TASK_UPDATE_APPROVAL_HEADERS.length)
+      .setValues([[nextStatus, reason, auth.email, now]]);
+    const reviewed = Object.assign({}, target, {
+      approvalStatus: nextStatus,
+      reviewReason: reason,
+      reviewedBy: auth.email,
+      reviewedAt: now
+    });
+    return qltdWorkOk_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, {
+      approval: reviewed,
+      pbDetailUpdated: !!officialWrite,
+      affectedProjectCode: target.projectCode,
+      affectedDeptCode: target.deptCode,
+      affectedDetailTaskId: target.itemId
+    }, officialWrite && officialWrite.warnings || [], meta);
+  } catch (error) {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WRITE_ERROR', qltdBudgetSafeErrorMessage_(error), meta);
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
 function qltdWeeklyTaskUpdatesSave_(payload) {
   const action = 'weekly_taskupdates_save';
   const auth = qltdWorkAuthUser_(payload && payload.email, action, QLTD_WEEKLY_TASK_UPDATE_SOURCE);
@@ -278,7 +441,19 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
   if (scope.error) return scope.error;
   const validation = qltdWeeklyTaskUpdatesValidatePayload_(payload || {}, scope);
   if (validation.error) return validation.error;
+  const role = qltdWorkNormalizeRole_(auth.user && auth.user.role);
+  const reporterProposal = role === 'REPORTER';
+  if (reporterProposal && validation.itemType !== 'PB_DETAIL') {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'REPORTER_PB_DETAIL_ONLY', 'Reporter can only submit assigned PB_DETAIL updates.', scope.meta, scope.warnings);
+  }
+  if (role === 'VIEWER') {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Viewer cannot submit weekly updates.', scope.meta, scope.warnings);
+  }
   const currentItem = qltdWeeklyTaskUpdatesFindCurrentItem_(validation.itemType, validation.itemId, scope, action);
+  if (reporterProposal) {
+    const ownership = qltdWeeklyTaskUpdatesValidateReporterOwnership_(currentItem, auth, scope, action);
+    if (ownership.error) return ownership.error;
+  }
   const lifecycle = qltdWeeklyTaskUpdatesResolveActualDateLifecycle_(payload || {}, validation, currentItem, scope);
   if (lifecycle.error) return lifecycle.error;
   if (currentItem && validation.progressEnd < Number(currentItem.progress || 0) && !payload.confirmProgressDecrease) {
@@ -287,7 +462,9 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
       requestedProgress: validation.progressEnd
     });
   }
-  const budgetPreparation = qltdWeeklyTaskUpdatesPrepareBudgetWrites_(payload || {}, scope, auth);
+  const budgetPreparation = reporterProposal
+    ? { writes: [], skippedZeroCount: 0, error: null }
+    : qltdWeeklyTaskUpdatesPrepareBudgetWrites_(payload || {}, scope, auth);
   if (budgetPreparation.error) return budgetPreparation.error;
 
   const lock = LockService.getScriptLock();
@@ -300,7 +477,19 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
     const read = qltdWeeklyTaskUpdatesRead_();
     if (read.error) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, read.error.code, read.error.message, scope.meta, scope.warnings);
     const key = qltdWeeklyTaskUpdatesBuildKey_(scope.projectCode, scope.deptCode, scope.weekCode, validation.itemType, validation.itemId);
-    const existing = read.updates.find(function(update) { return update.key === key; });
+    const pending = reporterProposal ? read.updates.find(function(update) {
+      return update.key === key &&
+        update.updatedBy === auth.email &&
+        update.approvalStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING;
+    }) : null;
+    if (pending) {
+      return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PB_DETAIL_APPROVAL_ALREADY_PENDING', 'A PB_DETAIL proposal is already pending for this week.', scope.meta, scope.warnings, {
+        existingUpdate: pending
+      });
+    }
+    const existing = reporterProposal ? null : read.updates.find(function(update) {
+      return update.key === key && (validation.itemType === 'MASTER' || !update.approvalStatus);
+    });
     if (existing && validation.progressEnd < existing.progressEnd && !payload.confirmProgressDecrease) {
       return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PROGRESS_DECREASE_CONFIRM_REQUIRED', 'Progress is lower than the saved value. Confirmation is required.', scope.meta, scope.warnings, {
         currentProgress: existing.progressEnd,
@@ -348,6 +537,7 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
     }
     const now = qltdWorkNowIso_();
     const completionProposal = qltdWeeklyTaskUpdatesIsCompletionProposal_(validation);
+    const approvalRequired = reporterProposal || completionProposal;
     const rowObject = {
       UpdateId: existing ? existing.updateId : 'WTU_' + Utilities.getUuid(),
       ProjectCode: scope.projectCode,
@@ -366,7 +556,7 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
       BudgetNote: validation.budgetNote,
       UpdatedBy: auth.email,
       UpdatedAt: now,
-      ApprovalStatus: completionProposal ? QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING : '',
+      ApprovalStatus: approvalRequired ? QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING : '',
       ReviewReason: '',
       ReviewedBy: '',
       ReviewedAt: '',
@@ -460,7 +650,16 @@ function qltdWorkListWeeklyItems_(params) {
     item.incompleteDetailCount = incompleteDetailsByMaster[task.masterTaskCode] || 0;
     return item;
   });
+  const role = qltdWorkNormalizeRole_(auth.user && auth.user.role);
+  const canManage = qltdWorkCanWriteTask_(auth.user, scope.deptCode, scope.dept);
   let items = masterItems.concat(detailItems).filter(function(item) { return item.eligible; });
+  items.forEach(function(item) {
+    item.canUpdate = canManage || (
+      role === 'REPORTER' &&
+      item.itemType === 'PB_DETAIL' &&
+      qltdWeeklyTaskUpdatesReporterOwnsItem_(item, auth.email, scope.deptCode)
+    );
+  });
   const group = String(params.group || '').trim().toUpperCase();
   if (group && group !== 'ALL') items = items.filter(function(item) { return item.eligibleReason === group; });
   items.sort(qltdWeeklyTaskUpdatesSortItems_);
@@ -478,7 +677,7 @@ function qltdWorkListWeeklyItems_(params) {
     items: items.map(function(item) { delete item.eligible; return item; }),
     summary: summary,
     capabilities: {
-      canUpdate: qltdWorkCanWriteTask_(auth.user, scope.deptCode, scope.dept),
+      canUpdate: canManage || role === 'REPORTER',
       canReviewWeekly: qltdWorkCanReviewWeekly_(auth.user, scope.deptCode, scope.dept),
       role: qltdWorkNormalizeRole_(auth.user && auth.user.role)
     },
@@ -1103,6 +1302,16 @@ function qltdWeeklyTaskUpdatesSyncTask_(payload, validation, scope, auth, savedU
   if (validation.actualStartShouldWrite) updates.actualStart = validation.actualStart;
   if (validation.actualFinishShouldWrite) updates.actualFinish = validation.actualFinish;
   if (validation.itemType === 'PB_DETAIL') {
+    if (savedUpdate && savedUpdate.approvalStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING) {
+      return {
+        result: {
+          success: true,
+          approvalRequired: true,
+          approvalStatus: QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING,
+          skippedPbDetailSync: true
+        }
+      };
+    }
     updates.status = qltdWeeklyTaskUpdatesMapPbDetailStatus_(validation.taskStatus);
     updates.action = 'work_updatedetailtask'; updates.email = auth.email; updates.projectCode = scope.projectCode;
     updates.deptCode = scope.deptCode; updates.detailTaskId = validation.itemId; updates.progress = validation.progressEnd;
@@ -1206,6 +1415,23 @@ function qltdWeeklyTaskUpdatesFindCurrentItem_(itemType, itemId, scope, action) 
   if (target.error) return null;
   const official = qltdWeeklyTaskUpdatesReadOfficialMasters_(scope, [target.task], action);
   return official.error || !official.tasks.length ? target.task : official.tasks[0];
+}
+
+function qltdWeeklyTaskUpdatesReporterOwnsItem_(item, email, deptCode) {
+  const owner = String(item && (item.owner || item.ownerText) || '').trim();
+  if (!owner) return false;
+  const resolution = qltdWorkResolveAssignees_(owner, deptCode);
+  return !!resolution.ok && resolution.users.length === 1 && qltdWorkUserMatchesAssignees_(email, resolution);
+}
+
+function qltdWeeklyTaskUpdatesValidateReporterOwnership_(item, auth, scope, action) {
+  if (!item) {
+    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PB_DETAIL_NOT_FOUND', 'PB_DETAIL task not found.', scope.meta, scope.warnings) };
+  }
+  if (!qltdWeeklyTaskUpdatesReporterOwnsItem_(item, auth.email, scope.deptCode)) {
+    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PB_DETAIL_NOT_ASSIGNED', 'Reporter is not the primary owner of this PB_DETAIL task.', scope.meta, scope.warnings) };
+  }
+  return { error: null };
 }
 
 function qltdWeeklyTaskUpdatesRead_() {

@@ -6,6 +6,7 @@ const QLTD_DEPT_SCOPE_ACTION_RULES = {
   work_updatedetailtask: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
   weekly_taskupdates_save: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
   weekly_masterapproval_review: ['ADMIN', 'PMO', 'EDITOR'],
+  weekly_pbdetailapproval_review: ['EDITOR'],
   weekly_savedraft: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
   weekly_submit: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
   weekly_review: ['ADMIN', 'PMO', 'EDITOR']

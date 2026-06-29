@@ -72,6 +72,8 @@ assert.match(scopeSource, /function qltdFirebaseResolveIdentity_/);
 assert.match(scopeSource, /function qltdDeptScopeAuthorizeWrite_/);
 assert.match(apiSource, /qltdDeptScopeAuthorizeWrite_\(payload, action\)/);
 assert.match(apiSource, /weekly_masterapprovals_get:\s*true/);
+assert.match(apiSource, /weekly_pbdetailapprovals_get:\s*true/);
+assert.match(scopeSource, /weekly_pbdetailapproval_review:\s*\['EDITOR'\]/);
 
 let identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: 'UID-1' }] } };
 const identityContext = vm.createContext({
@@ -97,10 +99,12 @@ assert.equal(verifiedIdentity.email, 'admin@example.com');
 
 let routeIdentity = { success: false, message: 'ID_TOKEN_REQUIRED' };
 let approvalParams = null;
+let pbApprovalParams = null;
 const approvalRouteContext = vm.createContext({
   qltdFirebaseResolveIdentity_: () => routeIdentity,
   qltdDevApiJson_: (payload) => payload,
-  qltdWeeklyMasterApprovalsGet_: (params) => { approvalParams = { ...params }; return { success: true }; }
+  qltdWeeklyMasterApprovalsGet_: (params) => { approvalParams = { ...params }; return { success: true }; },
+  qltdWeeklyPbDetailApprovalsGet_: (params) => { pbApprovalParams = { ...params }; return { success: true }; }
 });
 const readActionDeclaration = apiSource.slice(apiSource.indexOf('const QLTD_DEV_DEPT_READ_ACTIONS'), apiSource.indexOf('function qltdDevApiHandleGet'));
 vm.runInContext(`${readActionDeclaration}\n${extractFunction(apiSource, 'qltdDevApiHandleGet')}`, approvalRouteContext);
@@ -116,6 +120,12 @@ assert.equal(approvalParams.email, 'pmo@example.com');
 assert.equal(approvalParams.projectCode, 'P1');
 assert.equal(approvalParams.deptCode, 'D1');
 assert.equal(approvalParams.status, 'PENDING');
+approvalRouteContext.qltdDevApiHandleGet({
+  parameter: { action: 'weekly_pbdetailapprovals_get', email: 'spoofed@example.com', idToken: 'valid', projectCode: 'P1', status: 'PENDING' }
+});
+assert.equal(pbApprovalParams.email, 'pmo@example.com');
+assert.equal(pbApprovalParams.projectCode, 'P1');
+assert.equal(pbApprovalParams.status, 'PENDING');
 
 assert.match(indexSource, /id="registrationView"/);
 assert.match(indexSource, /id="registrationForm"/);
