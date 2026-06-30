@@ -8,6 +8,7 @@ const sheetRows = [];
 const detailSyncCalls = [];
 const masterApprovalSyncCalls = [];
 const masterProgressWritebackCalls = [];
+const ganttInvalidateCalls = [];
 const budgetReportIds = new Set();
 const budgetWriteCalls = [];
 const aggregateCalls = [];
@@ -70,6 +71,7 @@ const context = {
   qltdPbDetailBuildDetailDto_: (row) => ({ ...row.dto }),
   QLTD_PB_DETAIL_ROW_TYPE_DETAIL: 'PB_DETAIL',
   qltdGanttGetDataForProject_: () => ({ success: true, data: [] }),
+  qltdGanttInvalidateCache_: (projectCode) => { ganttInvalidateCalls.push(projectCode); },
   qltdBudgetReadBudgetItems_: () => ({ items: budgetItems, warnings: [] }),
   qltdBudgetReadAllocations_: () => ({ allocations, warnings: [] }),
   qltdWorkIsAdminScope_: (user) => ['ADMIN', 'PMO'].includes(String(user?.role || '').toUpperCase()),
@@ -178,9 +180,13 @@ context.qltdWeeklyMasterApprovalApplyToMaster_ = (target, auth, dependencyDecisi
   masterApprovalSyncCalls.push({ target, auth, dependencyDecision, recoveryPlan });
   return {
     success: true,
+    status: 'UPDATED',
     congViecUpdated: true,
-    columnWUpdated: true,
-    recalcTriggered: true,
+    columnWUpdated: false,
+    recalcTriggered: false,
+    ganttCacheInvalidated: true,
+    ganttRefreshRequired: true,
+    dashboardRefreshRequired: true,
     warnings: []
   };
 };
@@ -189,9 +195,13 @@ context.qltdWeeklyMasterProgressWriteback_ = (update, auth, requestId) => {
   return {
     success: true,
     applied: true,
+    status: 'UPDATED',
     idempotent: true,
     duplicateNote: false,
-    changes: []
+    changes: [],
+    ganttCacheInvalidated: true,
+    ganttRefreshRequired: true,
+    dashboardRefreshRequired: true
   };
 };
 
@@ -280,6 +290,8 @@ const firstSave = save({ ...saveBase, requestId: 'weekly-progress-001' });
 assert.equal(firstSave.inserted, true);
 assert.equal(firstSave.masterWriteback.applied, true);
 assert.equal(firstSave.ganttRefreshRequired, true);
+assert.equal(firstSave.dashboardRefreshRequired, true);
+assert.equal(firstSave.weeklyUpdateSaved, true);
 assert.equal(masterProgressWritebackCalls.at(-1).requestId, 'weekly-progress-001');
 assert.equal(sheetRows.length, 2);
 assert.equal(save({ ...saveBase, progressEnd: 55 }).duplicatePrevented, true);
@@ -406,23 +418,23 @@ assert.equal(masterProgressWritebackCalls.length, beforePendingWritebacks);
 assert.equal(sheetRows.length, beforePendingRows + 1);
 assert.equal(notificationPendingCalls.length, beforeMasterNotifications + 1);
 assert.equal(notificationPendingCalls.at(-1).updateId, pending.update.updateId);
-const missingDecision = review({ email: 'admin@example.com', updateId: pending.update.updateId, approvalStatus: 'APPROVED' });
-assert.equal(missingDecision.code, 'DEPENDENCY_DECISION_REQUIRED');
 const reviewResult = review({
   email: 'admin@example.com',
   updateId: pending.update.updateId,
-  approvalStatus: 'APPROVED',
-  dependencyDecision: 'KEEP_CURRENT',
-  recoveryPlan: 'Bù tiến độ'
+  approvalStatus: 'APPROVED'
 });
 assert.equal(reviewResult.approval.approvalStatus, 'APPROVED');
 assert.equal(reviewResult.masterAutoUpdated, true);
 assert.equal(reviewResult.congViecUpdated, true);
-assert.equal(reviewResult.columnWUpdated, true);
-assert.equal(reviewResult.recalcTriggered, true);
+assert.equal(reviewResult.columnWUpdated, false);
+assert.equal(reviewResult.recalcTriggered, false);
+assert.equal(reviewResult.ganttRefreshRequired, true);
+assert.equal(reviewResult.dashboardRefreshRequired, true);
+assert.equal(reviewResult.masterWriteback.status, 'UPDATED');
+assert.equal(reviewResult.weeklyUpdateSaved, true);
 assert.equal(masterApprovalSyncCalls.length, 1);
 assert.equal(masterApprovalSyncCalls[0].dependencyDecision, 'KEEP_CURRENT');
-assert.equal(masterApprovalSyncCalls[0].recoveryPlan, 'Bù tiến độ');
+assert.equal(masterApprovalSyncCalls[0].recoveryPlan, '');
 assert.equal(notificationFinalizeCalls.at(-1).updateId, pending.update.updateId);
 assert.equal(notificationFinalizeCalls.at(-1).approvalStatus, 'APPROVED');
 
@@ -554,10 +566,14 @@ authEmail = 'user@example.com';
 assert.match(source, /function qltdWeeklyMasterProgressWriteback_/);
 assert.match(source, /if \(update\.actualStart\) changes\.push/);
 assert.doesNotMatch(source.match(/function qltdWeeklyMasterProgressWriteback_[\s\S]*?function qltdWeeklyMasterApprovalApplyToMaster_/)[0], /planStart|planFinish|predecessor|baseline/);
+assert.doesNotMatch(source.match(/function qltdWeeklyMasterApprovalApplyToMaster_[\s\S]*?function qltdWeeklyTaskUpdatesFindSingleMasterTask_/)[0], /chayScheduleEngineV1NoLockForSpreadsheet_|columnWRange\.setValue/);
+assert.match(source, /QLTD_WEEKLY_TASK_DEPENDENCY_DECISION\.KEEP_CURRENT/);
 assert.match(source, /ganttRefreshRequired:\s*!!\(sync\.masterWriteback && sync\.masterWriteback\.applied\)/);
+assert.match(source, /dashboardRefreshRequired:\s*!!\(sync\.masterWriteback && sync\.masterWriteback\.applied\)/);
 assert.match(appSource, /requestId:\s*getWeeklySaveRequestId\(\)/);
 assert.match(appSource, /\['TASK_SYNC_PARTIAL', 'MASTER_WRITEBACK_PARTIAL'\]\.includes\(warning\?\.code\)/);
 assert.match(appSource, /if \(data\.ganttRefreshRequired && projectCode\) await markWeeklyGanttRefreshRequired\(projectCode\)/);
+assert.match(appSource, /dependencyDecision:\s*reviewOptions\.dependencyDecision \|\| 'KEEP_CURRENT'/);
 assert.match(appSource, /qltdGanttDirtyProjects\.add\(projectCode\)/);
 
 console.log('weekly-task-updates tests: PASS');

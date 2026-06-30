@@ -209,7 +209,7 @@ function qltdGanttReadSourceValues_(sheet, warnings) {
       Math.min(sheet.getLastRow() || headerRowCount, QLTD_GANTT_MAX_SCAN_ROWS));
   }
 
-  const rowsRead = Math.max(headerRowCount, lastDataRow);
+  const rowsRead = Math.max(detected.rowIndex + 1, lastDataRow);
   return {
     values: sheet.getRange(1, 1, rowsRead, lastColumn).getValues(),
     rowsRead: rowsRead,
