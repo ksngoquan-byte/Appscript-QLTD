@@ -182,8 +182,8 @@ const context = {
   console
 };
 vm.createContext(context);
-vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, getApprovals: qltdWeeklyMasterApprovalsGet_, review: qltdWeeklyMasterApprovalReview_, getPbApprovals: qltdWeeklyPbDetailApprovalsGet_, reviewPb: qltdWeeklyPbDetailApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_, invalidateCache: qltdWeeklyTaskUpdatesInvalidateGanttCache_ };`, context);
-const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, getApprovals, review, getPbApprovals, reviewPb, resolveActualDate, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext, invalidateCache } = context.api;
+vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, getApprovals: qltdWeeklyMasterApprovalsGet_, review: qltdWeeklyMasterApprovalReview_, getPbApprovals: qltdWeeklyPbDetailApprovalsGet_, reviewPb: qltdWeeklyPbDetailApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, validateTransition: qltdWeeklyTaskUpdatesValidateMasterStatusTransition_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_, invalidateCache: qltdWeeklyTaskUpdatesInvalidateGanttCache_ };`, context);
+const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, getApprovals, review, getPbApprovals, reviewPb, resolveActualDate, validateTransition, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext, invalidateCache } = context.api;
 context.qltdWeeklyMasterApprovalApplyToMaster_ = (target, auth, dependencyDecision, recoveryPlan) => {
   masterApprovalSyncCalls.push({ target, auth, dependencyDecision, recoveryPlan });
   return {
@@ -218,16 +218,29 @@ assert.equal(date('2026-06-01'), '2026-06-01');
 assert.equal(date('2026-02-30'), null);
 
 const lifecycleScope = { meta: {}, warnings: [] };
+assert.equal(validateTransition({ itemType: 'MASTER', taskStatus: 'Đang làm' }, { status: 'Chưa bắt đầu' }, { user: { role: 'EDITOR' } }, lifecycleScope).error, null);
+assert.equal(validateTransition({ itemType: 'MASTER', taskStatus: 'Tạm dừng' }, { status: 'Đang làm' }, { user: { role: 'EDITOR' } }, lifecycleScope).error, null);
+assert.equal(validateTransition({ itemType: 'MASTER', taskStatus: 'Đang làm' }, { status: 'Tạm dừng' }, { user: { role: 'EDITOR' } }, lifecycleScope).error, null);
+assert.equal(validateTransition({ itemType: 'MASTER', taskStatus: 'Hoàn thành' }, { status: 'Đang làm' }, { user: { role: 'EDITOR' } }, lifecycleScope).error, null);
+assert.equal(validateTransition({ itemType: 'MASTER', taskStatus: 'Hoàn thành' }, { status: 'Tạm dừng' }, { user: { role: 'EDITOR' } }, lifecycleScope).error, null);
+assert.equal(validateTransition({ itemType: 'MASTER', taskStatus: 'Đang làm' }, { status: 'Hoàn thành' }, { user: { role: 'EDITOR' } }, lifecycleScope).error.code, 'COMPLETED_STATUS_ADMIN_REQUIRED');
+assert.equal(validateTransition({ itemType: 'MASTER', taskStatus: 'Đang làm' }, { status: 'Hoàn thành' }, { user: { role: 'PMO' } }, lifecycleScope).error, null);
 const lifecycleValidation = { progressEnd: 60, taskStatus: 'Đang thực hiện', actualStart: '', actualFinish: '' };
 assert.equal(resolveActualDate({}, lifecycleValidation, { actualStart: '2026-06-01', actualFinish: '' }, lifecycleScope).error, null);
 assert.equal(lifecycleValidation.actualStart, '2026-06-01');
 assert.equal(lifecycleValidation.actualStartShouldWrite, false);
 const lifecycleExistingFinish = { progressEnd: 60, taskStatus: 'Đang thực hiện', actualStart: '', actualFinish: '' };
 assert.equal(resolveActualDate({}, lifecycleExistingFinish, { actualStart: '2026-06-01', actualFinish: '2026-06-20' }, lifecycleScope).error, null);
-assert.equal(lifecycleExistingFinish.actualFinish, '2026-06-20');
+assert.equal(lifecycleExistingFinish.actualFinish, '');
 assert.equal(lifecycleExistingFinish.actualFinishShouldWrite, false);
 const lifecycleMissingStart = { progressEnd: 50, taskStatus: 'Đang thực hiện', actualStart: '', actualFinish: '' };
 assert.equal(resolveActualDate({}, lifecycleMissingStart, {}, lifecycleScope).error.code, 'ACTUAL_START_REQUIRED');
+const lifecycleProgress100Doing = { progressEnd: 100, taskStatus: 'Đang làm', actualStart: '2026-06-01', actualFinish: '' };
+assert.equal(resolveActualDate({}, lifecycleProgress100Doing, {}, lifecycleScope).error, null);
+assert.equal(lifecycleProgress100Doing.actualFinishShouldWrite, false);
+const lifecycleProgress100Paused = { progressEnd: 100, taskStatus: 'Tạm dừng', actualStart: '2026-06-01', actualFinish: '' };
+assert.equal(resolveActualDate({}, lifecycleProgress100Paused, {}, lifecycleScope).error, null);
+assert.equal(lifecycleProgress100Paused.actualFinishShouldWrite, false);
 const lifecycleMissingFinish = { progressEnd: 100, taskStatus: 'Hoàn thành', actualStart: '2026-06-01', actualFinish: '' };
 assert.equal(resolveActualDate({}, lifecycleMissingFinish, {}, lifecycleScope).error.code, 'ACTUAL_FINISH_REQUIRED');
 const lifecycleFinish = { progressEnd: 100, taskStatus: 'Hoàn thành', actualStart: '2026-06-01', actualFinish: '2026-06-20' };
@@ -260,7 +273,7 @@ assert.equal(buildItem('MASTER', 'CV-1', { ...base, actualStart: '2026-05-01' },
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, progress: 100, actualFinish: '2026-06-10' }, '2026-06-08', '2026-06-14', '').eligibleReason, 'COMPLETED_THIS_WEEK');
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, status: 'Hoàn thành', progress: 0, actualFinish: '' }, '2026-07-06', '2026-07-12', '').eligible, false);
 assert.equal(buildItem('MASTER', 'CV-1', { ...base, planFinish: '' }, '2026-07-06', '2026-07-12', '').eligibleReason, 'PLANNED');
-assert.equal(buildItem('MASTER', 'CV-1', { ...base, planFinish: '', progress: 100 }, '2026-07-06', '2026-07-12', '').eligible, false);
+assert.equal(buildItem('MASTER', 'CV-1', { ...base, planFinish: '', progress: 100 }, '2026-07-06', '2026-07-12', '').eligibleReason, 'PLANNED');
 assert.equal(buildItem('MASTER', 'CV-1', { wbs: '1', taskName: 'Không lịch', progress: 0 }, '2026-06-08', '2026-06-14', '').eligible, false);
 assert.equal(buildItem('MASTER', 'CV-1', { wbs: '1', taskName: 'Không lịch', progress: 0 }, '2026-06-08', '2026-06-14', 'không lịch').eligibleReason, 'UNSCHEDULED');
 assert.equal(buildItem('MASTER', 'CV-1', base, '2026-06-08', '2026-06-14', 'không khớp').eligible, false);
@@ -308,6 +321,55 @@ assert.equal(save({ ...saveBase, itemId: 'CV-2' }).inserted, true);
 assert.equal(sheetRows.length, 3);
 assert.equal(save({ ...saveBase, weekCode: 'WEEK-2026-06-08' }).inserted, true);
 assert.equal(sheetRows.length, 4);
+
+const doingAt100Writebacks = masterProgressWritebackCalls.length;
+const doingAt100 = save({ ...saveBase, itemId: 'CV-100-DOING', requestId: 'weekly-100-doing-001', progressEnd: 100, taskStatus: 'Đang làm', actualStart: '2026-06-01', actualFinish: '' });
+assert.equal(doingAt100.success, true);
+assert.equal(doingAt100.update.approvalStatus, '');
+assert.equal(doingAt100.taskSync.approvalRequired, undefined);
+assert.equal(doingAt100.masterWriteback.applied, true);
+assert.equal(masterProgressWritebackCalls.length, doingAt100Writebacks + 1);
+assert.equal(masterProgressWritebackCalls.at(-1).update.taskStatus, 'Đang làm');
+
+const pausedAt100 = save({ ...saveBase, itemId: 'CV-100-PAUSED', requestId: 'weekly-100-paused-001', progressEnd: 100, taskStatus: 'Tạm dừng', actualStart: '2026-06-01', actualFinish: '2026-06-30' });
+assert.equal(pausedAt100.success, true);
+assert.equal(pausedAt100.update.approvalStatus, '');
+assert.equal(pausedAt100.update.actualFinish, '');
+assert.equal(pausedAt100.masterWriteback.applied, true);
+assert.equal(masterProgressWritebackCalls.at(-1).update.taskStatus, 'Tạm dừng');
+
+const completeBelow100 = save({ ...saveBase, itemId: 'CV-COMPLETE-80', requestId: 'weekly-complete-80-001', progressEnd: 80, taskStatus: 'Hoàn thành', actualFinish: '2026-06-25', thisWeekResult: 'Hoàn tất nghiệm thu' });
+assert.equal(completeBelow100.success, true);
+assert.equal(completeBelow100.update.approvalStatus, 'PENDING');
+assert.equal(completeBelow100.taskSync.approvalRequired, true);
+assert.equal(completeBelow100.masterWriteback.applied, false);
+
+const pauseFlow = save({ ...saveBase, itemId: 'CV-PAUSE-FLOW', requestId: 'weekly-pause-flow-001', progressEnd: 40, taskStatus: 'Đang làm', actualStart: '2026-06-01' });
+assert.equal(pauseFlow.success, true);
+const pausedFlow = save({ ...saveBase, itemId: 'CV-PAUSE-FLOW', requestId: 'weekly-pause-flow-002', progressEnd: 40, taskStatus: 'Tạm dừng', actualStart: '2026-06-01' });
+assert.equal(pausedFlow.success, true);
+assert.equal(pausedFlow.update.approvalStatus, '');
+assert.equal(masterProgressWritebackCalls.at(-1).update.taskStatus, 'Tạm dừng');
+
+const resumeFlow = save({ ...saveBase, itemId: 'CV-RESUME-FLOW', requestId: 'weekly-resume-flow-001', progressEnd: 0, taskStatus: 'Tạm dừng' });
+assert.equal(resumeFlow.success, true);
+const resumedFlow = save({ ...saveBase, itemId: 'CV-RESUME-FLOW', requestId: 'weekly-resume-flow-002', progressEnd: 1, taskStatus: 'Đang làm', actualStart: '2026-06-02' });
+assert.equal(resumedFlow.success, true);
+assert.equal(resumedFlow.update.approvalStatus, '');
+assert.equal(resumedFlow.update.actualStart, '2026-06-02');
+assert.equal(masterProgressWritebackCalls.at(-1).update.taskStatus, 'Đang làm');
+
+const startFlow = save({ ...saveBase, itemId: 'CV-START-FLOW', requestId: 'weekly-start-flow-001', progressEnd: 0, taskStatus: 'Đang làm', actualStart: '2026-06-03' });
+assert.equal(startFlow.success, true);
+assert.equal(startFlow.update.actualStart, '2026-06-03');
+assert.equal(startFlow.update.approvalStatus, '');
+
+const completeMissingFinish = save({ ...saveBase, itemId: 'CV-COMPLETE-NO-FINISH', requestId: 'weekly-complete-no-finish-001', progressEnd: 80, taskStatus: 'Hoàn thành', actualFinish: '', thisWeekResult: 'Hoàn tất' });
+assert.equal(completeMissingFinish.success, false);
+assert.equal(completeMissingFinish.code, 'ACTUAL_FINISH_REQUIRED');
+const completeMissingResult = save({ ...saveBase, itemId: 'CV-COMPLETE-NO-RESULT', requestId: 'weekly-complete-no-result-001', progressEnd: 80, taskStatus: 'Hoàn thành', actualFinish: '2026-06-26', thisWeekResult: '' });
+assert.equal(completeMissingResult.success, false);
+assert.equal(completeMissingResult.code, 'RESULT_REQUIRED');
 
 const standaloneBudget = { budgetItemCode: 'NS-1', allocationCode: 'ALLOC-1', budgetType: 'DEPT_STANDALONE', flowType: 'CHI', projectCode: 'P1', deptCode: 'PTDA', periodType: 'WEEK', periodCode: 'WEEK-2026-06-01', actualAmount: 500000, note: 'Chi tuần', masterTaskCode: '', pbTaskCode: '' };
 const combinedBase = { ...saveBase, itemId: 'CV-BUDGET', requestId: 'weekly-request-001', budgetUpdates: [standaloneBudget] };
@@ -624,5 +686,10 @@ assert.doesNotMatch(appSource, /RECALCULATE_DEPENDENCIES|data-master-dependency-
 assert.match(appSource, /qltdGanttForceRefreshProjects/);
 assert.match(appSource, /forceRefresh:\s*data\.masterWriteback && data\.masterWriteback\.ganttCacheInvalidated === false/);
 assert.match(appSource, /qltdGanttDirtyProjects\.add\(projectCode\)/);
+assert.match(appSource, /Chỉ khi chọn trạng thái Hoàn thành, hệ thống mới gửi Admin\/PMO phê duyệt/);
+assert.match(appSource, /Tỷ lệ hoàn thành chỉ dùng để báo cáo tiến độ/);
+assert.doesNotMatch(appSource, /Nếu đề xuất 100%|tiến độ đạt 100%|Number\(progress\.value\)[\s\S]{0,120}Hoàn thành/);
+assert.match(source, /const taskStatus = qltdWeeklyTaskUpdatesCanonicalTaskStatus_\(payload\.taskStatus\)/);
+assert.doesNotMatch(source, /progressEnd === 100 \? 'Hoàn thành'/);
 
 console.log('weekly-task-updates tests: PASS');

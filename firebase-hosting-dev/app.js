@@ -3389,9 +3389,8 @@ function getOfficialMasterMapFromGantt(payload = qltdGanttPayload) {
 }
 
 function isOfficialMasterComplete(task) {
-  const progress = Number(task?.percent ?? Math.round(Number(task?.progress || 0) * 100));
-  const status = String(task?.status || '').toLocaleLowerCase('vi-VN');
-  return progress >= 100 || !!(task?.actualFinish || task?.actualEnd) || status.includes('hoàn thành') || status.includes('complete') || status.includes('done');
+  const status = normalizeWeeklyStatusKey(task?.status || '');
+  return !!(task?.actualFinish || task?.actualEnd) || status.includes('hoanthanh') || status.includes('complete') || status.includes('done');
 }
 
 function enrichDeptPlanPayloadWithOfficialMasters(payload) {
@@ -3846,7 +3845,7 @@ function bindWeeklyTaskUpdateControlsLegacy() {
   const filter = () => loadWeeklyTaskDataForCurrent({ search: search?.value || '', group: group?.value || 'ALL', force: true });
   if (search) search.onchange = filter; if (group) group.onchange = filter;
   const progress = document.getElementById('weeklyTaskProgress');
-  if (progress) progress.onchange = () => { if (Number(progress.value) === 100) { const finish = document.getElementById('weeklyTaskActualFinish'); const status = document.getElementById('weeklyTaskStatus'); if (finish && !finish.value) finish.value = new Date().toISOString().slice(0, 10); if (status) status.value = 'Hoàn thành'; } };
+  if (progress) progress.onchange = () => {};
   const save = document.getElementById('saveWeeklyTaskUpdateButton'); if (save) save.onclick = saveWeeklyTaskUpdate;
 }
 
@@ -4649,11 +4648,16 @@ function normalizeWeeklyStatusKey(value) {
 
 function isWeeklyCompletionValue(progress, status, actualFinish = '') {
   const key = normalizeWeeklyStatusKey(status);
-  return Number(progress || 0) >= 100 || !!actualFinish || key.includes('hoanthanh') || key.includes('complete') || key.includes('done');
+  return key.includes('hoanthanh') || key.includes('complete') || key.includes('done');
+}
+
+function isWeeklyStartedValue(status) {
+  const key = normalizeWeeklyStatusKey(status);
+  return key.includes('danglam') || key.includes('dangthuchien');
 }
 
 function renderWeeklyStatusSelect(currentStatus) {
-  const options = ['Chưa bắt đầu', 'Đang thực hiện', 'Tạm dừng', 'Hoàn thành'];
+  const options = ['Chưa bắt đầu', 'Đang làm', 'Tạm dừng', 'Hoàn thành'];
   const current = String(currentStatus || '').trim();
   const values = current && !options.includes(current) ? options.concat([current]) : options;
   return `<select id="weeklyTaskStatus">${values.map((status) => `<option value="${escapeHtml(status)}" ${status === current ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select>`;
@@ -4662,7 +4666,7 @@ function renderWeeklyStatusSelect(currentStatus) {
 function renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusValue) {
   const actualStart = saved?.actualStart || selected.actualStart || '';
   const actualFinish = saved?.actualFinish || selected.actualFinish || '';
-  const isCompleted = selected.officialComplete || isWeeklyCompletionValue(progressValue, statusValue, actualFinish);
+  const isCompleted = isWeeklyCompletionValue(progressValue, statusValue, actualFinish);
   return `<div id="weeklyActualDateLifecycle" class="weekly-actual-date-lifecycle" data-existing-start="${escapeHtml(actualStart)}" data-existing-finish="${escapeHtml(actualFinish)}" data-completed="${isCompleted ? '1' : '0'}">
     <input id="weeklyTaskActualStartEdit" type="hidden" value="">
     <input id="weeklyTaskActualFinishEdit" type="hidden" value="">
@@ -4680,7 +4684,7 @@ function renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusV
       <small>Chỉ ghi khi chưa có ngày hoặc bạn chủ động bấm “Sửa ngày”.</small>
     </div>
     <div id="weeklyActualFinishHidden" class="weekly-actual-state is-muted">
-      <div><strong>Ngày hoàn thành thực tế chưa mở</strong><span>Chỉ xuất hiện khi tiến độ đạt 100% hoặc trạng thái là Hoàn thành.</span></div>
+      <div><strong>Ngày hoàn thành thực tế chưa mở</strong><span>Chỉ xuất hiện khi trạng thái là Hoàn thành.</span></div>
     </div>
     <div id="weeklyActualFinishReadonly" class="weekly-actual-state" hidden>
       <div><strong>Đã hoàn thành từ ${escapeHtml(formatIsoDateVi(actualFinish) || '—')}</strong><span>Ngày hoàn thành đang ở chế độ chỉ đọc.</span></div>
@@ -4688,15 +4692,15 @@ function renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusV
     <div id="weeklyActualFinishInputWrap" class="weekly-update-field" hidden>
       <label for="weeklyTaskActualFinish">Ngày hoàn thành thực tế *</label>
       <input id="weeklyTaskActualFinish" type="date" value="${escapeHtml(actualFinish)}">
-      <small>Bắt buộc khi báo hoàn thành 100%.</small>
+      <small>Bắt buộc khi chọn trạng thái Hoàn thành.</small>
     </div>
   </div>`;
 }
 
 function renderWeeklySelectedForm(selected, saved) {
-  const completionHint = selected.itemType === 'MASTER' ? '<p class="weekly-approval-hint">Nếu đề xuất 100%, trạng thái Hoàn thành hoặc có ngày hoàn thành thực tế, hệ thống chỉ gửi Admin duyệt. Không tự cập nhật Cong_viec hoặc cột W.</p>' : '';
+  const completionHint = selected.itemType === 'MASTER' ? '<p class="weekly-approval-hint">Chỉ khi chọn trạng thái Hoàn thành, hệ thống mới gửi Admin/PMO phê duyệt. Tỷ lệ hoàn thành chỉ dùng để báo cáo tiến độ.</p>' : '';
   const progressValue = saved?.progressEnd ?? selected.progress ?? 0;
-  const statusValue = saved?.taskStatus || selected.status || (Number(progressValue) >= 100 ? 'Hoàn thành' : 'Chưa bắt đầu');
+  const statusValue = saved?.taskStatus || selected.status || 'Chưa bắt đầu';
   const effectiveState = getWeeklyEffectiveTaskState(selected, saved);
   const currentStatusDisplay = selected.officialComplete ? 'Hoàn thành — 100%' : `${effectiveState.status} — ${effectiveState.progress}%`;
   const ownerDisplay = getWeeklyPersonDisplay(selected.owner);
@@ -4759,8 +4763,17 @@ function bindWeeklyTaskUpdateControls() {
   if (retry) retry.onclick = () => loadWeeklyTaskDataForCurrent({ force: true });
   const progress = document.getElementById('weeklyTaskProgress');
   const status = document.getElementById('weeklyTaskStatus');
-  if (progress) progress.oninput = () => { if (Number(progress.value) >= 100 && status && !isWeeklyCompletionValue(progress.value, status.value)) status.value = 'Hoàn thành'; syncWeeklyActualDateLifecycle(); syncWeeklyBudgetValidation(); };
-  if (status) status.onchange = syncWeeklyActualDateLifecycle;
+  if (progress) progress.oninput = () => { syncWeeklyActualDateLifecycle(); syncWeeklyBudgetValidation(); };
+  if (status) status.onchange = () => {
+    const startInput = document.getElementById('weeklyTaskActualStart');
+    const startEdit = document.getElementById('weeklyTaskActualStartEdit');
+    const root = document.getElementById('weeklyActualDateLifecycle');
+    if (isWeeklyStartedValue(status.value) && !root?.dataset.existingStart) {
+      if (startEdit) startEdit.value = 'confirm';
+      if (startInput && !startInput.value) startInput.value = getTodayIsoLocal();
+    }
+    syncWeeklyActualDateLifecycle();
+  };
   document.querySelectorAll('[data-actual-start-confirm]').forEach((button) => {
     button.onclick = () => {
       const edit = document.getElementById('weeklyTaskActualStartEdit');
@@ -5245,9 +5258,10 @@ function syncWeeklyActualDateLifecycle() {
   const complete = isWeeklyCompletionValue(progress, status, existingFinish);
   const startInput = document.getElementById('weeklyTaskActualStart');
   const finishInput = document.getElementById('weeklyTaskActualFinish');
-  const showStartInput = !!startEdit || (!existingStart && progress > 0);
+  const started = isWeeklyStartedValue(status);
+  const showStartInput = !!startEdit || (!existingStart && started);
   const showStartReadonly = !!existingStart && !startEdit;
-  const showNotStarted = !existingStart && !showStartInput && progress <= 0;
+  const showNotStarted = !existingStart && !showStartInput && !started;
   const showFinishInput = complete && (!existingFinish || !!finishEdit);
   const showFinishReadonly = complete && !!existingFinish && !finishEdit;
   setElementHidden(document.getElementById('weeklyActualStartNotStarted'), !showNotStarted);
@@ -5258,7 +5272,7 @@ function syncWeeklyActualDateLifecycle() {
   setElementHidden(document.getElementById('weeklyActualFinishInputWrap'), !showFinishInput);
   if (startInput) {
     startInput.disabled = !showStartInput;
-    startInput.required = showStartInput && progress > 0;
+    startInput.required = showStartInput && started;
     if (showStartInput && existingStart && !startInput.value) startInput.value = existingStart;
   }
   if (finishInput) {
@@ -5272,13 +5286,15 @@ function getWeeklyActualDatePayload() {
   const root = document.getElementById('weeklyActualDateLifecycle');
   const startInput = document.getElementById('weeklyTaskActualStart');
   const finishInput = document.getElementById('weeklyTaskActualFinish');
+  const status = document.getElementById('weeklyTaskStatus')?.value || '';
   const startEdit = document.getElementById('weeklyTaskActualStartEdit')?.value || '';
   const finishEdit = document.getElementById('weeklyTaskActualFinishEdit')?.value || '';
   const existingStart = root?.dataset.existingStart || '';
   const existingFinish = root?.dataset.existingFinish || '';
+  const complete = isWeeklyCompletionValue(0, status, existingFinish);
   return {
     actualStart: startInput && !startInput.disabled ? startInput.value : existingStart,
-    actualFinish: finishInput && !finishInput.disabled ? finishInput.value : existingFinish,
+    actualFinish: complete ? (finishInput && !finishInput.disabled ? finishInput.value : existingFinish) : '',
     actualStartEdit: startEdit,
     actualFinishEdit: finishEdit
   };
@@ -5304,8 +5320,9 @@ function validateWeeklyTaskForm(item) {
   const status = document.getElementById('weeklyTaskStatus')?.value || '';
   const dates = getWeeklyActualDatePayload();
   if (isNaN(progressEnd) || progressEnd < 0 || progressEnd > 100) return { error: 'Mức hoàn thành phải nằm trong khoảng 0–100%.' };
-  if (progressEnd > 0 && progressEnd < 100 && !dates.actualStart) return { error: 'Vui lòng nhập ngày bắt đầu thực tế một lần khi công việc đã bắt đầu.' };
+  if (isWeeklyStartedValue(status) && !dates.actualStart) return { error: 'Vui lòng nhập ngày bắt đầu thực tế khi chuyển sang Đang làm.' };
   if (isWeeklyCompletionValue(progressEnd, status) && !dates.actualFinish) return { error: 'Vui lòng nhập ngày hoàn thành thực tế khi báo hoàn thành.' };
+  if (item?.itemType === 'MASTER' && isWeeklyCompletionValue(progressEnd, status) && !String(document.getElementById('weeklyTaskResult')?.value || '').trim()) return { error: 'Vui lòng nhập kết quả thực hiện khi chọn trạng thái Hoàn thành.' };
   if (!syncWeeklyBudgetValidation()) return { error: 'Vui lòng kiểm tra lại ngân sách tuần.' };
   const budgetRaw = String(document.getElementById('weeklyTaskBudget')?.value || '').trim();
   if (budgetRaw && (isNaN(Number(budgetRaw)) || Number(budgetRaw) < 0)) return { error: 'Ngân sách tuần phải là số không âm.' };

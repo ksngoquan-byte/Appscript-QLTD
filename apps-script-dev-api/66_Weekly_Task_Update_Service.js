@@ -456,8 +456,13 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
     const ownership = qltdWeeklyTaskUpdatesValidateReporterOwnership_(currentItem, auth, scope, action);
     if (ownership.error) return ownership.error;
   }
+  const transition = qltdWeeklyTaskUpdatesValidateMasterStatusTransition_(validation, currentItem, auth, scope);
+  if (transition.error) return transition.error;
   const lifecycle = qltdWeeklyTaskUpdatesResolveActualDateLifecycle_(payload || {}, validation, currentItem, scope);
   if (lifecycle.error) return lifecycle.error;
+  if (qltdWeeklyTaskUpdatesIsCompletionProposal_(validation) && !validation.thisWeekResult) {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'RESULT_REQUIRED', 'ThisWeekResult is required when MASTER status is Hoàn thành.', scope.meta, scope.warnings);
+  }
   if (currentItem && validation.progressEnd < Number(currentItem.progress || 0) && !payload.confirmProgressDecrease) {
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PROGRESS_DECREASE_CONFIRM_REQUIRED', 'Progress is lower than current task progress. Confirmation is required.', scope.meta, scope.warnings, {
       currentProgress: Number(currentItem.progress || 0),
@@ -911,7 +916,7 @@ function qltdWeeklyTaskUpdatesValidatePayload_(payload, scope) {
   const itemType = qltdWeeklyTaskUpdatesNormalizeType_(payload.itemType);
   const itemId = String(payload.itemId || '').trim();
   const progressEnd = Number(payload.progressEnd);
-  const taskStatus = progressEnd === 100 ? 'Hoàn thành' : String(payload.taskStatus || '').trim();
+  const taskStatus = qltdWeeklyTaskUpdatesCanonicalTaskStatus_(payload.taskStatus);
   const actualStart = qltdWeeklyTaskUpdatesDate_(payload.actualStart, true);
   const actualFinish = qltdWeeklyTaskUpdatesDate_(payload.actualFinish, true);
   const budgetThisWeek = String(payload.budgetThisWeek || '').trim() === '' ? '' : Number(payload.budgetThisWeek);
@@ -1267,18 +1272,18 @@ function qltdWeeklyTaskUpdatesResolveActualDateLifecycle_(payload, validation, c
   if (startEditRequested && !validation.actualStart) {
     return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACTUAL_START_REQUIRED', 'ActualStart is required when user confirms or edits the actual start date.', scope.meta, scope.warnings) };
   }
-  if (validation.progressEnd > 0 && validation.progressEnd < 100 && !validation.actualStart) {
-    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACTUAL_START_REQUIRED', 'ActualStart is required once task progress is between 1 and 99%.', scope.meta, scope.warnings) };
+  if (qltdWeeklyTaskUpdatesIsStartedStatus_(validation.taskStatus) && !validation.actualStart) {
+    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACTUAL_START_REQUIRED', 'ActualStart is required when task status is Đang làm.', scope.meta, scope.warnings) };
   }
   if (completionState && !validation.actualFinish) {
-    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACTUAL_FINISH_REQUIRED', 'ActualFinish is required when task reaches 100% or completed status.', scope.meta, scope.warnings) };
+    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACTUAL_FINISH_REQUIRED', 'ActualFinish is required when task status is Hoàn thành.', scope.meta, scope.warnings) };
   }
-  if (!completionState && !finishEditRequested && !existingFinish) {
+  if (!completionState) {
     validation.actualFinish = '';
   }
 
   validation.actualStartShouldWrite = !!validation.actualStart && (!existingStart || startEditRequested);
-  validation.actualFinishShouldWrite = !!validation.actualFinish && ((completionState && !existingFinish) || finishEditRequested);
+  validation.actualFinishShouldWrite = completionState && !!validation.actualFinish && (!existingFinish || finishEditRequested);
   validation.existingActualStart = existingStart;
   validation.existingActualFinish = existingFinish;
   return { error: null };
@@ -1841,9 +1846,9 @@ function qltdWeeklyTaskUpdatesBuildItem_(type, id, source, weekStart, weekEnd, s
   const officialComplete = qltdWeeklyTaskUpdatesIsOfficialComplete_(source);
   let reason = '';
   if (officialComplete && actualFinish && actualFinish >= weekStart && actualFinish <= weekEnd) reason = 'COMPLETED_THIS_WEEK';
-  else if (!officialComplete && progress < 100 && planFinish && planFinish < weekStart) reason = 'OVERDUE';
-  else if (!officialComplete && progress < 100 && actualStart) reason = 'IN_PROGRESS';
-  else if (!officialComplete && progress < 100 && planStart && planStart <= weekEnd) reason = 'PLANNED';
+  else if (!officialComplete && planFinish && planFinish < weekStart) reason = 'OVERDUE';
+  else if (!officialComplete && actualStart) reason = 'IN_PROGRESS';
+  else if (!officialComplete && planStart && planStart <= weekEnd) reason = 'PLANNED';
   else if (query && text.indexOf(query) !== -1 && !planStart && !planFinish) reason = 'UNSCHEDULED';
   if (query && text.indexOf(query) === -1) reason = '';
   return {
@@ -1894,24 +1899,58 @@ function qltdWeeklyTaskUpdatesNormalizeStatusKey_(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/g, '');
 }
+function qltdWeeklyTaskUpdatesCanonicalTaskStatus_(value) {
+  const status = String(value || '').trim();
+  const key = qltdWeeklyTaskUpdatesNormalizeStatusKey_(status);
+  if (key === 'chuabatdau') return 'Chưa bắt đầu';
+  if (key === 'danglam' || key === 'dangthuchien') return 'Đang làm';
+  if (key === 'tamdung') return 'Tạm dừng';
+  if (key === 'hoanthanh' || key === 'complete' || key === 'done') return 'Hoàn thành';
+  return status;
+}
+function qltdWeeklyTaskUpdatesStatusWorkflowKey_(value) {
+  const key = qltdWeeklyTaskUpdatesNormalizeStatusKey_(value);
+  if (key === 'dangthuchien') return 'danglam';
+  if (key === 'complete' || key === 'done') return 'hoanthanh';
+  if (key === 'chuabatdau' || key === 'danglam' || key === 'tamdung' || key === 'hoanthanh') return key;
+  return '';
+}
+function qltdWeeklyTaskUpdatesIsStartedStatus_(value) {
+  return qltdWeeklyTaskUpdatesStatusWorkflowKey_(value) === 'danglam';
+}
+function qltdWeeklyTaskUpdatesValidateMasterStatusTransition_(validation, currentItem, auth, scope) {
+  const action = 'weekly_taskupdates_save';
+  if (!validation || validation.itemType !== 'MASTER') return { error: null };
+  const nextKey = qltdWeeklyTaskUpdatesStatusWorkflowKey_(validation.taskStatus);
+  if (!nextKey) {
+    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'INVALID_MASTER_STATUS', 'MASTER status must be one of Chưa bắt đầu, Đang làm, Tạm dừng, Hoàn thành.', scope.meta, scope.warnings) };
+  }
+  const currentKey = qltdWeeklyTaskUpdatesStatusWorkflowKey_(currentItem && (currentItem.status || currentItem.taskStatus));
+  if (!currentKey || currentKey === nextKey) return { error: null };
+  if (currentKey === 'hoanthanh' && nextKey !== 'hoanthanh') {
+    if (qltdWorkIsAdminScope_(auth && auth.user)) return { error: null };
+    return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'COMPLETED_STATUS_ADMIN_REQUIRED', 'Only Admin/PMO can move a completed MASTER back to another status.', scope.meta, scope.warnings) };
+  }
+  const allowed = {
+    chuabatdau: { danglam: true, tamdung: true },
+    danglam: { tamdung: true, hoanthanh: true },
+    tamdung: { danglam: true, hoanthanh: true }
+  };
+  if (allowed[currentKey] && allowed[currentKey][nextKey]) return { error: null };
+  return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'MASTER_STATUS_TRANSITION_NOT_ALLOWED', 'MASTER status transition is not allowed.', scope.meta, scope.warnings, { currentStatus: currentItem && currentItem.status || '', requestedStatus: validation.taskStatus }) };
+}
 function qltdWeeklyTaskUpdatesIsCompletionProposal_(validation) {
   if (!validation || validation.itemType !== 'MASTER') return false;
   return qltdWeeklyTaskUpdatesIsCompletionState_(validation);
 }
 function qltdWeeklyTaskUpdatesIsCompletionState_(validation) {
   if (!validation) return false;
-  return Number(validation.progressEnd || 0) >= 100 ||
-    !!validation.actualFinish ||
-    qltdWeeklyTaskUpdatesNormalizeStatusKey_(validation.taskStatus).indexOf('hoanthanh') >= 0 ||
-    qltdWeeklyTaskUpdatesNormalizeStatusKey_(validation.taskStatus).indexOf('complete') >= 0 ||
-    qltdWeeklyTaskUpdatesNormalizeStatusKey_(validation.taskStatus).indexOf('done') >= 0;
+  return qltdWeeklyTaskUpdatesStatusWorkflowKey_(validation.taskStatus) === 'hoanthanh';
 }
 function qltdWeeklyTaskUpdatesIsOfficialComplete_(source) {
   if (!source) return false;
-  const progress = Number(source.progress || 0);
   const statusKey = qltdWeeklyTaskUpdatesNormalizeStatusKey_(source.status || source.taskStatus || '');
-  return progress >= 100 ||
-    !!qltdBudgetFormatDate_(source.actualFinish || source.actualEnd || source.endActual || '') ||
+  return !!qltdBudgetFormatDate_(source.actualFinish || source.actualEnd || source.endActual || '') ||
     statusKey.indexOf('hoanthanh') >= 0 ||
     statusKey.indexOf('complete') >= 0 ||
     statusKey.indexOf('done') >= 0;
