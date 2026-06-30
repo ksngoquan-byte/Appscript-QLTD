@@ -324,8 +324,18 @@ function qltdGanttInvalidateCache_(projectCode) {
       for (let index = 0; index < chunkCount; index += 1) keys.push(baseKey + '_C' + index);
     }
     cache.removeAll(keys);
+    return {
+      success: true,
+      projectCode: String(projectCode || '').trim(),
+      removedKeyCount: keys.length
+    };
   } catch (error) {
     console.warn('Gantt cache invalidation failed', error);
+    return {
+      success: false,
+      code: 'GANTT_CACHE_INVALIDATE_FAILED',
+      message: error && error.message || String(error)
+    };
   }
 }
 

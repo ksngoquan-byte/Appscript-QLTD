@@ -80,6 +80,13 @@ const context = {
   QLTD_PB_DETAIL_ROW_TYPE_DETAIL: 'PB_DETAIL',
   qltdGanttGetDataForProject_: () => ({ success: true, data: [] }),
   qltdGanttInvalidateCache_: (projectCode) => { ganttInvalidateCalls.push(projectCode); return { success: true }; },
+  QLTD_PROJECT_SCHEDULE_STATE_V1: { DIRTY: 'DIRTY', CLEAN: 'CLEAN' },
+  qltdScheduleMarkProjectDirty_: (projectCode) => ({
+    success: true,
+    projectCode,
+    scheduleState: 'DIRTY',
+    markedAt: '2026-06-20T00:00:00.000Z'
+  }),
   qltdBudgetReadBudgetItems_: () => ({ items: budgetItems, warnings: [] }),
   qltdBudgetReadAllocations_: () => ({ allocations, warnings: [] }),
   qltdWorkIsAdminScope_: (user) => ['ADMIN', 'PMO'].includes(String(user?.role || '').toUpperCase()),
@@ -199,6 +206,7 @@ const stubMasterApprovalApply = (target, auth, dependencyDecision, recoveryPlan)
     ganttCacheInvalidated: true,
     ganttRefreshRequired: false,
     dashboardRefreshRequired: false,
+    scheduleState: 'DIRTY',
     warnings: []
   };
 };

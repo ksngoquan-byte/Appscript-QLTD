@@ -343,7 +343,9 @@ function qltdWeeklyMasterApprovalReview_(payload) {
       masterWriteback: qltdWeeklyTaskUpdatesBuildMasterWritebackResponse_(masterSync, target),
       ganttRefreshRequired: false,
       dashboardRefreshRequired: false,
-      projectDirty: nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED,
+      projectDirty: nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED &&
+        !!(masterSync && masterSync.scheduleState === QLTD_PROJECT_SCHEDULE_STATE_V1.DIRTY),
+      scheduleState: masterSync && masterSync.scheduleState || '',
       scheduleRecalculationRequired: nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED,
       ok: true,
       partialSuccess: false
@@ -1675,6 +1677,16 @@ function qltdWeeklyMasterApprovalApplyToMaster_(target, auth, impactMode, recove
         projectCode: target.projectCode,
         message: cacheResult.message || ''
       }));
+    const dirtyState = qltdScheduleMarkProjectDirty_(
+      target.projectCode,
+      'WEEKLY_MASTER_APPROVED',
+      auth.email,
+      {
+        updateId: target.updateId || '',
+        masterTaskCode: target.itemId || '',
+        impactMode: impactMode
+      }
+    );
     return {
       success: true,
       stage: 'DONE',
@@ -1693,7 +1705,9 @@ function qltdWeeklyMasterApprovalApplyToMaster_(target, auth, impactMode, recove
       ganttCacheInvalidated: cacheResult.success,
       ganttRefreshRequired: false,
       dashboardRefreshRequired: false,
-      projectDirty: true,
+      projectDirty: dirtyState.scheduleState === QLTD_PROJECT_SCHEDULE_STATE_V1.DIRTY,
+      scheduleState: dirtyState.scheduleState,
+      scheduleMarkedAt: dirtyState.markedAt,
       scheduleRecalculationRequired: true,
       message: cacheResult.success
         ? 'Master completion was approved in Cong_viec. Project schedule must be recalculated.'

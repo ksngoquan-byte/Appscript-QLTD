@@ -109,6 +109,8 @@ const qltdWeeklyTaskInFlight = new Map();
 const qltdWeeklyTaskCacheVersions = new Map();
 const qltdGanttDirtyProjects = new Set();
 const qltdGanttForceRefreshProjects = new Set();
+const qltdProjectScheduleStates = new Map();
+const qltdProjectScheduleRecalcInFlight = new Set();
 let qltdWeeklyTaskRequestSeq = 0;
 let qltdWeeklyTaskSessionVersion = 0;
 let qltdWeeklyTaskCacheIdentity = '';
@@ -987,6 +989,43 @@ function ensureWeb07InlineStyles() {
       font-weight: 800;
       padding: 5px 10px;
       white-space: nowrap;
+    }
+
+    .web07-schedule-state {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 0 0 14px;
+      border: 1px solid #f2c46d;
+      border-radius: 10px;
+      background: #fff8e6;
+      color: #8a4b08;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .web07-schedule-state.is-clean {
+      border-color: #9dd8c8;
+      background: #ecfdf5;
+      color: #0f6a55;
+    }
+
+    .web07-schedule-state button {
+      min-height: 32px;
+      border: 0;
+      border-radius: 8px;
+      background: #0b3ea8;
+      color: #ffffff;
+      padding: 6px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .web07-schedule-state button:disabled {
+      cursor: wait;
+      opacity: .65;
     }
 
     .web07-table {
@@ -2847,6 +2886,16 @@ function markMasterApprovalDataDirty(result, fallbackApproval = {}) {
     invalidateWeeklyTaskCacheKey(getWeeklyTaskCacheKey(projectCode, deptCode, weekCode));
   }
   if (projectCode) qltdGanttDirtyProjects.add(projectCode);
+  if (projectCode) {
+    qltdProjectScheduleStates.set(String(projectCode), {
+      projectCode: String(projectCode),
+      scheduleState: 'DIRTY',
+      reason: 'WEEKLY_MASTER_APPROVED',
+      markedAt: result?.masterSync?.scheduleMarkedAt || new Date().toISOString(),
+      recalculatedAt: '',
+      error: ''
+    });
+  }
   if (projectCode && result?.masterWriteback?.ganttCacheInvalidated === false) qltdGanttForceRefreshProjects.add(projectCode);
 }
 
@@ -5652,6 +5701,113 @@ async function markWeeklyGanttRefreshRequired(projectCode, options = {}) {
   }
 }
 
+function normalizeProjectScheduleState(result, projectCode) {
+  return {
+    projectCode: String(result?.projectCode || projectCode || ''),
+    scheduleState: String(result?.scheduleState || 'DIRTY').toUpperCase() === 'CLEAN' ? 'CLEAN' : 'DIRTY',
+    reason: String(result?.reason || ''),
+    markedAt: String(result?.markedAt || ''),
+    markedBy: String(result?.markedBy || ''),
+    recalculatedAt: String(result?.recalculatedAt || ''),
+    recalculatedBy: String(result?.recalculatedBy || ''),
+    error: ''
+  };
+}
+
+async function loadProjectScheduleState(projectCode, options = {}) {
+  const code = String(projectCode || '').trim();
+  if (!code) return null;
+  try {
+    const result = await fetchBackendJson('getProjectScheduleState', { projectCode: code }, { auth: true });
+    if (!result?.ok) {
+      const error = new Error(formatMasterApprovalBackendError(result, 'Không đọc được trạng thái tiến độ dự án.'));
+      error.backendResult = result;
+      throw error;
+    }
+    const state = normalizeProjectScheduleState(result, code);
+    qltdProjectScheduleStates.set(code, state);
+    if (options.render !== false && qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+    return state;
+  } catch (error) {
+    const previous = qltdProjectScheduleStates.get(code) || {
+      projectCode: code,
+      scheduleState: 'DIRTY',
+      reason: 'STATE_READ_FAILED',
+      markedAt: '',
+      recalculatedAt: ''
+    };
+    qltdProjectScheduleStates.set(code, { ...previous, error: error.message || String(error) });
+    if (options.render !== false && qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+    return null;
+  }
+}
+
+function renderProjectScheduleControl(projectCode) {
+  const code = String(projectCode || '').trim();
+  const state = qltdProjectScheduleStates.get(code);
+  const running = qltdProjectScheduleRecalcInFlight.has(code);
+  const isClean = state?.scheduleState === 'CLEAN';
+  const statusText = isClean
+    ? 'Tiến độ dự án đã được tính lại.'
+    : 'Tiến độ dự án chưa được tính lại.';
+  const timestamp = isClean && state?.recalculatedAt
+    ? ` Cập nhật: ${formatWeeklyDateTime(state.recalculatedAt)}.`
+    : '';
+  const error = state?.error
+    ? `<span class="web07-muted">${escapeHtml(state.error)}</span>`
+    : '';
+  return `
+    <div id="projectScheduleControl" class="web07-schedule-state ${isClean ? 'is-clean' : 'is-dirty'}">
+      <span>${escapeHtml(statusText + timestamp)}</span>
+      ${error}
+      ${canAdmin() ? `<button id="projectScheduleRecalculateButton" type="button" ${running ? 'disabled' : ''}>${running ? 'Đang tính lại...' : 'Tính lại tiến độ dự án'}</button>` : ''}
+    </div>
+  `;
+}
+
+async function handleProjectScheduleRecalculate(projectCode) {
+  const code = String(projectCode || '').trim();
+  if (!code || !canAdmin() || qltdProjectScheduleRecalcInFlight.has(code)) return;
+  qltdProjectScheduleRecalcInFlight.add(code);
+  if (qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+
+  try {
+    const result = await postBackendJson({
+      action: 'recalculateProjectSchedule',
+      projectCode: code
+    });
+    if (!result?.ok) {
+      const error = new Error(formatMasterApprovalBackendError(result, 'Không thể tính lại tiến độ dự án.'));
+      error.backendResult = result;
+      throw error;
+    }
+
+    qltdProjectScheduleStates.set(code, normalizeProjectScheduleState(result, code));
+    qltdGanttDirtyProjects.add(code);
+    qltdGanttForceRefreshProjects.add(code);
+    qltdDepartmentDashboardCache.delete(code);
+    await loadGanttDataForSelectedProject(code, { forceRefresh: true });
+    window.alert([
+      'Đã tính lại tiến độ dự án.',
+      `Công việc xử lý: ${Number(result.processedTaskCount || 0)}`,
+      `J thay đổi: ${Number(result.changedDurationCount || 0)}`,
+      `L thay đổi: ${Number(result.changedStartCount || 0)}`,
+      `M thay đổi: ${Number(result.changedFinishCount || 0)}`,
+      `Q thay đổi: ${Number(result.changedErrorCount || 0)}`
+    ].join('\n'));
+  } catch (error) {
+    const previous = qltdProjectScheduleStates.get(code) || { projectCode: code };
+    qltdProjectScheduleStates.set(code, {
+      ...previous,
+      scheduleState: 'DIRTY',
+      error: error.message || String(error)
+    });
+  } finally {
+    qltdProjectScheduleRecalcInFlight.delete(code);
+    if (qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+  }
+}
+
 function qltdWeb07GetOrCreateGanttRequest(projectCode, factory) {
   const code = String(projectCode || '').trim();
   if (!code) return Promise.resolve(null);
@@ -5734,7 +5890,9 @@ async function qltdWeb07LoadGanttDataForSelectedProject(projectCode, options = {
   renderDashboardLoading(projectCode);
 
   try {
+    const scheduleStateRequest = loadProjectScheduleState(projectCode, { render: false });
     const payload = await qltdWeb07FetchGanttPayload(projectCode, { forceRefresh: !!options.forceRefresh });
+    await scheduleStateRequest;
     const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
     if (selectedProjectCode && String(selectedProjectCode) !== String(projectCode)) return payload;
     qltdGanttPayload = payload;
@@ -6896,6 +7054,7 @@ function renderGanttPanel(payload) {
         <span class="web07-chip">${escapeHtml((payload.data || []).length)} công việc · ${escapeHtml((payload.links || []).length)} liên kết</span>
       </div>
 
+      ${renderProjectScheduleControl(payload.projectCode)}
       <div class="web07-toolbar">
         <nav class="gantt-mode-tabs" aria-label="Chế độ Gantt">
           <button type="button" data-gantt-view-mode="progress" class="${qltdGanttViewMode === 'progress' ? 'active' : ''}">Gantt tiến độ</button>
@@ -7015,6 +7174,13 @@ function bindGanttToolbar(payload) {
   const budgetSyncButton = document.getElementById('ganttBudgetSyncButton');
   if (budgetSyncButton) {
     budgetSyncButton.onclick = () => handleGanttBudgetSyncClick(budgetSyncButton, payload);
+  }
+
+  const scheduleRecalculateButton = document.getElementById('projectScheduleRecalculateButton');
+  if (scheduleRecalculateButton) {
+    scheduleRecalculateButton.onclick = () => handleProjectScheduleRecalculate(
+      payload.projectCode || getStoredProjectCode()
+    );
   }
 
   const datesToggle = document.getElementById('ganttDatesToggle');

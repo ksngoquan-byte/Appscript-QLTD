@@ -143,6 +143,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdWeeklyPbDetailApprovalsGet_(params));
   }
 
+  if (action === 'getprojectschedulestate') {
+    return qltdDevApiJson_(qltdProjectScheduleGetStateApi_(params));
+  }
+
   if (action === 'notifications_list') {
     return qltdDevApiJson_(qltdNotificationsList_(params));
   }
@@ -254,6 +258,10 @@ function qltdDevApiHandlePost_(e) {
     payload.email = notificationIdentity.email;
     payload.actorEmail = notificationIdentity.email;
     return qltdDevApiJson_(qltdNotificationsMarkRead_(payload));
+  }
+
+  if (action === 'recalculateprojectschedule') {
+    return qltdDevApiJson_(qltdProjectScheduleRecalculate_(payload));
   }
 
   const scopeResult = qltdDeptScopeAuthorizeWrite_(payload, action);

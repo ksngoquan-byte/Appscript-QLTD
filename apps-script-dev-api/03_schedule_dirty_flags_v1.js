@@ -10,6 +10,116 @@
   BACKGROUND_TRIGGER_HANDLER: 'chayTinhLaiTienDoNenV1'
 };
 
+const QLTD_PROJECT_SCHEDULE_STATE_V1 = {
+  KEY_PREFIX: 'QLTD_PROJECT_SCHEDULE_STATE_V1_',
+  DIRTY: 'DIRTY',
+  CLEAN: 'CLEAN'
+};
+
+function qltdScheduleProjectCode_(projectCode) {
+  if (typeof qltdProjectsNormalizeCode_ === 'function') {
+    return qltdProjectsNormalizeCode_(projectCode);
+  }
+  return String(projectCode || '').trim().toUpperCase();
+}
+
+function qltdScheduleProjectStateKey_(projectCode) {
+  const code = qltdScheduleProjectCode_(projectCode);
+  if (!code) throw new Error('PROJECT_CODE_REQUIRED');
+  return QLTD_PROJECT_SCHEDULE_STATE_V1.KEY_PREFIX + code.replace(/[^A-Z0-9_-]/g, '_');
+}
+
+function qltdScheduleGetProjectState_(projectCode) {
+  const code = qltdScheduleProjectCode_(projectCode);
+  const raw = PropertiesService.getScriptProperties().getProperty(qltdScheduleProjectStateKey_(code));
+  if (!raw) {
+    return {
+      success: true,
+      projectCode: code,
+      scheduleState: QLTD_PROJECT_SCHEDULE_STATE_V1.DIRTY,
+      reason: 'STATE_NOT_INITIALIZED',
+      markedAt: '',
+      markedBy: '',
+      recalculatedAt: '',
+      recalculatedBy: '',
+      detail: {}
+    };
+  }
+
+  try {
+    const state = JSON.parse(raw);
+    return Object.assign({
+      success: true,
+      projectCode: code,
+      scheduleState: QLTD_PROJECT_SCHEDULE_STATE_V1.DIRTY,
+      reason: '',
+      markedAt: '',
+      markedBy: '',
+      recalculatedAt: '',
+      recalculatedBy: '',
+      detail: {}
+    }, state, {
+      success: true,
+      projectCode: code
+    });
+  } catch (error) {
+    Logger.log('qltdScheduleGetProjectState_: ' + error);
+    return {
+      success: true,
+      projectCode: code,
+      scheduleState: QLTD_PROJECT_SCHEDULE_STATE_V1.DIRTY,
+      reason: 'STATE_READ_FAILED',
+      markedAt: '',
+      markedBy: '',
+      recalculatedAt: '',
+      recalculatedBy: '',
+      detail: {}
+    };
+  }
+}
+
+function qltdScheduleMarkProjectDirty_(projectCode, reason, actorEmail, detail) {
+  const code = qltdScheduleProjectCode_(projectCode);
+  const previous = qltdScheduleGetProjectState_(code);
+  const state = {
+    version: 1,
+    projectCode: code,
+    scheduleState: QLTD_PROJECT_SCHEDULE_STATE_V1.DIRTY,
+    reason: String(reason || 'UNKNOWN'),
+    markedAt: new Date().toISOString(),
+    markedBy: String(actorEmail || '').trim().toLowerCase(),
+    recalculatedAt: previous.recalculatedAt || '',
+    recalculatedBy: previous.recalculatedBy || '',
+    detail: detail && typeof detail === 'object' ? detail : {}
+  };
+  PropertiesService.getScriptProperties().setProperty(
+    qltdScheduleProjectStateKey_(code),
+    JSON.stringify(state)
+  );
+  return Object.assign({ success: true }, state);
+}
+
+function qltdScheduleMarkProjectClean_(projectCode, actorEmail, detail) {
+  const code = qltdScheduleProjectCode_(projectCode);
+  const now = new Date().toISOString();
+  const state = {
+    version: 1,
+    projectCode: code,
+    scheduleState: QLTD_PROJECT_SCHEDULE_STATE_V1.CLEAN,
+    reason: '',
+    markedAt: '',
+    markedBy: '',
+    recalculatedAt: now,
+    recalculatedBy: String(actorEmail || '').trim().toLowerCase(),
+    detail: detail && typeof detail === 'object' ? detail : {}
+  };
+  PropertiesService.getScriptProperties().setProperty(
+    qltdScheduleProjectStateKey_(code),
+    JSON.stringify(state)
+  );
+  return Object.assign({ success: true }, state);
+}
+
 function danhDauCanTinhLaiTienDoV1_(reason, detail) {
   detail = detail || {};
   const props = PropertiesService.getDocumentProperties();
