@@ -307,29 +307,6 @@ function tinhLichCongViecV1_(tasks, taskByRef, anchorDate) {
 
     if (task.errors.length) return;
 
-    // Uu tien K khi tien nhiem co dong thoi rang buoc dau va cuoi.
-    // Vi du: 15SS;25FF hoac 8FS;33FF => L/M lay theo K, J duoc suy lai tu L/M.
-    if (
-      !actualStart &&
-      !actualFinish &&
-      coRangBuocDauVaCuoiTuTienNhiemV1_(task) &&
-      startConstraintCandidates.length > 0 &&
-      endConstraintCandidates.length > 0
-    ) {
-      task.start = layNgayLonNhatV1_(startConstraintCandidates);
-      task.end = layNgayLonNhatV1_(endConstraintCandidates);
-
-      if (task.end.getTime() < task.start.getTime()) {
-        task.errors.push('ERR_DURATION_INFER_CONFLICT');
-        task.start = null;
-        task.end = null;
-        return;
-      }
-
-      task.duration = tinhSoNgayBaoGomV1_(task.start, task.end);
-      return;
-    }
-
     if (task.duration && task.duration > 0) {
       endCandidates.forEach(endMin => {
         const candidate = tinhNgayBatDauTheoDurationV1_(endMin, task.duration);
@@ -752,27 +729,6 @@ function danhDauXungDotActualV1_(task, startConstraintCandidates, endConstraintC
   }
 }
 
-function coRangBuocDauVaCuoiTuTienNhiemV1_(task) {
-  if (!task || !Array.isArray(task.predecessors)) return false;
-
-  let hasStartConstraint = false;
-  let hasEndConstraint = false;
-
-  task.predecessors.forEach(function(pred) {
-    if (!pred || !pred.type) return;
-
-    if (pred.type === 'SS' || pred.type === 'FS') {
-      hasStartConstraint = true;
-    }
-
-    if (pred.type === 'FF') {
-      hasEndConstraint = true;
-    }
-  });
-
-  return hasStartConstraint && hasEndConstraint;
-}
-
 function layNgayLonNhatV1_(dates) {
   return boGioV1_(new Date(Math.max.apply(null, dates.map(d => d.getTime()))));
 }
@@ -902,7 +858,11 @@ function testScheduleEngineV1() {
     taoTaskTestScheduleV1_('5', 3, '1FS'),
     taoTaskTestScheduleV1_('6', 4, '1FS; 3SS+2; 5FF-1')
   ], anchor);
+  // J=4 la co dinh. Candidate start: 1FS=07/01, 3SS+2=09/01,
+  // 5FF-1 quy nguoc theo J=4 => 05/01. Chon max=09/01, finish=12/01.
   assertScheduleV1_('Case 6 max constraint', bangNgayV1_(case6['6'].start, new Date(2026, 0, 9)));
+  assertScheduleV1_('Case 6 fixed duration', case6['6'].duration === 4);
+  assertScheduleV1_('Case 6 finish from max constraint', bangNgayV1_(case6['6'].end, new Date(2026, 0, 12)));
 
   const case7 = chayTestMangScheduleEngineV1_([
     taoTaskTestScheduleV1_('7', 5, '99FS')
