@@ -7411,6 +7411,20 @@ function qltdWeb07EnsureGanttPolishStyles() {
       overflow: visible !important;
     }
 
+    #web07GanttContainer.qltd-gantt-export-mode .gantt_tree_content {
+      display: inline !important;
+      width: auto !important;
+      max-width: none !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      white-space: normal !important;
+      line-height: 15px !important;
+    }
+
+    #web07GanttContainer.qltd-gantt-export-mode .gantt_cell {
+      white-space: normal !important;
+    }
+
     @media print {
       @page {
         size: A4 landscape;
@@ -7519,6 +7533,90 @@ function qltdWeb07GetVisibleGanttTasks(gantt) {
   return tasks;
 }
 
+function qltdWeb07GetVisibleGanttRows(gantt) {
+  const rows = [];
+  if (!gantt || typeof gantt.eachTask !== 'function') return rows;
+
+  gantt.eachTask((task) => {
+    if (!task) return;
+    if (typeof gantt.isTaskVisible === 'function' && !gantt.isTaskVisible(task.id)) return;
+    rows.push(task);
+  });
+
+  return rows;
+}
+
+function qltdWeb07MeasureGanttExportLayout(gantt, container) {
+  const columns = Array.isArray(gantt && gantt.config && gantt.config.columns)
+    ? gantt.config.columns.map((column) => ({ ...column }))
+    : [];
+  const textColumn = columns.find((column) => column.name === 'text');
+  if (!textColumn) {
+    return {
+      columns,
+      gridWidth: Number(gantt && gantt.config && gantt.config.grid_width || 552),
+      rowHeight: Number(gantt && gantt.config && gantt.config.row_height || 32),
+      wrappedTaskIds: [],
+      needsWrap: false
+    };
+  }
+
+  const sample = container && container.querySelector('.gantt_tree_content');
+  const computed = sample && typeof getComputedStyle === 'function' ? getComputedStyle(sample) : null;
+  const font = computed && computed.font
+    ? computed.font
+    : `${computed && computed.fontWeight || 400} ${computed && computed.fontSize || '11px'} ${computed && computed.fontFamily || 'Arial, sans-serif'}`;
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  const widthCache = new Map();
+  if (context) context.font = font;
+
+  function measure(value) {
+    const text = String(value || '');
+    const key = `${font}\n${text}`;
+    if (widthCache.has(key)) return widthCache.get(key);
+    const width = context ? context.measureText(text).width : text.length * 7;
+    widthCache.set(key, width);
+    return width;
+  }
+
+  let maxRequiredWidth = 0;
+  const measuredRows = [];
+  qltdWeb07GetVisibleGanttRows(gantt).forEach((task) => {
+    const explicitLevel = Number(task.$level);
+    const level = Number.isFinite(explicitLevel) && explicitLevel >= 0
+      ? explicitLevel
+      : Math.max(0, getTaskWbsLevel(task) - 1);
+    const treeIndentAndIcons = level * 20 + 48;
+    const requiredWidth = measure(task.text) + treeIndentAndIcons + 20;
+    maxRequiredWidth = Math.max(maxRequiredWidth, requiredWidth);
+    measuredRows.push({ id: task.id, requiredWidth });
+  });
+
+  canvas.width = 1;
+  canvas.height = 1;
+
+  const minNameWidth = Math.max(300, Number(textColumn.width || 0));
+  const maxNameWidth = 640;
+  const nameWidth = Math.min(maxNameWidth, Math.max(minNameWidth, Math.ceil(maxRequiredWidth || minNameWidth)));
+  textColumn.width = nameWidth;
+  const gridWidth = columns.reduce((total, column) => total + Math.max(0, Number(column.width || 0)), 0);
+  const needsWrap = maxRequiredWidth > nameWidth;
+  const wrappedTaskIds = measuredRows
+    .filter((item) => item.requiredWidth > nameWidth)
+    .map((item) => item.id);
+
+  return {
+    columns,
+    gridWidth,
+    nameWidth,
+    maxRequiredWidth,
+    needsWrap,
+    wrappedTaskIds,
+    rowHeight: Number(gantt.config.row_height || 32)
+  };
+}
+
 function qltdWeb07GetGanttExportRange(gantt) {
   const tasks = qltdWeb07GetVisibleGanttTasks(gantt);
   let minDate = null;
@@ -7545,7 +7643,7 @@ function qltdWeb07GetGanttExportRange(gantt) {
 }
 
 function qltdWeb07GetFullGanttExportSize(gantt, range) {
-  const tasks = qltdWeb07GetVisibleGanttTasks(gantt);
+  const tasks = qltdWeb07GetVisibleGanttRows(gantt);
   const rowHeight = Number(gantt.config.row_height || 32);
   const gridWidth = Number(gantt.config.grid_width || 552);
   let timelineWidthByDate = 0;
@@ -7564,10 +7662,21 @@ function qltdWeb07GetFullGanttExportSize(gantt, range) {
     gantt.$task ? gantt.$task.scrollWidth : 0,
     1200
   );
-  const height = Math.max(760, (tasks.length + 3) * rowHeight + Number(gantt.config.scale_height || 54) + 120);
+  const root = gantt.$root || document.getElementById('web07GanttContainer');
+  const renderedWidth = root ? Math.max(root.scrollWidth || 0, root.offsetWidth || 0) : 0;
+  const renderedHeight = root ? Math.max(root.scrollHeight || 0, root.offsetHeight || 0) : 0;
+  const taskRowsHeight = tasks.reduce(
+    (total, task) => total + Number(task.row_height || rowHeight),
+    0
+  );
+  const height = Math.max(
+    760,
+    renderedHeight,
+    taskRowsHeight + 3 * rowHeight + Number(gantt.config.scale_height || 54) + 120
+  );
 
   return {
-    width: Math.max(1280, gridWidth + taskWidth + 120),
+    width: Math.max(1280, renderedWidth, gridWidth + taskWidth + 120),
     height
   };
 }
@@ -7586,6 +7695,10 @@ async function qltdWeb07PrepareGanttPrint() {
     fitTasks: gantt.config.fit_tasks,
     autofit: gantt.config.autofit,
     autosize: gantt.config.autosize,
+    columns: Array.isArray(gantt.config.columns) ? gantt.config.columns.map((column) => ({ ...column })) : [],
+    gridWidth: gantt.config.grid_width,
+    rowHeight: gantt.config.row_height,
+    taskHeights: [],
     scroll: typeof gantt.getScrollState === 'function' ? gantt.getScrollState() : null,
     panelWidth: panel ? panel.style.width : '',
     panelMaxWidth: panel ? panel.style.maxWidth : '',
@@ -7597,12 +7710,34 @@ async function qltdWeb07PrepareGanttPrint() {
     printWidth: document.documentElement.style.getPropertyValue('--qltd-web07-print-width')
   };
 
+  if (document.fonts && document.fonts.ready) {
+    await document.fonts.ready;
+  }
+
+  const exportLayout = qltdWeb07MeasureGanttExportLayout(gantt, container);
+  exportLayout.wrappedTaskIds.forEach((taskId) => {
+    const task = typeof gantt.getTask === 'function' ? gantt.getTask(taskId) : null;
+    if (!task) return;
+    prev.taskHeights.push({
+      id: taskId,
+      hadRowHeight: Object.prototype.hasOwnProperty.call(task, 'row_height'),
+      rowHeight: task.row_height,
+      hadBarHeight: Object.prototype.hasOwnProperty.call(task, 'bar_height'),
+      barHeight: task.bar_height
+    });
+    task.row_height = 46;
+    task.bar_height = Number(task.bar_height || gantt.config.bar_height || 16);
+  });
+
   gantt.config.start_date = range.start;
   gantt.config.end_date = range.end;
   gantt.config.smart_rendering = false;
   gantt.config.fit_tasks = false;
   gantt.config.autofit = false;
   gantt.config.autosize = 'xy';
+  gantt.config.columns = exportLayout.columns;
+  gantt.config.grid_width = exportLayout.gridWidth;
+  container.classList.add('qltd-gantt-export-mode');
   gantt.render();
   await qltdWeb07NextFrame();
 
@@ -7629,7 +7764,7 @@ async function qltdWeb07PrepareGanttPrint() {
     await qltdWeb07NextFrame();
   }
 
-  return { gantt, container, panel, prev, full };
+  return { gantt, container, panel, prev, full, exportLayout };
 }
 
 function qltdWeb07RemoveGanttPrintRoots() {
@@ -7820,29 +7955,206 @@ function qltdWeb07DownloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
+const QLTD_WEB07_GANTT_CAPTURE_LIMITS = Object.freeze({
+  maxCanvasDimension: 16384,
+  maxCanvasPixels: 48000000,
+  maxEstimatedBytes: 192 * 1024 * 1024,
+  maxSlices: 4,
+  minSliceHeight: 720
+});
+
+function qltdWeb07BuildGanttVerticalSlices(totalHeight, maxSliceHeight, rowHeight, scaleHeight, rowBoundaries = []) {
+  const slices = [];
+  const total = Math.max(1, Math.ceil(totalHeight));
+  const row = Math.max(1, Math.ceil(rowHeight || 32));
+  const header = Math.max(0, Math.ceil(scaleHeight || 0));
+  let offset = 0;
+
+  while (offset < total) {
+    const remaining = total - offset;
+    let height = Math.min(remaining, Math.max(row, Math.floor(maxSliceHeight)));
+
+    if (remaining > height) {
+      const safeBoundary = rowBoundaries
+        .filter((boundary) => boundary > offset && boundary <= offset + height)
+        .at(-1);
+      if (safeBoundary) {
+        height = safeBoundary - offset;
+      } else if (offset === 0 && height > header + row) {
+        height = header + Math.max(row, Math.floor((height - header) / row) * row);
+      } else {
+        height = Math.max(row, Math.floor(height / row) * row);
+      }
+    }
+
+    slices.push({ offset, height });
+    offset += height;
+  }
+
+  return slices;
+}
+
+function qltdWeb07GetGanttRowBoundaries(container) {
+  if (!container || typeof container.querySelectorAll !== 'function') return [];
+  const containerRect = container.getBoundingClientRect();
+  return Array.from(container.querySelectorAll('.gantt_grid_data .gantt_row'))
+    .map((row) => {
+      const rect = row.getBoundingClientRect();
+      return Math.round(rect.bottom - containerRect.top);
+    })
+    .filter((boundary, index, values) => boundary > 0 && (index === 0 || boundary > values[index - 1]));
+}
+
+function qltdWeb07ChooseGanttCapturePlan(width, height, rowHeight, scaleHeight, limits = QLTD_WEB07_GANTT_CAPTURE_LIMITS, rowBoundaries = []) {
+  const baseWidth = Math.max(1, Math.ceil(width));
+  const baseHeight = Math.max(1, Math.ceil(height));
+  const ratios = [4, 3, 2, 1.5, 1];
+
+  for (const pixelRatio of ratios) {
+    const pixelWidth = Math.ceil(baseWidth * pixelRatio);
+    if (pixelWidth > limits.maxCanvasDimension) continue;
+
+    const maxPixelHeight = Math.floor(Math.min(
+      limits.maxCanvasDimension,
+      limits.maxCanvasPixels / pixelWidth,
+      limits.maxEstimatedBytes / (pixelWidth * 4)
+    ));
+    const maxBaseSliceHeight = Math.floor(maxPixelHeight / pixelRatio);
+    if (maxBaseSliceHeight < Math.min(baseHeight, limits.minSliceHeight)) continue;
+
+    const slices = qltdWeb07BuildGanttVerticalSlices(
+      baseHeight,
+      maxBaseSliceHeight,
+      rowHeight,
+      scaleHeight,
+      rowBoundaries
+    );
+    if (slices.length > limits.maxSlices) continue;
+
+    return {
+      width: baseWidth,
+      height: baseHeight,
+      pixelRatio,
+      pixelWidth,
+      slices
+    };
+  }
+
+  throw new Error('Gantt quá lớn để tạo PNG an toàn. Hãy lọc bớt dòng hoặc thu hẹp khoảng thời gian rồi thử lại.');
+}
+
+function qltdWeb07CreateGanttCaptureFrame(ctx, slice) {
+  const frame = document.createElement('div');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.position = 'fixed';
+  frame.style.left = '-100000px';
+  frame.style.top = '0';
+  frame.style.width = `${ctx.full.width}px`;
+  frame.style.height = `${slice.height}px`;
+  frame.style.overflow = 'hidden';
+  frame.style.background = '#ffffff';
+  frame.style.transform = 'none';
+  frame.style.zoom = '1';
+
+  const clone = ctx.container.cloneNode(true);
+  clone.classList.add('qltd-gantt-export-mode');
+  clone.style.position = 'absolute';
+  clone.style.left = '0';
+  clone.style.top = `${-slice.offset}px`;
+  clone.style.width = `${ctx.full.width}px`;
+  clone.style.minWidth = `${ctx.full.width}px`;
+  clone.style.height = `${ctx.full.height}px`;
+  clone.style.minHeight = `${ctx.full.height}px`;
+  clone.style.overflow = 'visible';
+  clone.style.transform = 'none';
+  clone.style.zoom = '1';
+  frame.appendChild(clone);
+  document.body.appendChild(frame);
+  return frame;
+}
+
 async function qltdWeb07CaptureGanttPng(ctx) {
   const htmlToImage = await qltdWeb07LoadHtmlToImage();
-  if (!htmlToImage || typeof htmlToImage.toPng !== 'function') {
+  if (!htmlToImage || typeof htmlToImage.toCanvas !== 'function') {
     throw new Error('Thư viện html-to-image chưa sẵn sàng.');
   }
 
-  const width = Math.ceil(ctx.full.width);
-  const height = Math.ceil(ctx.full.height);
+  if (document.fonts && document.fonts.ready) {
+    await document.fonts.ready;
+  }
 
-  return htmlToImage.toPng(ctx.container, {
-    width,
-    height,
-    cacheBust: true,
-    pixelRatio: 1,
-    backgroundColor: '#ffffff',
-    style: {
-      width: `${width}px`,
-      minWidth: `${width}px`,
-      height: `${height}px`,
-      minHeight: `${height}px`,
-      overflow: 'visible'
+  const renderedWidth = Math.max(ctx.full.width, ctx.container.scrollWidth || 0);
+  const renderedHeight = Math.max(ctx.full.height, ctx.container.scrollHeight || 0);
+  ctx.full.width = Math.ceil(renderedWidth);
+  ctx.full.height = Math.ceil(renderedHeight);
+  const plan = qltdWeb07ChooseGanttCapturePlan(
+    ctx.full.width,
+    ctx.full.height,
+    ctx.gantt.config.row_height,
+    ctx.gantt.config.scale_height,
+    QLTD_WEB07_GANTT_CAPTURE_LIMITS,
+    qltdWeb07GetGanttRowBoundaries(ctx.container)
+  );
+  const images = [];
+
+  for (const slice of plan.slices) {
+    const frame = qltdWeb07CreateGanttCaptureFrame(ctx, slice);
+    let canvas = null;
+    try {
+      await qltdWeb07NextFrame();
+      canvas = await htmlToImage.toCanvas(frame, {
+        width: plan.width,
+        height: slice.height,
+        cacheBust: true,
+        pixelRatio: plan.pixelRatio,
+        skipAutoScale: true,
+        backgroundColor: '#ffffff',
+        style: {
+          position: 'static',
+          left: '0',
+          top: '0',
+          width: `${plan.width}px`,
+          height: `${slice.height}px`,
+          overflow: 'hidden',
+          transform: 'none',
+          zoom: '1'
+        }
+      });
+
+      const context = canvas.getContext('2d');
+      if (context) {
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
+      }
+      images.push({
+        dataUrl: canvas.toDataURL('image/png'),
+        width: plan.width,
+        height: slice.height,
+        pixelWidth: canvas.width,
+        pixelHeight: canvas.height,
+        offset: slice.offset
+      });
+    } finally {
+      frame.remove();
+      if (canvas) {
+        canvas.width = 1;
+        canvas.height = 1;
+      }
     }
-  });
+  }
+
+  return { ...plan, images };
+}
+
+function qltdWeb07ExcelColumnName(columnNumber) {
+  let value = Math.max(1, Math.floor(columnNumber));
+  let name = '';
+  while (value > 0) {
+    value -= 1;
+    name = String.fromCharCode(65 + (value % 26)) + name;
+    value = Math.floor(value / 26);
+  }
+  return name;
 }
 
 async function qltdWeb07ExportGanttExcel() {
@@ -7868,7 +8180,7 @@ async function qltdWeb07ExportGanttExcel() {
       throw new Error('Chưa thể chuẩn bị Gantt để xuất Excel.');
     }
 
-    const imageDataUrl = await qltdWeb07CaptureGanttPng(ctx);
+    const capture = await qltdWeb07CaptureGanttPng(ctx);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'QLTD Firebase WebApp';
     workbook.created = new Date();
@@ -7892,19 +8204,28 @@ async function qltdWeb07ExportGanttExcel() {
     const imageScale = Math.min(1, maxExcelImageWidth / Math.max(ctx.full.width, 1));
     const imageWidth = Math.round(ctx.full.width * imageScale);
     const imageHeight = Math.round(ctx.full.height * imageScale);
-    const imageId = workbook.addImage({ base64: imageDataUrl, extension: 'png' });
+    const excelRowHeightPx = 24;
+    const excelColumnWidthPx = 126;
+    const printColumnCount = Math.max(1, Math.ceil(imageWidth / excelColumnWidthPx));
 
-    for (let col = 1; col <= 18; col += 1) {
+    for (let col = 1; col <= printColumnCount; col += 1) {
       printSheet.getColumn(col).width = 18;
     }
-    for (let row = 1; row <= Math.max(1, Math.ceil(imageHeight / 24)); row += 1) {
+    for (let row = 1; row <= Math.max(1, Math.ceil(imageHeight / excelRowHeightPx)); row += 1) {
       printSheet.getRow(row).height = 18;
     }
-    printSheet.addImage(imageId, {
-      tl: { col: 0, row: 0 },
-      ext: { width: imageWidth, height: imageHeight },
-      editAs: 'oneCell'
+    let displayTop = 0;
+    capture.images.forEach((image) => {
+      const imageId = workbook.addImage({ base64: image.dataUrl, extension: 'png' });
+      const displayHeight = image.height * imageScale;
+      printSheet.addImage(imageId, {
+        tl: { col: 0, row: displayTop / excelRowHeightPx },
+        ext: { width: imageWidth, height: displayHeight },
+        editAs: 'oneCell'
+      });
+      displayTop += displayHeight;
     });
+    printSheet.pageSetup.printArea = `A1:${qltdWeb07ExcelColumnName(printColumnCount)}${Math.max(1, Math.ceil(imageHeight / excelRowHeightPx))}`;
 
     const dataSheet = workbook.addWorksheet('Gantt_Data', {
       pageSetup: {
@@ -7966,6 +8287,7 @@ async function qltdWeb07RestoreGanttPrint(ctx) {
   const { gantt, container, panel, prev } = ctx;
   document.body.classList.remove('qltd-printing');
   qltdWeb07RemoveGanttPrintRoots();
+  container.classList.remove('qltd-gantt-export-mode');
   document.documentElement.style.setProperty('--qltd-web07-print-width', prev.printWidth || '');
   if (!prev.printWidth) document.documentElement.style.removeProperty('--qltd-web07-print-width');
 
@@ -7986,6 +8308,17 @@ async function qltdWeb07RestoreGanttPrint(ctx) {
   gantt.config.fit_tasks = prev.fitTasks;
   gantt.config.autofit = prev.autofit;
   gantt.config.autosize = prev.autosize;
+  gantt.config.columns = prev.columns;
+  gantt.config.grid_width = prev.gridWidth;
+  gantt.config.row_height = prev.rowHeight;
+  (prev.taskHeights || []).forEach((state) => {
+    const task = typeof gantt.getTask === 'function' ? gantt.getTask(state.id) : null;
+    if (!task) return;
+    if (state.hadRowHeight) task.row_height = state.rowHeight;
+    else delete task.row_height;
+    if (state.hadBarHeight) task.bar_height = state.barHeight;
+    else delete task.bar_height;
+  });
   gantt.render();
   await qltdWeb07NextFrame();
 
