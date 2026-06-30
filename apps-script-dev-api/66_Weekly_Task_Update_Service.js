@@ -262,9 +262,8 @@ function qltdWeeklyMasterApprovalReview_(payload) {
   const updateId = String(payload && payload.updateId || '').trim();
   const nextStatus = qltdWeeklyTaskUpdatesNormalizeApprovalStatus_(payload && payload.approvalStatus || payload && payload.status);
   const reason = String(payload && (payload.reviewReason || payload.reason) || '').trim();
-  const dependencyDecision = qltdWeeklyTaskUpdatesNormalizeDependencyDecision_(payload && payload.dependencyDecision) ||
-    QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.KEEP_CURRENT;
-  const recoveryPlan = String(payload && payload.recoveryPlan || '').trim();
+  const dependencyDecision = QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.KEEP_CURRENT;
+  const recoveryPlan = '';
   const meta = { email: auth.email, updateId: updateId, approvalStatus: nextStatus, dependencyDecision: dependencyDecision };
   if (!updateId) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'UPDATE_ID_REQUIRED', 'updateId is required.', meta);
   if ([QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED, QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED].indexOf(nextStatus) === -1) {
@@ -1541,6 +1540,11 @@ function qltdWeeklyMasterProgressWriteback_(update, auth, requestId, meta) {
       changeCount: changes.length
     })));
     const cacheResult = qltdWeeklyTaskUpdatesInvalidateGanttCache_(update.projectCode);
+    if (!cacheResult.success) targetResult.warnings.push(qltdWorkWarning_(cacheResult.code || 'GANTT_CACHE_INVALIDATE_FAILED',
+      'Master was updated, but Gantt cache could not be invalidated automatically.', {
+        projectCode: update.projectCode,
+        message: cacheResult.message || ''
+      }));
     return {
       success: true,
       applied: true,
@@ -1555,7 +1559,9 @@ function qltdWeeklyMasterProgressWriteback_(update, auth, requestId, meta) {
       ganttCacheInvalidated: cacheResult.success,
       ganttRefreshRequired: true,
       dashboardRefreshRequired: true,
-      message: 'Master task was updated in Cong_viec and Gantt cache was invalidated.',
+      message: cacheResult.success
+        ? 'Master task was updated in Cong_viec and Gantt cache was invalidated.'
+        : 'Master task was updated in Cong_viec, but Gantt cache could not be invalidated automatically.',
       warnings: targetResult.warnings
     };
   } catch (error) {
@@ -1632,8 +1638,18 @@ function qltdWeeklyMasterApprovalApplyToMaster_(target, auth, dependencyDecision
     } else {
       targetResult.warnings.push(qltdWorkWarning_('MASTER_PROGRESS_HEADER_MISSING', 'MASTER progress header is missing; progress was not synced.'));
     }
-    changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.updateNote, qltdWorkAppendTaskNote_(task.updateNote, note, auth.email)));
+    const previousNote = String(task.updateNote || '');
+    const approvalMarker = qltdWeeklyMasterApprovalMarker_(target.updateId);
+    const duplicateApprovalNote = !!approvalMarker && previousNote.indexOf(approvalMarker) !== -1;
+    if (!duplicateApprovalNote) {
+      changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.updateNote, qltdWorkAppendTaskNote_(previousNote, note, auth.email)));
+    }
     const cacheResult = qltdWeeklyTaskUpdatesInvalidateGanttCache_(target.projectCode);
+    if (!cacheResult.success) targetResult.warnings.push(qltdWorkWarning_(cacheResult.code || 'GANTT_CACHE_INVALIDATE_FAILED',
+      'Master was approved, but Gantt cache could not be invalidated automatically.', {
+        projectCode: target.projectCode,
+        message: cacheResult.message || ''
+      }));
     return {
       success: true,
       stage: 'DONE',
@@ -1646,11 +1662,14 @@ function qltdWeeklyMasterApprovalApplyToMaster_(target, auth, dependencyDecision
       columnWUpdated: false,
       dependencyDecision: dependencyDecision,
       recoveryPlanSaved: !!recoveryPlan,
+      duplicateApprovalNote: duplicateApprovalNote,
       recalcTriggered: false,
       ganttCacheInvalidated: cacheResult.success,
       ganttRefreshRequired: true,
       dashboardRefreshRequired: true,
-      message: 'Master completion was approved in Cong_viec and Gantt cache was invalidated.',
+      message: cacheResult.success
+        ? 'Master completion was approved in Cong_viec and Gantt cache was invalidated.'
+        : 'Master completion was approved in Cong_viec, but Gantt cache could not be invalidated automatically.',
       changes: changes,
       warnings: targetResult.warnings || []
     };
@@ -1730,12 +1749,15 @@ function qltdWeeklyTaskUpdatesBuildMasterWritebackResponse_(result, fallback) {
     errorCode: source.errorCode || source.code || '',
     message: source.message || '',
     applied: !!source.applied || !!source.congViecUpdated,
-    ganttCacheInvalidated: !!source.ganttCacheInvalidated
+    ganttCacheInvalidated: !!source.ganttCacheInvalidated,
+    forceRefreshRecommended: !!(source.success && source.ganttCacheInvalidated === false)
   };
 }
 
 function qltdWeeklyMasterApprovalBuildUpdateNote_(target, auth, dependencyDecision, recoveryPlan, reviewedAt) {
+  const marker = qltdWeeklyMasterApprovalMarker_(target && target.updateId);
   const lines = [
+    marker,
     'Weekly MASTER approval',
     'Nguoi bao cao: ' + (target.updatedBy || ''),
     'Nguoi duyet: ' + (auth.email || ''),
@@ -1747,6 +1769,11 @@ function qltdWeeklyMasterApprovalBuildUpdateNote_(target, auth, dependencyDecisi
   if (target.recommendation) lines.push('Kien nghi: ' + target.recommendation);
   if (recoveryPlan) lines.push('Bien phap bu tien do: ' + recoveryPlan);
   return lines.join(' | ');
+}
+
+function qltdWeeklyMasterApprovalMarker_(updateId) {
+  const value = String(updateId || '').trim();
+  return value ? '[WeeklyApproval:' + value + ']' : '';
 }
 
 function qltdWeeklyTaskUpdatesInspectSheet_(sheet) {
@@ -1852,9 +1879,7 @@ function qltdWeeklyTaskUpdatesNormalizeApprovalStatus_(value) {
     status === QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED ? status : '';
 }
 function qltdWeeklyTaskUpdatesNormalizeDependencyDecision_(value) {
-  const decision = String(value || '').trim().toUpperCase();
-  return decision === QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.KEEP_CURRENT ||
-    decision === QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.RECALCULATE_DEPENDENCIES ? decision : '';
+  return QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.KEEP_CURRENT;
 }
 function qltdWeeklyTaskUpdatesNormalizeTaskCode_(value) {
   return String(value || '').trim().toUpperCase();
