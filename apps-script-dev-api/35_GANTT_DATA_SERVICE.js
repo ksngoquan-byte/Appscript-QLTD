@@ -63,8 +63,25 @@ function qltdGanttGetDataForProject_(projectCode) {
       return cachedAfterWait;
     }
 
+    if (!locked) {
+      return qltdGanttError_('GANTT_BUSY_RETRY', 'Gantt data is being prepared by another request. Please retry shortly.', [{
+        type: 'GANTT_BUSY_RETRY',
+        projectCode: code,
+        retryAfterMs: 1500
+      }], {
+        projectCode: code,
+        retryAfterMs: 1500,
+        performance: qltdGanttPerformance_(startedAt, false, 0, 0, 0)
+      });
+    }
+
     const result = qltdGanttBuildDataForProject_(code, startedAt);
-    if (result && result.success !== false) qltdGanttCachePut_(code, result);
+    if (result && result.success !== false) {
+      const cacheResult = qltdGanttCachePut_(code, result);
+      if (cacheResult && cacheResult.warning) {
+        result.warnings = (result.warnings || []).concat([cacheResult.warning]);
+      }
+    }
     return result;
   } catch (error) {
     return qltdGanttError_('GANTT_BUILD_FAILED', error.message || String(error), [], {
@@ -258,7 +275,17 @@ function qltdGanttCachePut_(projectCode, payload) {
     }
     if (!chunks.length || chunks.length > QLTD_GANTT_CACHE_MAX_CHUNKS) {
       console.warn('Gantt cache skipped because payload is too large', projectCode, serialized.length, chunks.length);
-      return false;
+      return {
+        stored: false,
+        warning: {
+          type: 'GANTT_CACHE_PAYLOAD_TOO_LARGE',
+          projectCode: projectCode,
+          charLength: serialized.length,
+          chunkCount: chunks.length,
+          maxChunks: QLTD_GANTT_CACHE_MAX_CHUNKS,
+          message: 'Gantt response is valid but was not cached because the payload exceeds CacheService limits.'
+        }
+      };
     }
 
     const cache = CacheService.getScriptCache();
@@ -271,10 +298,17 @@ function qltdGanttCachePut_(projectCode, payload) {
       cachedAt: Date.now(),
       charLength: serialized.length
     }), QLTD_GANTT_CACHE_TTL_SECONDS);
-    return true;
+    return { stored: true };
   } catch (error) {
     console.warn('Gantt cache write failed', error);
-    return false;
+    return {
+      stored: false,
+      warning: {
+        type: 'GANTT_CACHE_WRITE_FAILED',
+        projectCode: projectCode,
+        message: error.message || String(error)
+      }
+    };
   }
 }
 

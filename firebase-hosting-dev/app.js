@@ -74,6 +74,9 @@ let qltdGanttViewMode = 'progress';
 let qltdGanttBudgetRequestSeq = 0;
 const qltdGanttBudgetCache = new Map();
 const qltdGanttBudgetLoadingProjects = new Set();
+const qltdGanttDataRequests = new Map();
+const QLTD_GANTT_REQUEST_TIMEOUT_MS = 40000;
+const QLTD_GANTT_BUSY_RETRY_DELAY_MS = 1500;
 let qltdBudgetSyncRunning = false;
 let qltdActiveView = 'dashboard';
 let qltdDhtmlxLoadPromise = null;
@@ -739,7 +742,9 @@ function renderProjectOptions(projects = []) {
   const hasStoredProject = projects.some((project) => project.projectCode === storedProjectCode);
   selector.value = hasStoredProject ? storedProjectCode : projects[0].projectCode;
   setStoredProjectCode(selector.value);
-  loadGanttDataForSelectedProject(selector.value);
+  if (qltdActiveView === 'dashboard' || qltdActiveView === 'gantt') {
+    loadGanttDataForSelectedProject(selector.value);
+  }
 
   if (status) {
     status.textContent = '';
@@ -752,7 +757,9 @@ function renderProjectOptions(projects = []) {
     if (qltdActiveView === 'report') loadDeptPlansForSelectedProject(selector.value);
     if (qltdActiveView === 'budget') loadBudgetDashboardForSelectedProject({ force: true });
     if (qltdActiveView === 'admin') loadAdminMasterApprovals();
-    loadGanttDataForSelectedProject(selector.value);
+    if (qltdActiveView === 'dashboard' || qltdActiveView === 'gantt') {
+      loadGanttDataForSelectedProject(selector.value);
+    }
   };
 }
 
@@ -1797,7 +1804,12 @@ function showWeb07View(viewName, options = {}) {
 
   if (viewName === 'dashboard' || viewName === 'gantt') {
     const projectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
-    if (projectCode && qltdGanttDirtyProjects.has(projectCode)) loadGanttDataForSelectedProject(projectCode);
+    const needsGanttData = projectCode && (
+      qltdGanttDirtyProjects.has(projectCode) ||
+      !qltdGanttPayload ||
+      String(qltdGanttPayload.projectCode || '') !== String(projectCode)
+    );
+    if (needsGanttData) loadGanttDataForSelectedProject(projectCode);
   }
 
   if (viewName === 'gantt') {
@@ -5650,14 +5662,84 @@ async function markWeeklyGanttRefreshRequired(projectCode) {
   }
 }
 
-async function loadGanttDataForSelectedProject(projectCode) {
-  if (!projectCode) return null;
+function qltdWeb07GetOrCreateGanttRequest(projectCode, factory) {
+  const code = String(projectCode || '').trim();
+  if (!code) return Promise.resolve(null);
+  const inFlight = qltdGanttDataRequests.get(code);
+  if (inFlight) return inFlight;
+
+  const request = Promise.resolve().then(factory);
+  qltdGanttDataRequests.set(code, request);
+  const clearRequest = () => {
+    if (qltdGanttDataRequests.get(code) === request) qltdGanttDataRequests.delete(code);
+  };
+  request.then(clearRequest, clearRequest);
+  return request;
+}
+
+function qltdWeb07IsGanttBusyResponse(payload) {
+  const code = String(payload && (payload.error || payload.errorCode || payload.code || payload.message) || '')
+    .trim()
+    .toUpperCase();
+  return code === 'GANTT_BUSY_RETRY';
+}
+
+function qltdWeb07Delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(ms || 0))));
+}
+
+async function qltdWeb07FetchGanttPayload(projectCode, options = {}) {
+  const timeoutMs = Number(options.timeoutMs || QLTD_GANTT_REQUEST_TIMEOUT_MS);
+  const retryDelayMs = Number(options.retryDelayMs || QLTD_GANTT_BUSY_RETRY_DELAY_MS);
+  const fetcher = options.fetcher || fetchBackendJson;
+  const delay = options.delay || qltdWeb07Delay;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    let payload;
+    try {
+      payload = await fetcher('ganttData', { projectCode }, { signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        const timeoutError = new Error(`Quá thời gian tải Gantt sau ${Math.round(timeoutMs / 1000)} giây. Vui lòng thử lại.`);
+        timeoutError.code = 'GANTT_REQUEST_TIMEOUT';
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+
+    if (!qltdWeb07IsGanttBusyResponse(payload)) return payload;
+    if (attempt === 0) {
+      await delay(Number(payload.retryAfterMs || retryDelayMs));
+      continue;
+    }
+
+    const busyError = new Error('Gantt đang được một yêu cầu khác chuẩn bị. Vui lòng đợi vài giây rồi thử lại.');
+    busyError.code = 'GANTT_BUSY_RETRY';
+    throw busyError;
+  }
+
+  return null;
+}
+
+function loadGanttDataForSelectedProject(projectCode) {
+  const code = String(projectCode || '').trim();
+  if (!code) return Promise.resolve(null);
+  return qltdWeb07GetOrCreateGanttRequest(code, () => qltdWeb07LoadGanttDataForSelectedProject(code));
+}
+
+async function qltdWeb07LoadGanttDataForSelectedProject(projectCode) {
   ensureWeb07Panels();
   renderGanttLoading(projectCode);
   renderDashboardLoading(projectCode);
 
   try {
-    const payload = await fetchBackendJson('ganttData', { projectCode });
+    const payload = await qltdWeb07FetchGanttPayload(projectCode);
+    const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+    if (selectedProjectCode && String(selectedProjectCode) !== String(projectCode)) return payload;
     qltdGanttPayload = payload;
     if (qltdActiveView === 'report' && qltdDeptPlanPayload?.success) renderDeptPlans(qltdDeptPlanPayload);
     await loadMainMilestonesForProject(projectCode, payload);
@@ -5667,6 +5749,8 @@ async function loadGanttDataForSelectedProject(projectCode) {
     return payload;
   } catch (error) {
     console.error('Cannot load gantt data', error);
+    const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+    if (selectedProjectCode && String(selectedProjectCode) !== String(projectCode)) return null;
     qltdGanttPayload = null;
     renderDashboardError(error);
     renderGanttError(error);
@@ -9355,7 +9439,11 @@ async function fetchBackendJson(action, params = {}, options = {}) {
       url.searchParams.set('idToken', await auth.currentUser.getIdToken(forceRefresh));
     }
 
-    const response = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      cache: 'no-store',
+      signal: options.signal
+    });
 
     if (!response.ok) {
       throw new Error(`Apps Script API ${action} failed: ${response.status}`);
