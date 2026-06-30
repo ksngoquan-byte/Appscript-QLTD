@@ -9,8 +9,11 @@ const CAL_NGAY_NGHI_START_ROW = 5;
 const CAL_COL_NGAY = 1;      // Cột A
 const CAL_COL_SU_DUNG = 4;   // Cột D
 
-function cal_getTimeZone_() {
-  return SpreadsheetApp.getActive().getSpreadsheetTimeZone() || 'Asia/Ho_Chi_Minh';
+function cal_getTimeZone_(spreadsheet) {
+  const ss = spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
+  return ss && ss.getSpreadsheetTimeZone
+    ? (ss.getSpreadsheetTimeZone() || 'Asia/Ho_Chi_Minh')
+    : 'Asia/Ho_Chi_Minh';
 }
 
 function cal_toDateOnly_(value) {
@@ -46,16 +49,23 @@ function cal_toDateOnly_(value) {
   return null;
 }
 
-function cal_dateKey_(dateValue) {
+function cal_dateKey_(dateValue, spreadsheet, timeZone) {
   const d = cal_toDateOnly_(dateValue);
   if (!d) return '';
-  return Utilities.formatDate(d, cal_getTimeZone_(), 'yyyy-MM-dd');
+  return Utilities.formatDate(d, timeZone || cal_getTimeZone_(spreadsheet), 'yyyy-MM-dd');
 }
 
 function cal_getNgayNghiSet_() {
-  const ss = SpreadsheetApp.getActive();
-  const sh = ss.getSheetByName(CAL_SHEET_NGAY_NGHI);
+  return cal_getNgayNghiSetForSpreadsheet_(SpreadsheetApp.getActiveSpreadsheet());
+}
+
+function cal_getNgayNghiSetForSpreadsheet_(spreadsheet) {
+  if (!spreadsheet || typeof spreadsheet.getSheetByName !== 'function') {
+    throw new Error('Spreadsheet khong hop le khi doc ngay nghi');
+  }
+  const sh = spreadsheet.getSheetByName(CAL_SHEET_NGAY_NGHI);
   const set = new Set();
+  set.timeZone = cal_getTimeZone_(spreadsheet);
 
   if (!sh) return set;
 
@@ -72,7 +82,7 @@ function cal_getNgayNghiSet_() {
     if (!ngay) return;
     if (suDung !== 'dùng' && suDung !== 'dung') return;
 
-    const key = cal_dateKey_(ngay);
+    const key = cal_dateKey_(ngay, spreadsheet, set.timeZone);
     if (key) set.add(key);
   });
 
@@ -83,7 +93,7 @@ function cal_isNgayLamViec_(dateValue, ngayNghiSet) {
   const d = cal_toDateOnly_(dateValue);
   if (!d) return false;
 
-  const key = cal_dateKey_(d);
+  const key = cal_dateKey_(d, null, ngayNghiSet && ngayNghiSet.timeZone);
   return !ngayNghiSet.has(key);
 }
 
