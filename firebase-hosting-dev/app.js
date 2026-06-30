@@ -130,6 +130,8 @@ let qltdDetailPopupRequestSeq = 0;
 let qltdAdminApprovalRequestSeq = 0;
 let qltdAdminApprovalReviewSeq = 0;
 let qltdAdminApprovalView = { projectCode: '', loading: false, error: '', approvals: [], reviewing: null, reviewDrafts: {} };
+let qltdShadowPilotRequestSeq = 0;
+let qltdShadowPilotView = { loading: false, running: false, error: '', result: null, lastAction: '' };
 let qltdPbDetailApprovalRequestSeq = 0;
 let qltdPbDetailApprovalReviewSeq = 0;
 let qltdPbDetailApprovalView = { projectCode: '', loading: false, error: '', approvals: [], reviewing: null };
@@ -1839,7 +1841,11 @@ function showWeb07View(viewName, options = {}) {
 
   if (viewName === 'admin') {
     renderAdminPanel();
-    if (!options.skipDataLoad) viewLoadPromise = loadAdminMasterApprovals();
+    if (!options.skipDataLoad) {
+      const loads = [loadAdminMasterApprovals()];
+      if (canAdmin()) loads.push(loadShadowPilotLatestStatus());
+      viewLoadPromise = Promise.all(loads);
+    }
     window.scrollTo({ top: 0, behavior: 'auto' });
   }
   return viewLoadPromise;
@@ -2410,6 +2416,7 @@ function renderAdminPanel() {
   }
   const state = qltdAdminApprovalView;
   panel.innerHTML = `<div class="web07-card admin-approval-card">
+    ${renderShadowPilotCard()}
     <div class="admin-approval-heading">
       <div><span>Weekly workflow · ${state.approvals.length} yêu cầu đang chờ</span><h2>YÊU CẦU CẬP NHẬT HOÀN THÀNH MASTER</h2><p>Duyệt APPROVED sẽ cập nhật Cong_viec, cột W và tính lại tiến độ trước khi lưu trạng thái duyệt.</p></div>
       <button type="button" class="secondary-button" id="reloadMasterApprovalsButton" ${state.loading || state.reviewing ? 'disabled' : ''}>${state.loading ? 'Đang tải...' : 'Tải lại'}</button>
@@ -2417,6 +2424,7 @@ function renderAdminPanel() {
     ${state.error ? `<p class="weekly-update-note is-error">${escapeHtml(state.error)}</p>` : ''}
     ${renderAdminMasterApprovals(state.approvals || [])}
   </div>`;
+  bindShadowPilotControls();
   const reload = document.getElementById('reloadMasterApprovalsButton');
   if (reload) reload.onclick = () => { if (!qltdAdminApprovalView.reviewing) loadAdminMasterApprovals({ force: true }); };
   document.querySelectorAll('[data-master-dependency-decision]').forEach((select) => {
@@ -2452,6 +2460,103 @@ function renderAdminPanel() {
       reviewMasterApproval(updateId, 'REJECTED', reason);
     };
   });
+}
+
+function renderShadowPilotCard() {
+  if (!canAdmin()) return '';
+  const state = qltdShadowPilotView;
+  const data = state.result?.data || state.result || {};
+  const reconciliation = data.reconciliationResult || {};
+  const busy = state.loading || state.running;
+  const status = data.status || (state.loading ? 'LOADING' : 'NOT_RUN');
+  const startedAt = formatWeeklyDateTime(data.startedAt || '');
+  const completedAt = formatWeeklyDateTime(data.completedAt || '');
+  return `<section class="shadow-pilot-card" aria-labelledby="shadowPilotTitle">
+    <div class="admin-approval-heading shadow-pilot-heading">
+      <div>
+        <span>Quản trị · Pilot SSOT</span>
+        <h2 id="shadowPilotTitle">Đồng bộ Shadow Cốc Lếu</h2>
+        <p class="shadow-pilot-warning">SHADOW DEV – KHÔNG PHẢI DỮ LIỆU CHÍNH THỨC</p>
+      </div>
+      <div class="shadow-pilot-actions">
+        <button type="button" class="weekly-update-button" id="shadowPilotSyncButton" ${busy ? 'disabled' : ''}>${state.running && state.lastAction === 'shadow_sync_cocleu' ? 'Đang đồng bộ...' : 'Đồng bộ Shadow Cốc Lếu'}</button>
+        <button type="button" class="secondary-button" id="shadowPilotReconcileButton" ${busy ? 'disabled' : ''}>${state.running && state.lastAction === 'shadow_reconcile_cocleu' ? 'Đang đối soát...' : 'Kiểm tra đối soát'}</button>
+        <button type="button" class="secondary-button" id="shadowPilotStatusButton" ${busy ? 'disabled' : ''}>${state.loading ? 'Đang tải...' : 'Xem kết quả gần nhất'}</button>
+      </div>
+    </div>
+    ${state.error ? `<p class="weekly-update-note is-error">${escapeHtml(state.error)}</p>` : ''}
+    <div class="shadow-pilot-grid">
+      <div><span>Trạng thái</span><strong>${escapeHtml(status || 'NOT_RUN')}</strong></div>
+      <div><span>Task</span><strong>${escapeHtml(data.taskCount ?? 0)}</strong></div>
+      <div><span>Dependency</span><strong>${escapeHtml(data.dependencyCount ?? 0)}</strong></div>
+      <div><span>Warning</span><strong>${escapeHtml(data.warningCount ?? 0)}</strong></div>
+      <div><span>Error</span><strong>${escapeHtml(data.errorCount ?? 0)}</strong></div>
+      <div><span>Đối soát</span><strong>${escapeHtml(formatShadowPilotReconciliation(reconciliation))}</strong></div>
+    </div>
+    <dl class="shadow-pilot-details">
+      <div><dt>Snapshot hash</dt><dd class="mono">${escapeHtml(data.snapshotHash || '—')}</dd></div>
+      <div><dt>Request ID</dt><dd class="mono">${escapeHtml(data.requestId || '—')}</dd></div>
+      <div><dt>Thời gian chạy</dt><dd>${escapeHtml([startedAt, completedAt].filter(Boolean).join(' → ') || '—')}</dd></div>
+    </dl>
+  </section>`;
+}
+
+function bindShadowPilotControls() {
+  const syncButton = document.getElementById('shadowPilotSyncButton');
+  const reconcileButton = document.getElementById('shadowPilotReconcileButton');
+  const statusButton = document.getElementById('shadowPilotStatusButton');
+  if (syncButton) syncButton.onclick = () => runShadowPilotAction('shadow_sync_cocleu');
+  if (reconcileButton) reconcileButton.onclick = () => runShadowPilotAction('shadow_reconcile_cocleu');
+  if (statusButton) statusButton.onclick = () => loadShadowPilotLatestStatus({ force: true });
+}
+
+function formatShadowPilotReconciliation(reconciliation = {}) {
+  if (!reconciliation || !Object.keys(reconciliation).length) return 'Chưa có';
+  if (reconciliation.ok === true) return 'PASS';
+  if (reconciliation.ok === false) return 'FAIL';
+  return 'UNKNOWN';
+}
+
+function buildShadowPilotRequestId() {
+  return `shadow_cocleu_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function loadShadowPilotLatestStatus(options = {}) {
+  if (!canAdmin()) return;
+  if (qltdShadowPilotView.loading && !options.force) return;
+  const seq = ++qltdShadowPilotRequestSeq;
+  qltdShadowPilotView = { ...qltdShadowPilotView, loading: true, error: '' };
+  renderAdminPanel();
+  try {
+    const result = await fetchBackendJson('shadow_get_latest_status', {}, { auth: true });
+    if (seq !== qltdShadowPilotRequestSeq) return;
+    if (!result.success) throw new Error(result.errorMessage || result.message || result.errorCode || 'Không tải được trạng thái Shadow.');
+    qltdShadowPilotView = { ...qltdShadowPilotView, loading: false, error: '', result };
+  } catch (error) {
+    if (seq !== qltdShadowPilotRequestSeq) return;
+    qltdShadowPilotView = { ...qltdShadowPilotView, loading: false, error: error.message || 'Không tải được trạng thái Shadow.' };
+  }
+  renderAdminPanel();
+}
+
+async function runShadowPilotAction(action) {
+  if (!canAdmin() || qltdShadowPilotView.running) return;
+  const seq = ++qltdShadowPilotRequestSeq;
+  qltdShadowPilotView = { ...qltdShadowPilotView, running: true, error: '', lastAction: action };
+  renderAdminPanel();
+  try {
+    const result = await postBackendJson({
+      action,
+      requestId: action === 'shadow_sync_cocleu' ? buildShadowPilotRequestId() : undefined
+    });
+    if (seq !== qltdShadowPilotRequestSeq) return;
+    if (!result.success) throw new Error(result.errorMessage || result.message || result.errorCode || 'Thao tác Shadow thất bại.');
+    qltdShadowPilotView = { ...qltdShadowPilotView, running: false, error: '', result };
+  } catch (error) {
+    if (seq !== qltdShadowPilotRequestSeq) return;
+    qltdShadowPilotView = { ...qltdShadowPilotView, running: false, error: error.message || 'Thao tác Shadow thất bại.' };
+  }
+  renderAdminPanel();
 }
 
 function renderAdminMasterApprovals(approvals) {

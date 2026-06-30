@@ -79,6 +79,78 @@ body {
   flex-wrap: wrap;
 }
 
+.shadow-pilot-card {
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.95), rgba(255, 255, 255, 0.98));
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+.shadow-pilot-heading {
+  align-items: flex-start;
+}
+
+.shadow-pilot-warning {
+  color: #b45309;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.shadow-pilot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.shadow-pilot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.shadow-pilot-grid > div {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.shadow-pilot-grid span,
+.shadow-pilot-details dt {
+  display: block;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.shadow-pilot-grid strong {
+  display: block;
+  color: #0f172a;
+  font-size: 1.08rem;
+  margin-top: 3px;
+}
+
+.shadow-pilot-details {
+  margin: 14px 0 0;
+  display: grid;
+  gap: 8px;
+}
+
+.shadow-pilot-details div {
+  display: grid;
+  grid-template-columns: minmax(120px, 170px) 1fr;
+  gap: 10px;
+}
+
+.shadow-pilot-details dd {
+  margin: 0;
+  word-break: break-word;
+}
+
 .weekly-task-actions {
   display: flex;
   justify-content: flex-end;

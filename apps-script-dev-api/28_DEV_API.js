@@ -32,6 +32,14 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiProfile_(params);
   }
 
+  if (action === 'shadow_get_latest_status') {
+    return qltdDevApiJson_(qltdShadowCocLeuGetLatestStatus_(params));
+  }
+
+  if (action === 'shadow_reconcile_cocleu') {
+    return qltdDevApiJson_(qltdShadowCocLeuReconcile_(params));
+  }
+
   if (action === 'user_getregistrationoptions') {
     return qltdDevApiJson_(qltdUsersGetRegistrationOptions_(params));
   }
@@ -254,6 +262,18 @@ function qltdDevApiHandlePost_(e) {
     payload.email = notificationIdentity.email;
     payload.actorEmail = notificationIdentity.email;
     return qltdDevApiJson_(qltdNotificationsMarkRead_(payload));
+  }
+
+  if (action === 'shadow_sync_cocleu') {
+    return qltdDevApiJson_(qltdShadowCocLeuSync_(payload));
+  }
+
+  if (action === 'shadow_reconcile_cocleu') {
+    return qltdDevApiJson_(qltdShadowCocLeuReconcile_(payload));
+  }
+
+  if (action === 'shadow_get_latest_status') {
+    return qltdDevApiJson_(qltdShadowCocLeuGetLatestStatus_(payload));
   }
 
   const scopeResult = qltdDeptScopeAuthorizeWrite_(payload, action);
