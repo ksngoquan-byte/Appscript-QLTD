@@ -5,29 +5,127 @@ import vm from 'node:vm';
 
 const appSource = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
 
-function extractFunction(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `Missing function ${name}`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  let quote = '';
-  let escaped = false;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    const char = source[index];
-    if (quote) {
-      if (escaped) escaped = false;
-      else if (char === '\\') escaped = true;
-      else if (char === quote) quote = '';
+function isIdentifierChar(char) {
+  return !!char && /[A-Za-z0-9_$]/.test(char);
+}
+
+function skipQuotedString(source, start, quote) {
+  for (let index = start + 1; index < source.length; index += 1) {
+    if (source[index] === '\\') index += 1;
+    else if (source[index] === quote) return index + 1;
+  }
+  throw new Error(`Unclosed ${quote} string at ${start}`);
+}
+
+function skipLineComment(source, start) {
+  const end = source.indexOf('\n', start + 2);
+  return end < 0 ? source.length : end + 1;
+}
+
+function skipBlockComment(source, start) {
+  const end = source.indexOf('*/', start + 2);
+  if (end < 0) throw new Error(`Unclosed block comment at ${start}`);
+  return end + 2;
+}
+
+function skipTemplateExpression(source, start) {
+  let depth = 1;
+  for (let index = start; index < source.length;) {
+    const skipped = skipNonCode(source, index);
+    if (skipped !== index) {
+      index = skipped;
       continue;
     }
-    if (char === '"' || char === "'" || char === '`') { quote = char; continue; }
-    if (char === '{') depth += 1;
-    if (char === '}') {
+    if (source[index] === '{') depth += 1;
+    else if (source[index] === '}') {
       depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
+      if (depth === 0) return index + 1;
     }
+    index += 1;
   }
-  throw new Error(`Unclosed function ${name}`);
+  throw new Error(`Unclosed template expression at ${start - 2}`);
+}
+
+function skipTemplateLiteral(source, start) {
+  for (let index = start + 1; index < source.length;) {
+    if (source[index] === '\\') {
+      index += 2;
+      continue;
+    }
+    if (source[index] === '`') return index + 1;
+    if (source[index] === '$' && source[index + 1] === '{') {
+      index = skipTemplateExpression(source, index + 2);
+      continue;
+    }
+    index += 1;
+  }
+  throw new Error(`Unclosed template literal at ${start}`);
+}
+
+function skipNonCode(source, index) {
+  if (source[index] === "'" || source[index] === '"') {
+    return skipQuotedString(source, index, source[index]);
+  }
+  if (source[index] === '`') return skipTemplateLiteral(source, index);
+  if (source[index] === '/' && source[index + 1] === '/') return skipLineComment(source, index);
+  if (source[index] === '/' && source[index + 1] === '*') return skipBlockComment(source, index);
+  return index;
+}
+
+function skipTrivia(source, start) {
+  let index = start;
+  while (index < source.length) {
+    if (/\s/.test(source[index])) {
+      index += 1;
+      continue;
+    }
+    const skipped = skipNonCode(source, index);
+    if (skipped === index) return index;
+    index = skipped;
+  }
+  return index;
+}
+
+function findMatchingDelimiter(source, start, open, close) {
+  assert.equal(source[start], open, `Expected ${open} at ${start}`);
+  let depth = 0;
+  for (let index = start; index < source.length;) {
+    const skipped = skipNonCode(source, index);
+    if (skipped !== index) {
+      index = skipped;
+      continue;
+    }
+    if (source[index] === open) depth += 1;
+    else if (source[index] === close) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+    index += 1;
+  }
+  throw new Error(`Unclosed ${open} at ${start}`);
+}
+
+function findFunctionDeclaration(source, name) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const declarationPattern = new RegExp(`^(async\\s+)?function\\s+${escapedName}\\s*\\(`, 'gm');
+  const matches = Array.from(source.matchAll(declarationPattern));
+  assert.equal(matches.length, 1, `Expected one top-level function ${name}, found ${matches.length}`);
+  const start = matches[0].index;
+  const functionStart = source.indexOf('function', start);
+  const nameStart = source.indexOf(name, functionStart + 'function'.length);
+  assert.equal(isIdentifierChar(source[nameStart + name.length]), false, `Invalid function name boundary for ${name}`);
+  return { start, functionStart, nameEnd: nameStart + name.length };
+}
+
+function extractFunction(source, name) {
+  const declaration = findFunctionDeclaration(source, name);
+  const parametersStart = skipTrivia(source, declaration.nameEnd);
+  assert.equal(source[parametersStart], '(', `Missing parameters for ${name}`);
+  const parametersEnd = findMatchingDelimiter(source, parametersStart, '(', ')');
+  const bodyStart = skipTrivia(source, parametersEnd + 1);
+  assert.equal(source[bodyStart], '{', `Missing body for ${name}`);
+  const bodyEnd = findMatchingDelimiter(source, bodyStart, '{', '}');
+  return source.slice(declaration.start, bodyEnd + 1);
 }
 
 const helpersSource = [
@@ -52,7 +150,24 @@ const context = {
   fetchBackendJson: () => { throw new Error('A test fetcher is required'); }
 };
 vm.createContext(context);
+assert.doesNotThrow(() => new vm.Script(helpersSource));
 vm.runInContext(`${helpersSource}\nthis.api = { qltdWeb07GetOrCreateGanttRequest, qltdWeb07FetchGanttPayload };`, context);
+
+test('extractor handles async defaults and ignores comment/string lookalikes', () => {
+  const fixture = [
+    '// function target(options = {}) { return "comment"; }',
+    'const stringCopy = "function target(options = {}) { return string; }";',
+    'const templateCopy = `function target(options = {}) { return template; }`;',
+    'async function target(options = { nested: true }) {',
+    '  const value = `nested ${{ key: "value" }.key}`;',
+    '  return options.nested ? value : "}";',
+    '}'
+  ].join('\n');
+  const extracted = extractFunction(fixture, 'target');
+  assert.match(extracted, /^async function target\(options = \{ nested: true \}\)/);
+  assert.doesNotMatch(extracted, /comment|stringCopy|templateCopy/);
+  assert.doesNotThrow(() => new vm.Script(extracted));
+});
 
 test('two calls for one project share a single physical request', async () => {
   let factoryCalls = 0;
