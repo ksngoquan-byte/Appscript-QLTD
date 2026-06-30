@@ -79,7 +79,7 @@ const context = {
   qltdPbDetailBuildDetailDto_: (row) => ({ ...row.dto }),
   QLTD_PB_DETAIL_ROW_TYPE_DETAIL: 'PB_DETAIL',
   qltdGanttGetDataForProject_: () => ({ success: true, data: [] }),
-  qltdGanttInvalidateCache_: (projectCode) => { ganttInvalidateCalls.push(projectCode); },
+  qltdGanttInvalidateCache_: (projectCode) => { ganttInvalidateCalls.push(projectCode); return { success: true }; },
   qltdBudgetReadBudgetItems_: () => ({ items: budgetItems, warnings: [] }),
   qltdBudgetReadAllocations_: () => ({ allocations, warnings: [] }),
   qltdWorkIsAdminScope_: (user) => ['ADMIN', 'PMO'].includes(String(user?.role || '').toUpperCase()),
@@ -108,7 +108,7 @@ const context = {
       : { resolvedCount: 1, createdCount: 1, warnings: [] };
   },
   qltdBudgetNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
-  qltdBudgetNormalizeKey_: (value) => String(value || '').trim().toLowerCase(),
+  qltdBudgetNormalizeKey_: (value) => String(value || '').trim().toLowerCase().replace(/đ/g, 'd').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ''),
   qltdBudgetNormalizeAmount_: (value) => {
     const amount = Number(value);
     if (!Number.isFinite(amount)) return { error: { code: 'AMOUNT_INVALID', message: 'Amount is invalid.' } };
@@ -118,7 +118,11 @@ const context = {
   qltdBudgetNormalizePeriodType_: (value) => ({ value: String(value || '').trim().toUpperCase(), error: null }),
   qltdBudgetGetReadonlySheet_: () => ({ getName: () => 'CENTRAL_NS_Raw' }),
   qltdBudgetGetSheetSchema_: () => ({ headerRow: 4 }),
-  qltdBudgetBuildHeaderMap_: (headers) => headers.reduce((map, header, index) => { map[String(header).toLowerCase()] = index; return map; }, {}),
+  qltdBudgetBuildHeaderMap_: (headers) => headers.reduce((map, header, index) => { const key = context.qltdBudgetNormalizeKey_(header); if (key && map[key] === undefined) map[key] = index; return map; }, {}),
+  qltdBudgetFindHeaderIndex_: (headerMap, header) => {
+    const key = context.qltdBudgetNormalizeKey_(header);
+    return Object.prototype.hasOwnProperty.call(headerMap, key) ? headerMap[key] : -1;
+  },
   qltdBudgetReadSheetAsObjects_: () => ({
     headers: RAW_BUDGET_HEADERS,
     headerMap: RAW_BUDGET_HEADERS.reduce((map, header, index) => { map[String(header).toLowerCase()] = index; return map; }, {}),
@@ -182,22 +186,23 @@ const context = {
   console
 };
 vm.createContext(context);
-vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, getApprovals: qltdWeeklyMasterApprovalsGet_, review: qltdWeeklyMasterApprovalReview_, getPbApprovals: qltdWeeklyPbDetailApprovalsGet_, reviewPb: qltdWeeklyPbDetailApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, validateTransition: qltdWeeklyTaskUpdatesValidateMasterStatusTransition_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_, invalidateCache: qltdWeeklyTaskUpdatesInvalidateGanttCache_ };`, context);
-const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, getApprovals, review, getPbApprovals, reviewPb, resolveActualDate, validateTransition, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext, invalidateCache } = context.api;
-context.qltdWeeklyMasterApprovalApplyToMaster_ = (target, auth, dependencyDecision, recoveryPlan) => {
+vm.runInContext(`${source}\nthis.api = { headers: QLTD_WEEKLY_TASK_UPDATE_HEADERS, baseHeaders: QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS, buildKey: qltdWeeklyTaskUpdatesBuildKey_, buildItem: qltdWeeklyTaskUpdatesBuildItem_, sortItems: qltdWeeklyTaskUpdatesSortItems_, date: qltdWeeklyTaskUpdatesDate_, inspect: qltdWeeklyTaskUpdatesInspectSheet_, save: qltdWeeklyTaskUpdatesSave_, getApprovals: qltdWeeklyMasterApprovalsGet_, review: qltdWeeklyMasterApprovalReview_, getPbApprovals: qltdWeeklyPbDetailApprovalsGet_, reviewPb: qltdWeeklyPbDetailApprovalReview_, resolveActualDate: qltdWeeklyTaskUpdatesResolveActualDateLifecycle_, validateTransition: qltdWeeklyTaskUpdatesValidateMasterStatusTransition_, mapPbDetailStatus: qltdWeeklyTaskUpdatesMapPbDetailStatus_, syncTask: qltdWeeklyTaskUpdatesSyncTask_, readBudgetActualIndex: qltdWeeklyTaskUpdatesReadBudgetActualIndex_, readBudgetContext: qltdWeeklyTaskUpdatesReadBudgetContext_, invalidateCache: qltdWeeklyTaskUpdatesInvalidateGanttCache_, parseMaster: qltdWeeklyMasterParseCongViec_, applyMaster: qltdWeeklyMasterApprovalApplyToMaster_, findSingleMaster: qltdWeeklyTaskUpdatesFindSingleMasterTask_ };`, context);
+const { headers, baseHeaders, buildKey, buildItem, sortItems, date, inspect, save, getApprovals, review, getPbApprovals, reviewPb, resolveActualDate, validateTransition, mapPbDetailStatus, syncTask, readBudgetActualIndex, readBudgetContext, invalidateCache, parseMaster, applyMaster, findSingleMaster } = context.api;
+const stubMasterApprovalApply = (target, auth, dependencyDecision, recoveryPlan) => {
   masterApprovalSyncCalls.push({ target, auth, dependencyDecision, recoveryPlan });
   return {
     success: true,
     status: 'UPDATED',
     congViecUpdated: true,
-    columnWUpdated: false,
+    columnWUpdated: true,
     recalcTriggered: false,
     ganttCacheInvalidated: true,
-    ganttRefreshRequired: true,
-    dashboardRefreshRequired: true,
+    ganttRefreshRequired: false,
+    dashboardRefreshRequired: false,
     warnings: []
   };
 };
+context.qltdWeeklyMasterApprovalApplyToMaster_ = stubMasterApprovalApply;
 context.qltdWeeklyMasterProgressWriteback_ = (update, auth, requestId) => {
   masterProgressWritebackCalls.push({ update, auth, requestId });
   return {
@@ -212,6 +217,70 @@ context.qltdWeeklyMasterProgressWriteback_ = (update, auth, requestId) => {
     dashboardRefreshRequired: true
   };
 };
+
+let masterRows = [];
+let failMasterVerify = false;
+let masterFlushCount = 0;
+function resetMasterRows(taskCodes = ['CV-200']) {
+  const headers = new Array(23).fill('');
+  headers[0] = 'STT';
+  headers[14] = 'Mã công việc';
+  headers[16] = '% Hoàn thành';
+  headers[17] = 'Trạng thái thực hiện';
+  headers[18] = 'Bắt đầu thực tế';
+  headers[19] = 'Hoàn thành thực tế';
+  headers[20] = 'Ghi chú cập nhật';
+  headers[21] = 'Ngày cập nhật';
+  headers[22] = 'Điều chỉnh liên kết?';
+  masterRows = [
+    ['Hoa'],
+    [],
+    [],
+    headers,
+    ...taskCodes.map((code, index) => {
+      const row = new Array(23).fill('');
+      row[0] = index + 1;
+      row[14] = code;
+      row[16] = 77;
+      row[17] = 'Đang làm';
+      row[18] = '2026-06-01';
+      return row;
+    })
+  ];
+  failMasterVerify = false;
+  masterFlushCount = 0;
+}
+function masterRange(row, column, rowCount = 1, columnCount = 1) {
+  return {
+    getValues: () => {
+      const values = Array.from({ length: rowCount }, (_, rowOffset) => Array.from({ length: columnCount }, (_, columnOffset) => masterRows[row - 1 + rowOffset]?.[column - 1 + columnOffset] ?? ''));
+      if (failMasterVerify && column === 18 && columnCount === 6 && rowCount === 1) values[0][5] = 'BROKEN';
+      return values;
+    },
+    setValues: (values) => {
+      values.forEach((sourceRow, rowOffset) => {
+        const target = masterRows[row - 1 + rowOffset] || [];
+        sourceRow.forEach((value, columnOffset) => { target[column - 1 + columnOffset] = value; });
+        masterRows[row - 1 + rowOffset] = target;
+      });
+      return masterRange(row, column, rowCount, columnCount);
+    },
+    getA1Notation: () => `R${row}:W${row}`
+  };
+}
+const masterSheet = {
+  getName: () => 'Cong_viec',
+  getLastRow: () => masterRows.length,
+  getLastColumn: () => Math.max(0, ...masterRows.map((row) => row.length)),
+  getRange: masterRange
+};
+resetMasterRows();
+context.qltdProjectsGetByCode_ = () => ({ masterSpreadsheetId: 'MASTER-1', defaultTaskSheet: 'Cong_viec' });
+context.SpreadsheetApp = {
+  openById: () => ({ getSheetByName: (name) => name === 'Cong_viec' ? masterSheet : null }),
+  flush: () => { masterFlushCount += 1; }
+};
+context.qltdWorkAppendTaskNote_ = (before, note, email) => [String(before || '').trim(), `${note} [${email}]`].filter(Boolean).join('\n');
 
 assert.equal(buildKey('p1', 'ptda', 'week-2026-06-01', 'master', 'CV-1'), 'P1|PTDA|WEEK-2026-06-01|MASTER|CV-1');
 assert.equal(date('2026-06-01'), '2026-06-01');
@@ -491,47 +560,54 @@ assert.equal(notificationPendingCalls.at(-1).updateId, pending.update.updateId);
 const reviewResult = review({
   email: 'admin@example.com',
   updateId: pending.update.updateId,
-  approvalStatus: 'APPROVED'
+  approvalStatus: 'APPROVED',
+  impactMode: 'KEEP_PLAN'
 });
 assert.equal(reviewResult.approval.approvalStatus, 'APPROVED');
 assert.equal(reviewResult.masterAutoUpdated, true);
 assert.equal(reviewResult.congViecUpdated, true);
-assert.equal(reviewResult.columnWUpdated, false);
+assert.equal(reviewResult.columnWUpdated, true);
 assert.equal(reviewResult.recalcTriggered, false);
-assert.equal(reviewResult.ganttRefreshRequired, true);
-assert.equal(reviewResult.dashboardRefreshRequired, true);
+assert.equal(reviewResult.ganttRefreshRequired, false);
+assert.equal(reviewResult.dashboardRefreshRequired, false);
+assert.equal(reviewResult.projectDirty, true);
+assert.equal(reviewResult.scheduleRecalculationRequired, true);
 assert.equal(reviewResult.masterWriteback.status, 'UPDATED');
 assert.equal(reviewResult.weeklyUpdateSaved, true);
 assert.equal(masterApprovalSyncCalls.length, 1);
-assert.equal(masterApprovalSyncCalls[0].dependencyDecision, 'KEEP_CURRENT');
+assert.equal(masterApprovalSyncCalls[0].dependencyDecision, 'KEEP_PLAN');
 assert.equal(masterApprovalSyncCalls[0].recoveryPlan, '');
 assert.equal(notificationFinalizeCalls.at(-1).updateId, pending.update.updateId);
 assert.equal(notificationFinalizeCalls.at(-1).approvalStatus, 'APPROVED');
-const duplicateMasterApprove = review({ email: 'admin@example.com', updateId: pending.update.updateId, approvalStatus: 'APPROVED' });
+const duplicateMasterApprove = review({ email: 'admin@example.com', updateId: pending.update.updateId, approvalStatus: 'APPROVED', impactMode: 'KEEP_PLAN' });
 assert.equal(duplicateMasterApprove.code, 'APPROVAL_NOT_PENDING');
 assert.equal(masterApprovalSyncCalls.length, 1);
 
-const recalcPending = save({ ...saveBase, itemId: 'CV-101', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-21' });
-const recalcReview = review({
+const invalidImpactPending = save({ ...saveBase, itemId: 'CV-101', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-21' });
+const missingImpactReview = review({
   email: 'admin@example.com',
-  updateId: recalcPending.update.updateId,
-  approvalStatus: 'APPROVED',
-  dependencyDecision: 'RECALCULATE_DEPENDENCIES',
-  recoveryPlan: 'Should be ignored'
+  updateId: invalidImpactPending.update.updateId,
+  approvalStatus: 'APPROVED'
 });
-assert.equal(recalcReview.success, true);
-assert.equal(masterApprovalSyncCalls.at(-1).dependencyDecision, 'KEEP_CURRENT');
-assert.equal(masterApprovalSyncCalls.at(-1).recoveryPlan, '');
+assert.equal(missingImpactReview.success, false);
+assert.equal(missingImpactReview.errorCode, 'INVALID_IMPACT_MODE');
+assert.equal(missingImpactReview.stage, 'VALIDATION');
+assert.equal(sheetRows.find((row) => row[0] === invalidImpactPending.update.updateId)[17], 'PENDING');
+const invalidImpactReview = review({ email: 'admin@example.com', updateId: invalidImpactPending.update.updateId, approvalStatus: 'APPROVED', impactMode: 'OTHER' });
+assert.equal(invalidImpactReview.errorCode, 'INVALID_IMPACT_MODE');
+const validImpactReview = review({ email: 'admin@example.com', updateId: invalidImpactPending.update.updateId, approvalStatus: 'APPROVED', impactMode: 'PROPAGATE_ACTUAL' });
+assert.equal(validImpactReview.success, true);
+assert.equal(masterApprovalSyncCalls.at(-1).dependencyDecision, 'PROPAGATE_ACTUAL');
 
 const failingStatusPending = save({ ...saveBase, itemId: 'CV-102', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-22' });
 const syncCountBeforeStatusFailure = masterApprovalSyncCalls.length;
 failNextApprovalReviewWrite = true;
-const failedStatusReview = review({ email: 'admin@example.com', updateId: failingStatusPending.update.updateId, approvalStatus: 'APPROVED' });
+const failedStatusReview = review({ email: 'admin@example.com', updateId: failingStatusPending.update.updateId, approvalStatus: 'APPROVED', impactMode: 'KEEP_PLAN' });
 assert.equal(failedStatusReview.success, false);
 assert.equal(failedStatusReview.code, 'WRITE_ERROR');
 assert.equal(masterApprovalSyncCalls.length, syncCountBeforeStatusFailure + 1);
 assert.equal(sheetRows.find((row) => row[0] === failingStatusPending.update.updateId)[17], 'PENDING');
-const recoveredStatusReview = review({ email: 'admin@example.com', updateId: failingStatusPending.update.updateId, approvalStatus: 'APPROVED' });
+const recoveredStatusReview = review({ email: 'admin@example.com', updateId: failingStatusPending.update.updateId, approvalStatus: 'APPROVED', impactMode: 'KEEP_PLAN' });
 assert.equal(recoveredStatusReview.success, true);
 assert.equal(sheetRows.find((row) => row[0] === failingStatusPending.update.updateId)[17], 'APPROVED');
 
@@ -542,7 +618,78 @@ context.qltdGanttInvalidateCache_ = () => { throw new Error('cache unavailable')
 const cacheFail = invalidateCache('P1');
 assert.equal(cacheFail.success, false);
 assert.equal(cacheFail.code, 'GANTT_INVALIDATE_FAILED');
-context.qltdGanttInvalidateCache_ = (projectCode) => { ganttInvalidateCalls.push(projectCode); };
+context.qltdGanttInvalidateCache_ = (projectCode) => { ganttInvalidateCalls.push(projectCode); return { success: true }; };
+
+const rejectPending = save({ ...saveBase, itemId: 'CV-REJECT', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-23' });
+const syncCountBeforeReject = masterApprovalSyncCalls.length;
+const rejectedMaster = review({ email: 'admin@example.com', updateId: rejectPending.update.updateId, approvalStatus: 'REJECTED', reviewReason: 'Chưa đủ hồ sơ' });
+assert.equal(rejectedMaster.success, true);
+assert.equal(rejectedMaster.approval.approvalStatus, 'REJECTED');
+assert.equal(masterApprovalSyncCalls.length, syncCountBeforeReject);
+
+resetMasterRows(['CV-200']);
+const parsedMaster = parseMaster(masterSheet);
+assert.equal(parsedMaster.error, null);
+assert.equal(parsedMaster.headerRow, 4);
+assert.equal(parsedMaster.tasks.length, 1);
+assert.equal(parsedMaster.tasks[0].masterTaskCode, 'CV-200');
+assert.equal(masterRows[3].includes('Mã công việc Master'), false);
+assert.equal(findSingleMaster(parsedMaster.tasks, 'NOT-FOUND').error.code, 'MASTER_TASK_NOT_FOUND');
+resetMasterRows(['CV-DUP', 'CV-DUP']);
+assert.equal(findSingleMaster(parseMaster(masterSheet).tasks, 'CV-DUP').error.code, 'MASTER_TASK_DUPLICATED');
+
+const masterTarget = {
+  updateId: 'WTU-MASTER-200',
+  projectCode: 'P1',
+  itemId: 'CV-200',
+  taskStatus: 'Hoàn thành',
+  actualStart: '',
+  actualFinish: '2026-06-26',
+  progressEnd: 100,
+  thisWeekResult: 'Đã hoàn thành',
+  updatedBy: 'reporter@example.com'
+};
+const masterAuth = { email: 'admin@example.com' };
+resetMasterRows(['CV-200']);
+const keepPlanResult = applyMaster(masterTarget, masterAuth, 'KEEP_PLAN', '', '2026-06-30T08:00:00.000Z', 'weekly_masterapproval_review', {});
+assert.equal(keepPlanResult.success, true);
+assert.equal(masterRows[4][17], 'Hoàn thành');
+assert.equal(masterRows[4][18], '2026-06-01');
+assert.equal(masterRows[4][19], '2026-06-26');
+assert.equal(masterRows[4][21], '2026-06-30T08:00:00.000Z');
+assert.equal(masterRows[4][22], 'Không');
+assert.equal(masterRows[4][16], 77);
+assert.equal(masterFlushCount, 1);
+const firstApprovalNote = masterRows[4][20];
+const keepPlanRetry = applyMaster(masterTarget, masterAuth, 'KEEP_PLAN', '', '2026-06-30T08:00:00.000Z', 'weekly_masterapproval_review', {});
+assert.equal(keepPlanRetry.success, true);
+assert.equal((masterRows[4][20].match(/\[WeeklyApproval:WTU-MASTER-200\]/g) || []).length, 1);
+assert.equal(masterRows[4][20], firstApprovalNote);
+
+resetMasterRows(['CV-200']);
+const propagateResult = applyMaster(masterTarget, masterAuth, 'PROPAGATE_ACTUAL', '', '2026-06-30T08:00:00.000Z', 'weekly_masterapproval_review', {});
+assert.equal(propagateResult.success, true);
+assert.equal(masterRows[4][22], 'Có');
+
+resetMasterRows(['CV-VERIFY']);
+const verifyPending = save({ ...saveBase, itemId: 'CV-VERIFY', progressEnd: 100, taskStatus: 'Hoàn thành', actualFinish: '2026-06-26' });
+context.qltdWeeklyMasterApprovalApplyToMaster_ = applyMaster;
+failMasterVerify = true;
+const verifyFailed = review({ email: 'admin@example.com', updateId: verifyPending.update.updateId, approvalStatus: 'APPROVED', impactMode: 'KEEP_PLAN' });
+assert.equal(verifyFailed.success, false);
+assert.equal(verifyFailed.errorCode, 'MASTER_VERIFY_FAILED');
+assert.equal(verifyFailed.stage, 'MASTER_VERIFY');
+assert.equal(sheetRows.find((row) => row[0] === verifyPending.update.updateId)[17], 'PENDING');
+context.qltdWeeklyMasterApprovalApplyToMaster_ = stubMasterApprovalApply;
+failMasterVerify = false;
+
+resetMasterRows(['CV-200']);
+context.qltdGanttInvalidateCache_ = () => undefined;
+const cacheWarningResult = applyMaster(masterTarget, masterAuth, 'KEEP_PLAN', '', '2026-06-30T08:00:00.000Z', 'weekly_masterapproval_review', {});
+assert.equal(cacheWarningResult.success, true);
+assert.equal(cacheWarningResult.ganttCacheInvalidated, false);
+assert.ok(cacheWarningResult.warnings.some((warning) => warning.code === 'GANTT_INVALIDATE_UNVERIFIED'));
+context.qltdGanttInvalidateCache_ = (projectCode) => { ganttInvalidateCalls.push(projectCode); return { success: true }; };
 
 for (const role of ['ADMIN', 'PMO']) {
   authRole = role;
@@ -672,19 +819,32 @@ authEmail = 'user@example.com';
 assert.match(source, /function qltdWeeklyMasterProgressWriteback_/);
 assert.match(source, /if \(update\.actualStart\) changes\.push/);
 assert.doesNotMatch(source.match(/function qltdWeeklyMasterProgressWriteback_[\s\S]*?function qltdWeeklyMasterApprovalApplyToMaster_/)[0], /planStart|planFinish|predecessor|baseline/);
-assert.doesNotMatch(source.match(/function qltdWeeklyMasterApprovalApplyToMaster_[\s\S]*?function qltdWeeklyTaskUpdatesFindSingleMasterTask_/)[0], /chayScheduleEngineV1NoLockForSpreadsheet_|columnWRange\.setValue/);
-assert.match(source, /QLTD_WEEKLY_TASK_DEPENDENCY_DECISION\.KEEP_CURRENT/);
+const masterApprovalApplySource = source.match(/function qltdWeeklyMasterApprovalApplyToMaster_[\s\S]*?function qltdWeeklyMasterParseCongViec_/)[0];
+assert.doesNotMatch(masterApprovalApplySource, /qltdWorkParseDeptTaskSheet_|progressEnd|% Hoan thanh|chayScheduleEngineV1/);
+assert.match(masterApprovalApplySource, /writeRange\.setValues\(\[nextValues\]\)/);
+assert.match(masterApprovalApplySource, /SpreadsheetApp\.flush\(\)/);
+assert.match(masterApprovalApplySource, /MASTER_VERIFY_FAILED/);
+assert.match(source, /QLTD_WEEKLY_MASTER_IMPACT_MODE\.KEEP_PLAN/);
+assert.match(source, /QLTD_WEEKLY_MASTER_IMPACT_MODE\.PROPAGATE_ACTUAL/);
+assert.match(source, /function qltdWeeklyMasterParseCongViec_/);
+assert.doesNotMatch(source, /KEEP_CURRENT|RECALCULATE_DEPENDENCIES/);
 assert.match(source, /function qltdWeeklyMasterApprovalMarker_/);
 assert.match(source, /GANTT_INVALIDATE_FAILED/);
 assert.match(source, /ganttRefreshRequired:\s*!!\(sync\.masterWriteback && sync\.masterWriteback\.applied\)/);
 assert.match(source, /dashboardRefreshRequired:\s*!!\(sync\.masterWriteback && sync\.masterWriteback\.applied\)/);
 assert.match(appSource, /requestId:\s*getWeeklySaveRequestId\(\)/);
 assert.match(appSource, /\['TASK_SYNC_PARTIAL', 'MASTER_WRITEBACK_PARTIAL'\]\.includes\(warning\?\.code\)/);
-assert.match(appSource, /if \(data\.ganttRefreshRequired && projectCode\) await markWeeklyGanttRefreshRequired\(projectCode\)/);
-assert.match(appSource, /dependencyDecision:\s*'KEEP_CURRENT'/);
-assert.doesNotMatch(appSource, /RECALCULATE_DEPENDENCIES|data-master-dependency-decision|data-master-recovery-plan|Biện pháp bù tiến độ/);
+assert.match(appSource, /data-master-impact-mode/);
+assert.match(appSource, /value="KEEP_PLAN"/);
+assert.match(appSource, /value="PROPAGATE_ACTUAL"/);
+assert.match(appSource, /impactMode:\s*approvalStatus === 'APPROVED' \? impactMode : ''/);
+assert.match(appSource, /Vui lòng chọn mức ảnh hưởng đến công việc liên kết sau/);
+assert.match(appSource, /formatMasterApprovalBackendError/);
+assert.match(appSource, /errorCode:/);
+assert.match(appSource, /stage:/);
+assert.match(appSource, /Tiến độ dự án chưa được tính lại\./);
+assert.doesNotMatch(appSource, /KEEP_CURRENT|RECALCULATE_DEPENDENCIES|data-master-dependency-decision|data-master-recovery-plan|Biện pháp bù tiến độ/);
 assert.match(appSource, /qltdGanttForceRefreshProjects/);
-assert.match(appSource, /forceRefresh:\s*data\.masterWriteback && data\.masterWriteback\.ganttCacheInvalidated === false/);
 assert.match(appSource, /qltdGanttDirtyProjects\.add\(projectCode\)/);
 assert.match(appSource, /Chỉ khi chọn trạng thái Hoàn thành, hệ thống mới gửi Admin\/PMO phê duyệt/);
 assert.match(appSource, /Tỷ lệ hoàn thành chỉ dùng để báo cáo tiến độ/);

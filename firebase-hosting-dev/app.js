@@ -126,7 +126,7 @@ const qltdDetailPopupCache = new Map();
 let qltdDetailPopupRequestSeq = 0;
 let qltdAdminApprovalRequestSeq = 0;
 let qltdAdminApprovalReviewSeq = 0;
-let qltdAdminApprovalView = { projectCode: '', loading: false, error: '', approvals: [], reviewing: null, reviewDrafts: {} };
+let qltdAdminApprovalView = { projectCode: '', loading: false, error: '', notice: '', approvals: [], reviewing: null, reviewDrafts: {} };
 let qltdPbDetailApprovalRequestSeq = 0;
 let qltdPbDetailApprovalReviewSeq = 0;
 let qltdPbDetailApprovalView = { projectCode: '', loading: false, error: '', approvals: [], reviewing: null };
@@ -2408,10 +2408,11 @@ function renderAdminPanel() {
   const state = qltdAdminApprovalView;
   panel.innerHTML = `<div class="web07-card admin-approval-card">
     <div class="admin-approval-heading">
-      <div><span>Weekly workflow · ${state.approvals.length} yêu cầu đang chờ</span><h2>YÊU CẦU CẬP NHẬT HOÀN THÀNH MASTER</h2><p>Duyệt APPROVED sẽ cập nhật Cong_viec và làm mới Gantt trước khi lưu trạng thái duyệt.</p></div>
+      <div><span>Weekly workflow · ${state.approvals.length} yêu cầu đang chờ</span><h2>YÊU CẦU CẬP NHẬT HOÀN THÀNH MASTER</h2><p>Duyệt sẽ cập nhật Master. Tiến độ liên kết chưa được tính lại và dự án sẽ chuyển sang trạng thái cần tính lại.</p></div>
       <button type="button" class="secondary-button" id="reloadMasterApprovalsButton" ${state.loading || state.reviewing ? 'disabled' : ''}>${state.loading ? 'Đang tải...' : 'Tải lại'}</button>
     </div>
     ${state.error ? `<p class="weekly-update-note is-error">${escapeHtml(state.error)}</p>` : ''}
+    ${state.notice ? `<p class="weekly-update-note">${escapeHtml(state.notice)}</p>` : ''}
     ${renderAdminMasterApprovals(state.approvals || [])}
   </div>`;
   const reload = document.getElementById('reloadMasterApprovalsButton');
@@ -2419,8 +2420,18 @@ function renderAdminPanel() {
   document.querySelectorAll('[data-master-approval-approve]').forEach((button) => {
     button.onclick = () => {
       const updateId = button.dataset.masterApprovalApprove || '';
-      reviewMasterApproval(updateId, 'APPROVED');
+      const impactMode = button.closest('tr')?.querySelector('[data-master-impact-mode]')?.value || '';
+      if (!impactMode) {
+        qltdAdminApprovalView = { ...qltdAdminApprovalView, error: 'Vui lòng chọn mức ảnh hưởng đến công việc liên kết sau.' };
+        renderAdminPanel();
+        return;
+      }
+      updateMasterApprovalDraft(updateId, { impactMode });
+      reviewMasterApproval(updateId, 'APPROVED', '', { impactMode });
     };
+  });
+  document.querySelectorAll('[data-master-impact-mode]').forEach((select) => {
+    select.onchange = () => updateMasterApprovalDraft(select.dataset.masterImpactMode || '', { impactMode: select.value || '' });
   });
   document.querySelectorAll('[data-master-approval-reject]').forEach((button) => {
     button.onclick = () => {
@@ -2436,12 +2447,13 @@ function renderAdminPanel() {
 function renderAdminMasterApprovals(approvals) {
   if (!approvals.length) return '<p class="empty-state">Không có yêu cầu PENDING.</p>';
   const reviewing = qltdAdminApprovalView.reviewing;
-  return `<div class="admin-approval-table-wrap"><table class="dept-plan-table admin-approval-table"><thead><tr><th>Dự án</th><th>Phòng/Ban</th><th>WBS</th><th>Công việc</th><th>Trạng thái đề xuất</th><th>Ngày HT đề xuất</th><th>Người gửi</th><th>Trạng thái duyệt</th><th>Thao tác</th></tr></thead><tbody>${approvals.map((item) => {
+  return `<div class="admin-approval-table-wrap"><table class="dept-plan-table admin-approval-table"><thead><tr><th>Dự án</th><th>Phòng/Ban</th><th>WBS</th><th>Công việc</th><th>Trạng thái đề xuất</th><th>Ngày HT đề xuất</th><th>Người gửi</th><th>Ảnh hưởng liên kết</th><th>Trạng thái duyệt</th><th>Thao tác</th></tr></thead><tbody>${approvals.map((item) => {
     const isCurrent = reviewing?.updateId === item.updateId;
     const approveLabel = isCurrent && reviewing.approvalStatus === 'APPROVED' ? 'Đang duyệt...' : 'Duyệt';
     const rejectLabel = isCurrent && reviewing.approvalStatus === 'REJECTED' ? 'Đang trả lại...' : 'Không duyệt';
     const disabled = reviewing ? 'disabled' : '';
-    return `<tr class="${isNotificationApprovalHighlight('MASTER', item) ? 'is-notification-target' : ''}" data-notification-approval-id="${escapeHtml(item.updateId || '')}"><td>${escapeHtml(item.projectCode || '')}</td><td>${escapeHtml(item.deptCode || '')}</td><td class="mono">${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.taskStatus || '')} · ${escapeHtml(item.progressEnd ?? '')}%</td><td>${escapeHtml(formatIsoDateVi(item.actualFinish || '') || '—')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td><span class="approval-status-badge is-${escapeHtml(String(item.approvalStatus || '').toLowerCase())}">${escapeHtml(formatApprovalStatus(item.approvalStatus))}</span></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-master-approval-approve="${escapeHtml(item.updateId || '')}" ${disabled}>${approveLabel}</button><button type="button" class="secondary-button" data-master-approval-reject="${escapeHtml(item.updateId || '')}" ${disabled}>${rejectLabel}</button></div></td></tr>`;
+    const impactMode = qltdAdminApprovalView.reviewDrafts?.[String(item.updateId || '')]?.impactMode || '';
+    return `<tr class="${isNotificationApprovalHighlight('MASTER', item) ? 'is-notification-target' : ''}" data-notification-approval-id="${escapeHtml(item.updateId || '')}"><td>${escapeHtml(item.projectCode || '')}</td><td>${escapeHtml(item.deptCode || '')}</td><td class="mono">${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.taskStatus || '')} · ${escapeHtml(item.progressEnd ?? '')}%</td><td>${escapeHtml(formatIsoDateVi(item.actualFinish || '') || '—')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td><select data-master-impact-mode="${escapeHtml(item.updateId || '')}"><option value="">Chọn ảnh hưởng</option><option value="KEEP_PLAN" ${impactMode === 'KEEP_PLAN' ? 'selected' : ''}>Không ảnh hưởng đến công việc liên kết sau</option><option value="PROPAGATE_ACTUAL" ${impactMode === 'PROPAGATE_ACTUAL' ? 'selected' : ''}>Có ảnh hưởng đến công việc liên kết sau</option></select></td><td><span class="approval-status-badge is-${escapeHtml(String(item.approvalStatus || '').toLowerCase())}">${escapeHtml(formatApprovalStatus(item.approvalStatus))}</span></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-master-approval-approve="${escapeHtml(item.updateId || '')}" ${disabled}>${approveLabel}</button><button type="button" class="secondary-button" data-master-approval-reject="${escapeHtml(item.updateId || '')}" ${disabled}>${rejectLabel}</button></div></td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 
@@ -2739,8 +2751,14 @@ async function navigateNotificationDeepLink(notification, navigationSeq) {
 
 async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '', reviewOptions = {}) {
   if (!updateId || qltdAdminApprovalView.reviewing) return;
+  const impactMode = String(reviewOptions.impactMode || '').trim().toUpperCase();
   if (approvalStatus === 'APPROVED') {
-    const ok = window.confirm('Hệ thống sẽ cập nhật Cong_viec và làm mới Gantt trước khi lưu APPROVED. Tiếp tục?');
+    if (!['KEEP_PLAN', 'PROPAGATE_ACTUAL'].includes(impactMode)) {
+      qltdAdminApprovalView = { ...qltdAdminApprovalView, error: 'Vui lòng chọn mức ảnh hưởng đến công việc liên kết sau.' };
+      renderAdminPanel();
+      return;
+    }
+    const ok = window.confirm('Hệ thống chỉ cập nhật Master. Tiến độ công việc liên kết chưa được tính lại và dự án sẽ ở trạng thái cần tính lại. Tiếp tục?');
     if (!ok) return;
   }
   const approval = (qltdAdminApprovalView.approvals || []).find((item) => item.updateId === updateId) || {};
@@ -2748,12 +2766,13 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
   const reviewSeq = ++qltdAdminApprovalReviewSeq;
   const draftPatch = { reviewReason: String(reviewReason || '').trim() };
   if (approvalStatus === 'APPROVED') {
-    draftPatch.dependencyDecision = reviewOptions.dependencyDecision || 'KEEP_CURRENT';
+    draftPatch.impactMode = impactMode;
   }
   updateMasterApprovalDraft(updateId, draftPatch);
   qltdAdminApprovalView = {
     ...qltdAdminApprovalView,
     error: '',
+    notice: '',
     reviewing: { seq: reviewSeq, updateId, approvalStatus }
   };
   renderAdminPanel();
@@ -2764,7 +2783,7 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
       updateId,
       approvalStatus,
       reviewReason,
-      dependencyDecision: 'KEEP_CURRENT'
+      impactMode: approvalStatus === 'APPROVED' ? impactMode : ''
     });
     if (!result.success) {
       if (getBackendErrorCode(result) === 'APPROVAL_NOT_PENDING') {
@@ -2779,26 +2798,19 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
         }
         return;
       }
-      const backendError = new Error(getBackendErrorMessage(result, 'Không cập nhật được trạng thái duyệt.'));
+      const backendError = new Error(formatMasterApprovalBackendError(result, 'Không cập nhật được trạng thái duyệt.'));
       backendError.backendResult = result;
       throw backendError;
     }
     const data = result.data || result;
     markMasterApprovalDataDirty(data, approval);
-    if ((data.ganttRefreshRequired || data.dashboardRefreshRequired) && (data.affectedProjectCode || approval.projectCode)) {
-      await markWeeklyGanttRefreshRequired(data.affectedProjectCode || approval.projectCode, {
-        forceRefresh: data.masterWriteback && data.masterWriteback.ganttCacheInvalidated === false
-      });
-      if (data.masterWriteback && data.masterWriteback.ganttCacheInvalidated === false) {
-        showWeeklyToast('Master đã cập nhật nhưng Gantt có thể cần tải lại.');
-      }
-    }
     removeMasterApprovalDraft(updateId);
     if (qltdAdminApprovalView.projectCode === sourceProjectCode) {
       qltdAdminApprovalView = {
         ...qltdAdminApprovalView,
         approvals: (qltdAdminApprovalView.approvals || []).filter((item) => item.updateId !== updateId),
-        error: ''
+        error: '',
+        notice: approvalStatus === 'APPROVED' ? 'Tiến độ dự án chưa được tính lại.' : ''
       };
     }
   } catch (error) {
@@ -2814,6 +2826,13 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
       renderAdminPanel();
     }
   }
+}
+
+function formatMasterApprovalBackendError(result, fallback) {
+  const message = getBackendErrorMessage(result, fallback);
+  const errorCode = getBackendErrorCode(result);
+  const stage = String(result?.stage || result?.meta?.stage || result?.data?.stage || '').trim();
+  return [message, errorCode ? `errorCode: ${errorCode}` : '', stage ? `stage: ${stage}` : ''].filter(Boolean).join(' · ');
 }
 
 function markMasterApprovalDataDirty(result, fallbackApproval = {}) {

@@ -18,9 +18,19 @@ const QLTD_WEEKLY_TASK_APPROVAL_STATUS = {
   APPROVED: 'APPROVED',
   REJECTED: 'REJECTED'
 };
-const QLTD_WEEKLY_TASK_DEPENDENCY_DECISION = {
-  KEEP_CURRENT: 'KEEP_CURRENT',
-  RECALCULATE_DEPENDENCIES: 'RECALCULATE_DEPENDENCIES'
+const QLTD_WEEKLY_MASTER_IMPACT_MODE = {
+  KEEP_PLAN: 'KEEP_PLAN',
+  PROPAGATE_ACTUAL: 'PROPAGATE_ACTUAL'
+};
+const QLTD_WEEKLY_MASTER_HEADER_SCAN_ROWS = 12;
+const QLTD_WEEKLY_MASTER_UPDATE_HEADERS = {
+  taskCode: 'Ma cong viec',
+  status: 'Trang thai thuc hien',
+  actualStart: 'Bat dau thuc te',
+  actualFinish: 'Hoan thanh thuc te',
+  updateNote: 'Ghi chu cap nhat',
+  updatedAt: 'Ngay cap nhat',
+  impactMode: 'Dieu chinh lien ket?'
 };
 
 function qltdSetupWeeklyTaskUpdatesSheetDryRun() {
@@ -255,45 +265,53 @@ function qltdWeeklyPbDetailApprovalsGet_(params) {
 function qltdWeeklyMasterApprovalReview_(payload) {
   const action = 'weekly_masterapproval_review';
   const auth = qltdWorkAuthUser_(payload && payload.email, action, QLTD_WEEKLY_TASK_UPDATE_SOURCE);
-  if (auth.error) return auth.error;
+  if (auth.error) return qltdWeeklyMasterApprovalDecorateError_(auth.error, 'AUTHENTICATION');
   if (!qltdWorkIsAdminScope_(auth.user)) {
-    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Only Admin/PMO can review MASTER completion approvals.', { email: auth.email });
+    return qltdWeeklyMasterApprovalError_(action, 'ACCESS_DENIED', 'Only Admin/PMO can review MASTER completion approvals.', 'AUTHORIZATION', { email: auth.email });
   }
   const updateId = String(payload && payload.updateId || '').trim();
   const nextStatus = qltdWeeklyTaskUpdatesNormalizeApprovalStatus_(payload && payload.approvalStatus || payload && payload.status);
   const reason = String(payload && (payload.reviewReason || payload.reason) || '').trim();
-  const dependencyDecision = QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.KEEP_CURRENT;
+  const impactMode = qltdWeeklyTaskUpdatesNormalizeImpactMode_(payload && payload.impactMode);
+  const dependencyDecision = nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED ? impactMode : '';
   const recoveryPlan = '';
-  const meta = { email: auth.email, updateId: updateId, approvalStatus: nextStatus, dependencyDecision: dependencyDecision };
-  if (!updateId) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'UPDATE_ID_REQUIRED', 'updateId is required.', meta);
+  const meta = { email: auth.email, updateId: updateId, approvalStatus: nextStatus, impactMode: impactMode };
+  if (!updateId) return qltdWeeklyMasterApprovalError_(action, 'UPDATE_ID_REQUIRED', 'updateId is required.', 'VALIDATION', meta);
   if ([QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED, QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED].indexOf(nextStatus) === -1) {
-    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'APPROVAL_STATUS_INVALID', 'Approval status must be APPROVED or REJECTED.', meta);
+    return qltdWeeklyMasterApprovalError_(action, 'APPROVAL_STATUS_INVALID', 'Approval status must be APPROVED or REJECTED.', 'VALIDATION', meta);
+  }
+  if (nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED && !impactMode) {
+    return qltdWeeklyMasterApprovalError_(action, 'INVALID_IMPACT_MODE', 'impactMode must be KEEP_PLAN or PROPAGATE_ACTUAL.', 'VALIDATION', meta);
   }
   if (nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED && !reason) {
-    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'REVIEW_REASON_REQUIRED', 'ReviewReason is required when rejecting.', meta);
+    return qltdWeeklyMasterApprovalError_(action, 'REVIEW_REASON_REQUIRED', 'ReviewReason is required when rejecting.', 'VALIDATION', meta);
   }
   const lock = LockService.getScriptLock();
   let locked = false;
   let target;
   let now;
   let masterSync = null;
+  let stage = 'WRITE_LOCK';
   try {
     locked = lock.tryLock(QLTD_WORK_WRITE_LOCK_TIMEOUT_MS);
-    if (!locked) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WRITE_LOCK_TIMEOUT', 'Cannot acquire approval review lock.', meta);
+    if (!locked) return qltdWeeklyMasterApprovalError_(action, 'WRITE_LOCK_TIMEOUT', 'Cannot acquire approval review lock.', 'WRITE_LOCK', meta);
+    stage = 'APPROVAL_READ';
     const read = qltdWeeklyTaskUpdatesRead_();
-    if (read.error) return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, read.error.code, read.error.message, meta);
+    if (read.error) return qltdWeeklyMasterApprovalError_(action, read.error.code, read.error.message, 'APPROVAL_READ', meta);
     target = read.updates.find(function(update) { return update.updateId === updateId; });
     if (!target || target.itemType !== 'MASTER' || !target.approvalStatus) {
-      return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'APPROVAL_NOT_FOUND', 'MASTER completion approval request not found.', meta);
+      return qltdWeeklyMasterApprovalError_(action, 'APPROVAL_NOT_FOUND', 'MASTER completion approval request not found.', 'APPROVAL_READ', meta);
     }
     if (target.approvalStatus !== QLTD_WEEKLY_TASK_APPROVAL_STATUS.PENDING) {
-      return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'APPROVAL_NOT_PENDING', 'Only PENDING approval requests can be reviewed.', Object.assign({ currentStatus: target.approvalStatus }, meta));
+      return qltdWeeklyMasterApprovalError_(action, 'APPROVAL_NOT_PENDING', 'Only PENDING approval requests can be reviewed.', 'APPROVAL_READ', Object.assign({ currentStatus: target.approvalStatus }, meta));
     }
     now = qltdWorkNowIso_();
     if (nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED) {
+      stage = 'MASTER_WRITE';
       masterSync = qltdWeeklyMasterApprovalApplyToMaster_(target, auth, dependencyDecision, recoveryPlan, now, action, meta);
       if (masterSync.error) return masterSync.error;
     }
+    stage = 'APPROVAL_STATUS_WRITE';
     const startColumn = QLTD_WEEKLY_TASK_UPDATE_BASE_HEADERS.length + 1;
     read.sheet.getRange(target.rowNumber, startColumn, 1, QLTD_WEEKLY_TASK_UPDATE_REVIEW_HEADERS.length)
       .setValues([[nextStatus, reason, auth.email, now, dependencyDecision, recoveryPlan]]);
@@ -303,6 +321,7 @@ function qltdWeeklyMasterApprovalReview_(payload) {
       reviewedBy: auth.email,
       reviewedAt: now,
       dependencyDecision: dependencyDecision,
+      impactMode: impactMode,
       recoveryPlan: recoveryPlan
     });
     const notificationResult = qltdNotificationsTryFinalizeReviewNoLock_(reviewed);
@@ -312,6 +331,7 @@ function qltdWeeklyMasterApprovalReview_(payload) {
       congViecUpdated: !!(masterSync && masterSync.congViecUpdated),
       columnWUpdated: !!(masterSync && masterSync.columnWUpdated),
       dependencyDecision: dependencyDecision,
+      impactMode: impactMode,
       recoveryPlanSaved: !!recoveryPlan,
       recalcTriggered: !!(masterSync && masterSync.recalcTriggered),
       affectedProjectCode: target.projectCode,
@@ -321,20 +341,23 @@ function qltdWeeklyMasterApprovalReview_(payload) {
       weeklyUpdateSaved: true,
       approvalStatus: reviewed.approvalStatus,
       masterWriteback: qltdWeeklyTaskUpdatesBuildMasterWritebackResponse_(masterSync, target),
-      ganttRefreshRequired: !!(masterSync && masterSync.ganttRefreshRequired),
-      dashboardRefreshRequired: !!(masterSync && masterSync.dashboardRefreshRequired),
+      ganttRefreshRequired: false,
+      dashboardRefreshRequired: false,
+      projectDirty: nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED,
+      scheduleRecalculationRequired: nextStatus === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED,
+      ok: true,
       partialSuccess: false
     }, (masterSync && masterSync.warnings || []).concat(notificationResult.warnings || []), meta);
   } catch (error) {
     Logger.log(JSON.stringify({
       action: action,
       code: 'APPROVAL_REVIEW_FAILED',
-      stage: masterSync && masterSync.stage || 'APPROVAL_REVIEW',
+      stage: stage,
       projectCode: target && target.projectCode || '',
       itemId: target && target.itemId || '',
       message: qltdBudgetSafeErrorMessage_(error)
     }));
-    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'WRITE_ERROR', qltdBudgetSafeErrorMessage_(error), meta);
+    return qltdWeeklyMasterApprovalError_(action, 'WRITE_ERROR', qltdBudgetSafeErrorMessage_(error), stage, meta);
   } finally {
     if (locked) lock.releaseLock();
   }
@@ -1588,70 +1611,67 @@ function qltdWeeklyMasterProgressWriteback_(update, auth, requestId, meta) {
   }
 }
 
-function qltdWeeklyMasterApprovalApplyToMaster_(target, auth, dependencyDecision, recoveryPlan, reviewedAt, action, meta) {
-  const stageMeta = Object.assign({
-    stage: 'MASTER_SYNC',
-    projectCode: target.projectCode,
-    itemId: target.itemId
-  }, meta || {});
+function qltdWeeklyMasterApprovalApplyToMaster_(target, auth, impactMode, recoveryPlan, reviewedAt, action, meta) {
+  const stageMeta = Object.assign({ projectCode: target.projectCode, itemId: target.itemId }, meta || {});
   try {
     const project = qltdProjectsGetByCode_(target.projectCode);
     if (!project) {
-      return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PROJECT_NOT_FOUND', 'Project not found for MASTER approval sync.', stageMeta) };
+      return { error: qltdWeeklyMasterApprovalError_(action, 'PROJECT_NOT_FOUND', 'Project not found for MASTER approval sync.', 'MASTER_OPEN', stageMeta) };
     }
     if (!project.masterSpreadsheetId) {
-      return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'MASTER_SPREADSHEET_ID_MISSING', 'Project has no MasterSpreadsheetId.', stageMeta) };
+      return { error: qltdWeeklyMasterApprovalError_(action, 'MASTER_SPREADSHEET_ID_MISSING', 'Project has no MasterSpreadsheetId.', 'MASTER_OPEN', stageMeta) };
     }
     const spreadsheet = SpreadsheetApp.openById(project.masterSpreadsheetId);
-    const sheetName = String(project.defaultTaskSheet || 'Cong_viec').trim() || 'Cong_viec';
-    const sheet = spreadsheet.getSheetByName(sheetName) || spreadsheet.getSheetByName('Cong_viec');
+    const sheet = spreadsheet.getSheetByName('Cong_viec');
     if (!sheet) {
-      return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'CONG_VIEC_SHEET_NOT_FOUND', 'Cannot find Cong_viec in Master spreadsheet.', stageMeta) };
+      return { error: qltdWeeklyMasterApprovalError_(action, 'CONG_VIEC_SHEET_NOT_FOUND', 'Cannot find Cong_viec in Master spreadsheet.', 'MASTER_OPEN', stageMeta) };
     }
-    const parseResult = qltdWorkParseDeptTaskSheet_(sheet);
+
+    const parseResult = qltdWeeklyMasterParseCongViec_(sheet);
     if (parseResult.error) {
-      return {
-        error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, parseResult.error.code, parseResult.error.message, Object.assign({
-          sourceSheet: sheet.getName()
-        }, stageMeta), [], parseResult.error.extra || {})
-      };
+      return { error: qltdWeeklyMasterApprovalError_(action, parseResult.error.code, parseResult.error.message, 'MASTER_PARSE', Object.assign({ sourceSheet: sheet.getName() }, stageMeta), [], parseResult.error.extra || {}) };
     }
     const targetLookup = qltdWeeklyTaskUpdatesFindSingleMasterTask_(parseResult.tasks, target.itemId);
     if (targetLookup.error) {
-      return {
-        error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, targetLookup.error.code, targetLookup.error.message, Object.assign({ sourceSheet: sheet.getName() }, stageMeta), [], {
-          masterWriteback: qltdWeeklyTaskUpdatesBuildMasterWritebackResponse_(targetLookup.error, target)
-        })
-      };
+      return { error: qltdWeeklyMasterApprovalError_(action, targetLookup.error.code, targetLookup.error.message, 'MASTER_LOOKUP', Object.assign({ sourceSheet: sheet.getName() }, stageMeta), [], {
+        masterWriteback: qltdWeeklyTaskUpdatesBuildMasterWritebackResponse_(targetLookup.error, target)
+      }) };
     }
+
     const task = targetLookup.task;
-    const targetResult = {
-      task: task,
-      sheet: sheet,
-      parsed: parseResult.parsed,
-      headerRow: parseResult.headerRow,
-      sourceSheet: sheet.getName(),
-      warnings: parseResult.warnings || []
-    };
-    const note = qltdWeeklyMasterApprovalBuildUpdateNote_(target, auth, dependencyDecision, recoveryPlan, reviewedAt);
-    const changes = [];
-    changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.status, target.taskStatus));
-    if (target.actualStart) changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.actualStart, target.actualStart));
-    if (target.actualFinish) changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.actualFinish, target.actualFinish));
-    if (qltdBudgetFindHeaderIndex_(targetResult.parsed.headerMap, QLTD_WORK_TASK_UPDATE_HEADERS.progress) >= 0) {
-      changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.progress, target.progressEnd));
-    } else {
-      targetResult.warnings.push(qltdWorkWarning_('MASTER_PROGRESS_HEADER_MISSING', 'MASTER progress header is missing; progress was not synced.'));
-    }
-    const previousNote = String(task.updateNote || '');
+    const writeRange = sheet.getRange(task.rowNumber, parseResult.columns.status + 1, 1, 6);
+    const previousValues = writeRange.getValues()[0];
+    const previousNote = String(previousValues[3] || '');
     const approvalMarker = qltdWeeklyMasterApprovalMarker_(target.updateId);
     const duplicateApprovalNote = !!approvalMarker && previousNote.indexOf(approvalMarker) !== -1;
-    if (!duplicateApprovalNote) {
-      changes.push(qltdWorkSetTaskCell_(targetResult, QLTD_WORK_TASK_UPDATE_HEADERS.updateNote, qltdWorkAppendTaskNote_(previousNote, note, auth.email)));
+    const actualStart = qltdWeeklyTaskUpdatesDate_(target.actualStart, true) || previousValues[1];
+    const actualFinish = qltdWeeklyTaskUpdatesDate_(target.actualFinish, true);
+    if (!actualFinish) {
+      return { error: qltdWeeklyMasterApprovalError_(action, 'MASTER_ACTUAL_FINISH_REQUIRED', 'Approved MASTER completion requires a valid ActualFinish.', 'VALIDATION', stageMeta) };
     }
+    const impactValue = impactMode === QLTD_WEEKLY_MASTER_IMPACT_MODE.PROPAGATE_ACTUAL ? 'Có' : 'Không';
+    const note = qltdWeeklyMasterApprovalBuildUpdateNote_(target, auth, impactMode, recoveryPlan, reviewedAt);
+    const nextNote = duplicateApprovalNote ? previousNote : qltdWorkAppendTaskNote_(previousNote, note, auth.email);
+    const nextValues = ['Hoàn thành', actualStart, actualFinish, nextNote, reviewedAt, impactValue];
+
+    writeRange.setValues([nextValues]);
+    SpreadsheetApp.flush();
+
+    const verifiedValues = writeRange.getValues()[0];
+    const verifiedStatus = String(verifiedValues[0] || '').trim();
+    const verifiedFinish = qltdBudgetFormatDate_(verifiedValues[2]);
+    const verifiedImpact = String(verifiedValues[5] || '').trim();
+    if (verifiedStatus !== 'Hoàn thành' || verifiedFinish !== actualFinish || verifiedImpact !== impactValue) {
+      return { error: qltdWeeklyMasterApprovalError_(action, 'MASTER_VERIFY_FAILED', 'Master writeback verification failed for R, T or W.', 'MASTER_VERIFY', Object.assign({
+        expected: { status: 'Hoàn thành', actualFinish: actualFinish, impactValue: impactValue },
+        actual: { status: verifiedStatus, actualFinish: verifiedFinish, impactValue: verifiedImpact }
+      }, stageMeta)) };
+    }
+
+    const warnings = parseResult.warnings || [];
     const cacheResult = qltdWeeklyTaskUpdatesInvalidateGanttCache_(target.projectCode);
-    if (!cacheResult.success) targetResult.warnings.push(qltdWorkWarning_(cacheResult.code || 'GANTT_CACHE_INVALIDATE_FAILED',
-      'Master was approved, but Gantt cache could not be invalidated automatically.', {
+    if (!cacheResult.success) warnings.push(qltdWorkWarning_(cacheResult.code || 'GANTT_CACHE_INVALIDATE_FAILED',
+      'Master was approved, but Gantt cache invalidation could not be confirmed.', {
         projectCode: target.projectCode,
         message: cacheResult.message || ''
       }));
@@ -1664,29 +1684,82 @@ function qltdWeeklyMasterApprovalApplyToMaster_(target, auth, dependencyDecision
       sourceSheet: sheet.getName(),
       rowNumber: task.rowNumber,
       congViecUpdated: true,
-      columnWUpdated: false,
-      dependencyDecision: dependencyDecision,
-      recoveryPlanSaved: !!recoveryPlan,
+      columnWUpdated: true,
+      dependencyDecision: impactMode,
+      impactMode: impactMode,
+      recoveryPlanSaved: false,
       duplicateApprovalNote: duplicateApprovalNote,
       recalcTriggered: false,
       ganttCacheInvalidated: cacheResult.success,
-      ganttRefreshRequired: true,
-      dashboardRefreshRequired: true,
+      ganttRefreshRequired: false,
+      dashboardRefreshRequired: false,
+      projectDirty: true,
+      scheduleRecalculationRequired: true,
       message: cacheResult.success
-        ? 'Master completion was approved in Cong_viec and Gantt cache was invalidated.'
-        : 'Master completion was approved in Cong_viec, but Gantt cache could not be invalidated automatically.',
-      changes: changes,
-      warnings: targetResult.warnings || []
+        ? 'Master completion was approved in Cong_viec. Project schedule must be recalculated.'
+        : 'Master completion was approved in Cong_viec. Project schedule must be recalculated; Gantt cache invalidation was not confirmed.',
+      changes: {
+        rangeA1: writeRange.getA1Notation ? writeRange.getA1Notation() : '',
+        before: previousValues,
+        after: nextValues
+      },
+      warnings: warnings
     };
   } catch (error) {
-    Logger.log(JSON.stringify(Object.assign({}, stageMeta, {
-      stage: 'MASTER_SYNC',
-      message: qltdBudgetSafeErrorMessage_(error)
-    })));
-    return {
-      error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'MASTER_SYNC_FAILED', qltdBudgetSafeErrorMessage_(error), stageMeta)
-    };
+    Logger.log(JSON.stringify(Object.assign({}, stageMeta, { stage: 'MASTER_WRITE', message: qltdBudgetSafeErrorMessage_(error) })));
+    return { error: qltdWeeklyMasterApprovalError_(action, 'MASTER_SYNC_FAILED', qltdBudgetSafeErrorMessage_(error), 'MASTER_WRITE', stageMeta) };
   }
+}
+
+function qltdWeeklyMasterParseCongViec_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  if (lastRow < 1 || lastColumn < 1) {
+    return { tasks: [], warnings: [], error: { code: 'MASTER_HEADER_NOT_FOUND', message: 'Cong_viec is empty.' } };
+  }
+
+  const scanRows = Math.min(lastRow, QLTD_WEEKLY_MASTER_HEADER_SCAN_ROWS);
+  const headerValues = sheet.getRange(1, 1, scanRows, lastColumn).getValues();
+  let detected = null;
+  for (let rowIndex = 0; rowIndex < headerValues.length; rowIndex += 1) {
+    const headers = headerValues[rowIndex].map(function(value) { return String(value || '').trim(); });
+    const headerMap = qltdBudgetBuildHeaderMap_(headers);
+    if (qltdBudgetFindHeaderIndex_(headerMap, QLTD_WEEKLY_MASTER_UPDATE_HEADERS.taskCode) >= 0 &&
+        qltdBudgetFindHeaderIndex_(headerMap, QLTD_WEEKLY_MASTER_UPDATE_HEADERS.status) >= 0) {
+      detected = { headerRow: rowIndex + 1, headerMap: headerMap };
+      break;
+    }
+  }
+  if (!detected) {
+    return { tasks: [], warnings: [], error: { code: 'MASTER_HEADER_NOT_FOUND', message: 'Cannot detect Cong_viec header row with Ma cong viec.' } };
+  }
+
+  const columns = {};
+  Object.keys(QLTD_WEEKLY_MASTER_UPDATE_HEADERS).forEach(function(key) {
+    columns[key] = qltdBudgetFindHeaderIndex_(detected.headerMap, QLTD_WEEKLY_MASTER_UPDATE_HEADERS[key]);
+  });
+  const missingHeaders = Object.keys(columns).filter(function(key) { return columns[key] < 0; });
+  if (missingHeaders.length) {
+    return { tasks: [], warnings: [], error: {
+      code: 'MASTER_REQUIRED_HEADER_MISSING',
+      message: 'Cong_viec is missing required Master writeback headers.',
+      extra: { missingHeaders: missingHeaders.map(function(key) { return QLTD_WEEKLY_MASTER_UPDATE_HEADERS[key]; }) }
+    } };
+  }
+  const writeColumns = [columns.status, columns.actualStart, columns.actualFinish, columns.updateNote, columns.updatedAt, columns.impactMode];
+  if (!writeColumns.every(function(column, index) { return column === columns.status + index; })) {
+    return { tasks: [], warnings: [], error: { code: 'MASTER_WRITE_RANGE_INVALID', message: 'Master columns R:W must be contiguous and in the expected order.' } };
+  }
+
+  const values = lastRow > detected.headerRow
+    ? sheet.getRange(detected.headerRow + 1, 1, lastRow - detected.headerRow, lastColumn).getValues()
+    : [];
+  const tasks = values.map(function(row, index) {
+    const masterTaskCode = qltdWeeklyTaskUpdatesNormalizeTaskCode_(row[columns.taskCode]);
+    return masterTaskCode ? { masterTaskCode: masterTaskCode, rowNumber: detected.headerRow + index + 1, raw: row } : null;
+  }).filter(function(task) { return !!task; });
+
+  return { tasks: tasks, headerRow: detected.headerRow, headerMap: detected.headerMap, columns: columns, warnings: [], error: null };
 }
 
 function qltdWeeklyTaskUpdatesFindSingleMasterTask_(tasks, masterTaskCode) {
@@ -1733,8 +1806,16 @@ function qltdWeeklyTaskUpdatesInvalidateGanttCache_(projectCode) {
     return { success: false, code: 'GANTT_INVALIDATE_UNAVAILABLE' };
   }
   try {
-    qltdGanttInvalidateCache_(projectCode);
-    return { success: true };
+    const result = qltdGanttInvalidateCache_(projectCode);
+    if (result && result.success === true) return { success: true };
+    if (result && result.success === false) {
+      return { success: false, code: result.code || 'GANTT_INVALIDATE_FAILED', message: result.message || '' };
+    }
+    return {
+      success: false,
+      code: 'GANTT_INVALIDATE_UNVERIFIED',
+      message: 'Gantt cache helper did not confirm invalidation.'
+    };
   } catch (error) {
     Logger.log(JSON.stringify({
       action: 'weekly_gantt_cache_invalidate',
@@ -1743,6 +1824,30 @@ function qltdWeeklyTaskUpdatesInvalidateGanttCache_(projectCode) {
     }));
     return { success: false, code: 'GANTT_INVALIDATE_FAILED', message: qltdBudgetSafeErrorMessage_(error) };
   }
+}
+
+function qltdWeeklyMasterApprovalError_(action, code, message, stage, meta, warnings, extra) {
+  const response = qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, code, message, Object.assign({}, meta || {}, {
+    stage: stage
+  }), warnings || [], extra || {});
+  response.ok = false;
+  response.errorCode = code;
+  response.stage = stage;
+  response.message = message || code;
+  if (warnings && warnings.length) response.warning = warnings[0];
+  return response;
+}
+
+function qltdWeeklyMasterApprovalDecorateError_(response, stage) {
+  const result = response || {};
+  const detail = result.errors && result.errors[0] || result.error || {};
+  result.ok = false;
+  result.errorCode = detail.code || result.errorCode || result.code || 'UNKNOWN_ERROR';
+  result.stage = stage;
+  result.message = detail.message || result.message || result.errorCode;
+  result.meta = Object.assign({}, result.meta || {}, { stage: stage });
+  if (result.warnings && result.warnings.length) result.warning = result.warnings[0];
+  return result;
 }
 
 function qltdWeeklyTaskUpdatesBuildMasterWritebackResponse_(result, fallback) {
@@ -1883,8 +1988,13 @@ function qltdWeeklyTaskUpdatesNormalizeApprovalStatus_(value) {
     status === QLTD_WEEKLY_TASK_APPROVAL_STATUS.APPROVED ||
     status === QLTD_WEEKLY_TASK_APPROVAL_STATUS.REJECTED ? status : '';
 }
+function qltdWeeklyTaskUpdatesNormalizeImpactMode_(value) {
+  const mode = String(value || '').trim().toUpperCase();
+  return mode === QLTD_WEEKLY_MASTER_IMPACT_MODE.KEEP_PLAN ||
+    mode === QLTD_WEEKLY_MASTER_IMPACT_MODE.PROPAGATE_ACTUAL ? mode : '';
+}
 function qltdWeeklyTaskUpdatesNormalizeDependencyDecision_(value) {
-  return QLTD_WEEKLY_TASK_DEPENDENCY_DECISION.KEEP_CURRENT;
+  return qltdWeeklyTaskUpdatesNormalizeImpactMode_(value);
 }
 function qltdWeeklyTaskUpdatesNormalizeTaskCode_(value) {
   return String(value || '').trim().toUpperCase();
