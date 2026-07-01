@@ -1,376 +1,237 @@
-(() => {
-  'use strict';
+const REGISTRATION_GATE_ID = 'qltdRegistrationGate';
 
-  const APP_MODULE = './app.js?v=PERF_LAZY_GANTT_1';
-  const FIREBASE_APP_MODULE = 'https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js';
-  const FIREBASE_AUTH_MODULE = 'https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js';
-  const GATE_ID = 'qltdRegistrationGate';
-  const BODY_STATES = ['qltd-registration-checking', 'qltd-registration-required', 'qltd-registration-blocked'];
-  const TOKEN_RETRY_MESSAGES = new Set(['ID_TOKEN_INVALID', 'ID_TOKEN_EXPIRED']);
-  const EXECUTIVE_GROUP = 'BAN_LANH_DAO';
-  const DEPT_REQUIRED_GROUPS = new Set(['DEPT_MANAGER', 'EMPLOYEE']);
+export function buildRegistrationDepartments(profiles = []) {
+  const seen = new Set();
+  return profiles.reduce((items, profile) => {
+    const deptCode = String(profile?.deptCode || '').trim();
+    const deptName = String(profile?.deptName || '').trim();
+    if (!deptCode || seen.has(deptCode)) return items;
+    seen.add(deptCode);
+    items.push({ deptCode, deptName: deptName || deptCode });
+    return items;
+  }, []);
+}
 
-  let auth = null;
-  let signInWithPopup = null;
-  let GoogleAuthProvider = null;
-  let signOut = null;
-  let apiUrl = '';
+export function buildRegistrationPositions(profiles = [], deptCode = '') {
+  const selectedDept = String(deptCode || '').trim();
+  const matches = profiles.filter((profile) => String(profile?.deptCode || '').trim() === selectedDept);
+  const labelCounts = {};
+  matches.forEach((profile) => {
+    const label = String(profile?.position || 'Chưa có vị trí').trim();
+    labelCounts[label] = (labelCounts[label] || 0) + 1;
+  });
+  return matches.map((profile) => {
+    const position = String(profile?.position || 'Chưa có vị trí').trim();
+    return {
+      empCode: String(profile?.empCode || '').trim(),
+      label: labelCounts[position] > 1 ? `${position} — ${profile.empCode}` : position
+    };
+  });
+}
+
+export function getRegistrationErrorMessage(result) {
+  const code = String(result?.errorCode || result?.message || '').trim().toUpperCase();
+  const messages = {
+    NAME_NOT_FOUND: 'Không tìm thấy nhân sự phù hợp.',
+    EMPLOYEE_ALREADY_LINKED: 'Hồ sơ nhân sự này đã được liên kết với tài khoản Google khác.',
+    USER_INACTIVE: 'Tài khoản của bạn đang bị khóa.',
+    EMPLOYEE_INACTIVE: 'Hồ sơ không còn trạng thái làm việc.',
+    EMPLOYEE_DEPT_INVALID: 'Hồ sơ nhân sự chưa có Phòng/Ban hợp lệ.',
+    EMPLOYEE_NOT_FOUND: 'Không tìm thấy hồ sơ nhân sự.',
+    EMAIL_MISMATCH: 'Email gửi lên không khớp tài khoản Google đang đăng nhập.',
+    ID_TOKEN_INVALID: 'Phiên đăng nhập Google không hợp lệ. Vui lòng đăng nhập lại.',
+    ID_TOKEN_EXPIRED: 'Phiên đăng nhập Google đã hết hạn. Vui lòng thử lại.',
+    REGISTRATION_WRITE_FAILED: 'Không thể hoàn tất đăng ký. Vui lòng thử lại.'
+  };
+  return messages[code] || String(result?.errorMessage || result?.message || 'Không thể hoàn tất yêu cầu.');
+}
+
+export function createRegistrationGate(options = {}) {
+  let profiles = [];
   let currentUser = null;
-
-  function setBodyState(state) {
-    BODY_STATES.forEach((name) => document.body.classList.remove(name));
-    if (state) document.body.classList.add(state);
-  }
-
-  function removeGate() {
-    const gate = document.getElementById(GATE_ID);
-    if (gate) gate.remove();
-    setBodyState('');
-  }
+  let lookupInFlight = false;
+  let registrationInFlight = false;
 
   function ensureStyles() {
-    if (document.getElementById('qltdRegistrationStyles')) return;
+    if (document.getElementById('qltdRegistrationGateStyles')) return;
     const style = document.createElement('style');
-    style.id = 'qltdRegistrationStyles';
+    style.id = 'qltdRegistrationGateStyles';
     style.textContent = `
-      body.qltd-registration-checking #appShell,
-      body.qltd-registration-required #appShell,
-      body.qltd-registration-blocked #appShell,
-      body.qltd-registration-required #loginView,
-      body.qltd-registration-blocked #loginView,
-      body.qltd-registration-required #deniedView,
-      body.qltd-registration-blocked #deniedView { display:none!important; }
       .qltd-registration-gate{position:fixed;inset:0;z-index:100000;display:grid;place-items:center;padding:24px;background:linear-gradient(135deg,#dfeafd,#78a2ed 65%,#4d7ed8)}
       .qltd-registration-card{width:min(680px,100%);max-height:calc(100vh - 48px);overflow:auto;padding:30px;border-radius:22px;background:#fff;box-shadow:0 28px 70px rgba(15,23,42,.25);font-family:Inter,"Segoe UI",Arial,sans-serif;color:#0f172a}
-      .qltd-registration-card h2{margin:4px 0 8px;font-size:28px}
-      .qltd-registration-card p{color:#64748b;line-height:1.55}
-      .qltd-registration-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-      .qltd-registration-field{display:grid;gap:7px;margin-top:14px}
-      .qltd-registration-field label,.qltd-registration-label{font-weight:700;font-size:14px}
-      .qltd-registration-field input,.qltd-registration-field select{min-height:44px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit;background:#fff}
-      .qltd-registration-field input[readonly]{background:#f1f5f9}
-      .qltd-registration-field.hidden{display:none}
-      .qltd-registration-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}
+      .qltd-registration-card h2{margin:4px 0 8px;font-size:28px}.qltd-registration-card p{color:#64748b;line-height:1.55}
+      .qltd-registration-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.qltd-registration-field{display:grid;gap:7px;margin-top:14px}
+      .qltd-registration-field label{font-weight:700;font-size:14px}.qltd-registration-field input,.qltd-registration-field select{min-height:44px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit;background:#fff}
+      .qltd-registration-field input[readonly]{background:#f1f5f9}.qltd-registration-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}
       .qltd-registration-actions button{min-height:44px;padding:0 18px;border-radius:10px;border:0;font-weight:700;cursor:pointer}
-      .qltd-registration-primary{background:#0b3ea8;color:#fff}
-      .qltd-registration-secondary{background:#e2e8f0;color:#0f172a}
-      .qltd-registration-status{min-height:22px;margin:14px 0 0!important;font-weight:600}
-      .qltd-registration-status.error{color:#b91c1c}
-      .qltd-registration-status.success{color:#047857}
+      .qltd-registration-primary{background:#0b3ea8;color:#fff}.qltd-registration-secondary{background:#e2e8f0;color:#0f172a}
+      .qltd-registration-status{min-height:22px;margin:14px 0 0!important;font-weight:600}.qltd-registration-status.error{color:#b91c1c}.qltd-registration-status.success{color:#047857}
       @media(max-width:640px){.qltd-registration-grid{grid-template-columns:1fr}.qltd-registration-card{padding:22px}.qltd-registration-actions{flex-direction:column}.qltd-registration-actions button{width:100%}}
     `;
     document.head.appendChild(style);
   }
 
-  function createGate() {
-    let gate = document.getElementById(GATE_ID);
-    if (!gate) {
-      gate = document.createElement('section');
-      gate.id = GATE_ID;
-      gate.className = 'qltd-registration-gate';
-      gate.setAttribute('aria-live', 'polite');
-      document.body.appendChild(gate);
-    }
-    return gate;
+  function hide() {
+    document.getElementById(REGISTRATION_GATE_ID)?.remove();
   }
 
-  function renderMessage(title, message, options = {}) {
-    setBodyState(options.blocked ? 'qltd-registration-blocked' : 'qltd-registration-required');
-    const gate = createGate();
-    gate.innerHTML = '<div class="qltd-registration-card"><p>Entiz Project 360</p><h2></h2><p class="qltd-message"></p><div class="qltd-registration-actions"></div></div>';
-    gate.querySelector('h2').textContent = title;
-    gate.querySelector('.qltd-message').textContent = message;
-    const actions = gate.querySelector('.qltd-registration-actions');
-
-    if (options.retry) {
-      const retry = document.createElement('button');
-      retry.className = 'qltd-registration-primary';
-      retry.textContent = 'Thử lại';
-      retry.addEventListener('click', () => currentUser ? checkUser(currentUser) : window.location.reload());
-      actions.appendChild(retry);
-    }
-    if (options.signOut) {
-      const exit = document.createElement('button');
-      exit.className = 'qltd-registration-secondary';
-      exit.textContent = 'Đăng xuất';
-      exit.addEventListener('click', () => auth && signOut && signOut(auth));
-      actions.appendChild(exit);
-    }
+  function setStatus(message, type = '') {
+    const status = document.getElementById('qltdRegistrationStatus');
+    if (!status) return;
+    status.className = `qltd-registration-status${type ? ` ${type}` : ''}`;
+    status.textContent = message || '';
   }
 
-  function getApiErrorMessage(result, fallbackMessage) {
-    return String(
-      result && (
-        result.errorCode ||
-        result.errorMessage ||
-        result.message
-      ) || fallbackMessage || 'Không tải được dữ liệu đăng ký.'
-    ).trim();
-  }
-
-  function getCurrentAuthUser() {
-    return auth && auth.currentUser ? auth.currentUser : currentUser;
-  }
-
-  function isTokenErrorResult(result) {
-    const message = String(result && (result.errorCode || result.message) || '').trim().toUpperCase();
-    return TOKEN_RETRY_MESSAGES.has(message);
-  }
-
-  async function withFreshIdToken(forceRefresh = false) {
-    const user = getCurrentAuthUser();
-    if (!user) throw new Error('Chưa có phiên đăng nhập Google.');
-    return user.getIdToken(forceRefresh);
-  }
-
-  async function requestJson(method, action, payload = {}, options = {}) {
-    const includeToken = options.includeToken !== false;
-    let retryWithFreshToken = !!options.retryWithFreshToken;
-    const basePayload = payload && typeof payload === 'object' ? payload : {};
-
-    while (true) {
-      const token = includeToken ? await withFreshIdToken(retryWithFreshToken) : '';
-
-      if (method === 'GET') {
-        const url = new URL(apiUrl);
-        url.searchParams.set('action', action);
-        Object.entries(basePayload).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
-        });
-        if (token) url.searchParams.set('idToken', token);
-
-        const response = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
-        if (!response.ok) throw new Error(`API ${action} lỗi ${response.status}`);
-        const result = await response.json();
-
-        if (retryWithFreshToken && isTokenErrorResult(result)) {
-          retryWithFreshToken = false;
-          continue;
-        }
-        return result;
+  function setBusy(isBusy) {
+    const gate = document.getElementById(REGISTRATION_GATE_ID);
+    gate?.querySelectorAll('button,input,select').forEach((element) => {
+      if (element.id === 'qltdRegistrationSignOut') return;
+      if (isBusy) {
+        element.dataset.qltdPreviousDisabled = element.disabled ? '1' : '0';
+        element.disabled = true;
+      } else {
+        element.disabled = element.dataset.qltdPreviousDisabled === '1';
+        delete element.dataset.qltdPreviousDisabled;
       }
-
-      const requestBody = {
-        ...basePayload,
-        action
-      };
-      if (token) requestBody.idToken = token;
-
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(requestBody)
-      });
-      if (!response.ok) throw new Error(`API ghi dữ liệu lỗi ${response.status}`);
-      const result = await response.json();
-
-      if (retryWithFreshToken && isTokenErrorResult(result)) {
-        retryWithFreshToken = false;
-        continue;
-      }
-      return result;
-    }
-  }
-
-  async function getJson(action, params = {}) {
-    return requestJson('GET', action, params, { retryWithFreshToken: true });
-  }
-
-  async function postJson(payload) {
-    return requestJson('POST', String(payload && payload.action || '').trim(), payload, { retryWithFreshToken: true });
-  }
-
-  function syncDepartmentField(form, groups) {
-    const selectedGroup = String(form.querySelector('#qltdRegGroup').value || '').trim().toUpperCase();
-    const deptField = form.querySelector('[data-field="department"]');
-    const deptSelect = form.querySelector('#qltdRegDept');
-    const requiresDepartment = DEPT_REQUIRED_GROUPS.has(selectedGroup);
-
-    deptField.classList.toggle('hidden', !requiresDepartment);
-    deptSelect.required = requiresDepartment;
-    deptSelect.disabled = !requiresDepartment;
-    if (!requiresDepartment) {
-      deptSelect.value = '';
-    }
-
-    const selectedOption = groups.find((item) => String(item.code || '').trim().toUpperCase() === selectedGroup);
-    const status = form.querySelector('#qltdRegStatus');
-    if (status && selectedOption && selectedGroup === EXECUTIVE_GROUP) {
-      status.className = 'qltd-registration-status';
-      status.textContent = 'Ban lãnh đạo sẽ được tự gán Phòng/ban nội bộ: BLD - Ban lãnh đạo.';
-    } else if (status && !status.classList.contains('error') && !status.classList.contains('success')) {
-      status.textContent = '';
-    }
-  }
-
-  function renderForm(user, options) {
-    setBodyState('qltd-registration-required');
-    const groups = Array.isArray(options && options.groups) ? options.groups : [];
-    const departments = Array.isArray(options && options.departments) ? options.departments : [];
-    const gate = createGate();
-    gate.innerHTML = `
-      <form class="qltd-registration-card" id="qltdRegistrationForm">
-        <p>Thiết lập tài khoản lần đầu</p><h2>Khai báo thông tin người dùng</h2>
-        <p>Email được lấy tự động từ tài khoản Google. Thông tin này chỉ khai báo một lần và có thể được quản trị viên kiểm tra tại sheet Users.</p>
-        <div class="qltd-registration-grid">
-          <div class="qltd-registration-field"><label>Email Google</label><input id="qltdRegEmail" readonly></div>
-          <div class="qltd-registration-field"><label>Họ và tên *</label><input id="qltdRegName" maxlength="160" required></div>
-          <div class="qltd-registration-field"><label>Chức danh *</label><input id="qltdRegTitle" maxlength="160" required></div>
-          <div class="qltd-registration-field"><label>Nhóm người dùng *</label><select id="qltdRegGroup" required><option value="">Chọn nhóm</option></select></div>
-          <div class="qltd-registration-field" data-field="department"><label>Phòng/ban *</label><select id="qltdRegDept"><option value="">Chọn phòng/ban</option></select></div>
-        </div>
-        <div class="qltd-registration-actions"><button class="qltd-registration-primary" id="qltdRegSubmit" type="submit">Hoàn tất và vào hệ thống</button><button class="qltd-registration-secondary" id="qltdRegSignOut" type="button">Đăng xuất</button></div>
-        <p class="qltd-registration-status" id="qltdRegStatus" role="status"></p>
-      </form>`;
-
-    const form = gate.querySelector('#qltdRegistrationForm');
-    const groupSelect = form.querySelector('#qltdRegGroup');
-    const deptSelect = form.querySelector('#qltdRegDept');
-    form.querySelector('#qltdRegEmail').value = user.email || '';
-    form.querySelector('#qltdRegName').value = user.displayName || '';
-
-    groups.forEach((item) => {
-      const option = document.createElement('option');
-      option.value = String(item.code || '').trim();
-      option.textContent = String(item.name || item.label || item.code || '').trim();
-      if (option.value) groupSelect.appendChild(option);
     });
+  }
 
+  function renderPositions() {
+    const deptSelect = document.getElementById('qltdRegistrationDept');
+    const positionSelect = document.getElementById('qltdRegistrationPosition');
+    const submit = document.getElementById('qltdRegistrationSubmit');
+    if (!deptSelect || !positionSelect || !submit) return;
+    const positions = buildRegistrationPositions(profiles, deptSelect.value);
+    positionSelect.innerHTML = '<option value="">Chọn Vị trí</option>';
+    positions.forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.empCode;
+      option.textContent = item.label;
+      positionSelect.appendChild(option);
+    });
+    if (positions.length === 1) positionSelect.value = positions[0].empCode;
+    positionSelect.disabled = positions.length === 0;
+    submit.disabled = !positionSelect.value;
+  }
+
+  function renderLookupResults(result) {
+    profiles = Array.isArray(result?.profiles) ? result.profiles : [];
+    const departments = buildRegistrationDepartments(profiles);
+    const deptSelect = document.getElementById('qltdRegistrationDept');
+    const positionSelect = document.getElementById('qltdRegistrationPosition');
+    const submit = document.getElementById('qltdRegistrationSubmit');
+    if (!deptSelect || !positionSelect || !submit) return;
+    deptSelect.innerHTML = '<option value="">Chọn Phòng/Ban</option>';
     departments.forEach((item) => {
       const option = document.createElement('option');
-      option.value = String(item.deptCode || item.code || '').trim();
-      option.textContent = String(item.deptName || item.name || item.deptCode || item.code || '').trim();
-      if (option.value) deptSelect.appendChild(option);
+      option.value = item.deptCode;
+      option.textContent = item.deptName;
+      deptSelect.appendChild(option);
     });
-
-    groupSelect.addEventListener('change', () => syncDepartmentField(form, groups));
-    syncDepartmentField(form, groups);
-
-    form.querySelector('#qltdRegSignOut').addEventListener('click', () => auth && signOut && signOut(auth));
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const status = form.querySelector('#qltdRegStatus');
-      const submit = form.querySelector('#qltdRegSubmit');
-      const userGroup = String(groupSelect.value || '').trim().toUpperCase();
-      const requiresDepartment = DEPT_REQUIRED_GROUPS.has(userGroup);
-      const payload = {
-        action: 'user_register',
-        email: user.email || '',
-        displayName: form.querySelector('#qltdRegName').value.trim(),
-        title: form.querySelector('#qltdRegTitle').value.trim(),
-        userGroup: userGroup,
-        deptCode: requiresDepartment ? deptSelect.value : '',
-        deptName: ''
-      };
-
-      status.className = 'qltd-registration-status';
-      if (!payload.displayName || !payload.title || !payload.userGroup || (requiresDepartment && !payload.deptCode)) {
-        status.classList.add('error');
-        status.textContent = 'Vui lòng nhập đầy đủ các trường bắt buộc.';
-        return;
-      }
-
-      submit.disabled = true;
-      status.textContent = 'Đang lưu thông tin...';
-      try {
-        const result = await postJson(payload);
-        if (!result || !result.success) {
-          throw new Error(result && (result.errorMessage || result.message || (result.errors || []).join(', ')) || 'Không lưu được thông tin.');
-        }
-        status.classList.add('success');
-        status.textContent = 'Đã lưu. Hệ thống đang mở lại theo đúng quyền được phân cấp...';
-        window.setTimeout(() => window.location.reload(), 450);
-      } catch (error) {
-        status.classList.add('error');
-        status.textContent = error.message || 'Không lưu được thông tin.';
-        submit.disabled = false;
-      }
-    });
+    deptSelect.disabled = departments.length === 0;
+    positionSelect.innerHTML = '<option value="">Chọn Vị trí</option>';
+    positionSelect.disabled = true;
+    submit.disabled = true;
+    if (profiles.length === 1) {
+      deptSelect.value = profiles[0].deptCode;
+      renderPositions();
+      setStatus('Đã tìm thấy một hồ sơ phù hợp.', 'success');
+    } else {
+      setStatus('Có nhiều hồ sơ trùng tên, vui lòng chọn đúng Phòng/Ban và Vị trí.');
+    }
   }
 
-  async function checkUser(user) {
-    currentUser = user;
-    if (!user) {
-      removeGate();
+  async function handleLookup() {
+    if (lookupInFlight) return;
+    const fullName = String(document.getElementById('qltdRegistrationName')?.value || '').trim();
+    if (!fullName) {
+      setStatus('Vui lòng nhập họ và tên.', 'error');
       return;
     }
-
-    setBodyState('qltd-registration-checking');
+    lookupInFlight = true;
+    setBusy(true);
+    setStatus('Đang tra cứu hồ sơ nhân sự...');
     try {
-      const profile = await getJson('profile', { email: user.email || '' });
-      if (profile && profile.success) {
-        removeGate();
-        return;
-      }
-      if (profile && profile.message === 'USER_NOT_FOUND') {
-        const options = await getJson('user_getregistrationoptions', { email: user.email || '' });
-        if (!options || options.success !== true) {
-          console.error('user_getregistrationoptions failed', options);
-          throw new Error(getApiErrorMessage(options, 'Không tải được danh mục đăng ký.'));
-        }
-        if (!Array.isArray(options.groups) || options.groups.length === 0) {
-          console.error('user_getregistrationoptions returned empty groups', options);
-          throw new Error(getApiErrorMessage({
-            errorCode: 'REGISTRATION_GROUPS_EMPTY',
-            errorMessage: 'Danh sách nhóm người dùng đang rỗng.'
-          }));
-        }
-        renderForm(user, options);
-        return;
-      }
-      if (profile && profile.message === 'USER_INACTIVE') {
-        renderMessage('Tài khoản đang bị khóa', 'Tài khoản đang ở trạng thái INACTIVE. Vui lòng liên hệ quản trị hệ thống.', { blocked: true, signOut: true });
-        return;
-      }
-      if (profile && profile.message === 'INVALID_ROLE') {
-        renderMessage('Vai trò chưa hợp lệ', 'Vai trò trong sheet Users chưa đúng cấu hình. Vui lòng liên hệ quản trị hệ thống.', { blocked: true, signOut: true });
-        return;
-      }
-      throw new Error(profile && (profile.errorMessage || profile.message) || 'Không kiểm tra được hồ sơ người dùng.');
+      const result = await options.lookup(fullName);
+      if (!result?.success) throw result;
+      renderLookupResults(result);
     } catch (error) {
-      renderMessage('Chưa kết nối được dữ liệu', error.message || 'Không kiểm tra được hồ sơ người dùng.', { blocked: true, retry: true, signOut: true });
+      profiles = [];
+      renderLookupResults({ profiles: [] });
+      setStatus(getRegistrationErrorMessage(error), 'error');
+    } finally {
+      lookupInFlight = false;
+      setBusy(false);
+      const deptSelect = document.getElementById('qltdRegistrationDept');
+      if (deptSelect) {
+        deptSelect.disabled = buildRegistrationDepartments(profiles).length === 0;
+        if (deptSelect.value) renderPositions();
+      }
+      const submit = document.getElementById('qltdRegistrationSubmit');
+      if (submit) submit.disabled = !document.getElementById('qltdRegistrationPosition')?.value;
     }
   }
 
-  function overrideGoogleLogin(initPromise) {
-    const button = document.getElementById('signInButton');
-    if (!button || button.dataset.qltdSignInOverride === '1') return;
-    button.dataset.qltdSignInOverride = '1';
-    button.addEventListener('click', async (event) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const status = document.getElementById('loginStatus');
-      try {
-        if (status) status.textContent = 'Đang mở Google Login...';
-        await initPromise;
-        const provider = new GoogleAuthProvider();
-        await signInWithPopup(auth, provider);
-      } catch (error) {
-        if (status) status.textContent = error.message || 'Đăng nhập thất bại.';
-      }
-    }, true);
+  async function handleRegister() {
+    if (registrationInFlight) return;
+    const empCode = String(document.getElementById('qltdRegistrationPosition')?.value || '').trim();
+    if (!empCode) {
+      setStatus('Vui lòng chọn đúng Phòng/Ban và Vị trí.', 'error');
+      return;
+    }
+    registrationInFlight = true;
+    setBusy(true);
+    setStatus('Đang hoàn tất đăng ký...');
+    try {
+      const result = await options.register(empCode);
+      if (!result?.success) throw result;
+      setStatus('Đăng ký thành công.', 'success');
+      await options.onRegistered(result);
+    } catch (error) {
+      setStatus(getRegistrationErrorMessage(error), 'error');
+      registrationInFlight = false;
+      setBusy(false);
+    }
   }
 
-  async function init() {
+  function show(user) {
     ensureStyles();
-    const [appModule, firebaseApp, firebaseAuth] = await Promise.all([
-      import(APP_MODULE),
-      import(FIREBASE_APP_MODULE),
-      import(FIREBASE_AUTH_MODULE)
-    ]);
-    apiUrl = appModule.APPS_SCRIPT_DEV_URL || '';
-    if (!apiUrl) throw new Error('Thiếu địa chỉ Apps Script API.');
-    auth = firebaseAuth.getAuth(firebaseApp.getApp());
-    signInWithPopup = firebaseAuth.signInWithPopup;
-    GoogleAuthProvider = firebaseAuth.GoogleAuthProvider;
-    signOut = firebaseAuth.signOut;
-    firebaseAuth.onAuthStateChanged(auth, checkUser);
+    hide();
+    profiles = [];
+    currentUser = user;
+    const gate = document.createElement('section');
+    gate.id = REGISTRATION_GATE_ID;
+    gate.className = 'qltd-registration-gate';
+    gate.innerHTML = `
+      <div class="qltd-registration-card">
+        <p>Entiz Project 360</p>
+        <h2>Hoàn tất thông tin tài khoản</h2>
+        <p>Tra cứu hồ sơ nhân sự để hệ thống tự xác định Phòng/Ban và quyền truy cập.</p>
+        <div class="qltd-registration-field"><label for="qltdRegistrationEmail">Gmail đang đăng nhập</label><input id="qltdRegistrationEmail" readonly></div>
+        <div class="qltd-registration-field"><label for="qltdRegistrationName">Họ và tên</label><input id="qltdRegistrationName" autocomplete="name"></div>
+        <div class="qltd-registration-actions"><button id="qltdRegistrationLookup" class="qltd-registration-primary" type="button">Tra cứu</button></div>
+        <div class="qltd-registration-grid">
+          <div class="qltd-registration-field"><label for="qltdRegistrationDept">Phòng/Ban</label><select id="qltdRegistrationDept" disabled><option value="">Chọn Phòng/Ban</option></select></div>
+          <div class="qltd-registration-field"><label for="qltdRegistrationPosition">Vị trí</label><select id="qltdRegistrationPosition" disabled><option value="">Chọn Vị trí</option></select></div>
+        </div>
+        <p id="qltdRegistrationStatus" class="qltd-registration-status" role="status"></p>
+        <div class="qltd-registration-actions">
+          <button id="qltdRegistrationSignOut" class="qltd-registration-secondary" type="button">Đăng xuất</button>
+          <button id="qltdRegistrationSubmit" class="qltd-registration-primary" type="button" disabled>Hoàn tất đăng ký</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(gate);
+    gate.querySelector('#qltdRegistrationEmail').value = currentUser?.email || '';
+    gate.querySelector('#qltdRegistrationName').value = currentUser?.displayName || '';
+    gate.querySelector('#qltdRegistrationLookup').addEventListener('click', handleLookup);
+    gate.querySelector('#qltdRegistrationDept').addEventListener('change', renderPositions);
+    gate.querySelector('#qltdRegistrationPosition').addEventListener('change', () => {
+      gate.querySelector('#qltdRegistrationSubmit').disabled = !gate.querySelector('#qltdRegistrationPosition').value;
+    });
+    gate.querySelector('#qltdRegistrationSubmit').addEventListener('click', handleRegister);
+    gate.querySelector('#qltdRegistrationSignOut').addEventListener('click', () => options.onSignOut());
   }
 
-  const initPromise = init().catch((error) => {
-    console.error('Cannot initialize registration gate', error);
-    renderMessage('Không khởi tạo được đăng nhập', error.message || 'Vui lòng tải lại trang.', { blocked: true, retry: true });
-    throw error;
-  });
-  overrideGoogleLogin(initPromise);
-})();
+  return { show, hide };
+}

@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {
+  buildRegistrationDepartments,
+  buildRegistrationPositions,
+  getRegistrationErrorMessage
+} from './registration-gate.js';
 
 const appSource = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
 const indexSource = fs.readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+const gateSource = fs.readFileSync(new URL('./registration-gate.js', import.meta.url), 'utf8');
 const apiSource = fs.readFileSync(new URL('../apps-script-dev-api/28_DEV_API.js', import.meta.url), 'utf8');
 const usersSource = fs.readFileSync(new URL('../apps-script-dev-api/29_USERS_SERVICE.js', import.meta.url), 'utf8');
 const projectsSource = fs.readFileSync(new URL('../apps-script-dev-api/31_PROJECTS_SERVICE.js', import.meta.url), 'utf8');
@@ -156,18 +162,90 @@ assert.equal(markReadRouteContext.qltdDevApiHandlePost_({ payload: {
   action: 'notifications_markread', email: 'spoofed@example.com', idToken: 'invalid', notificationId: 'NTF-1'
 } }).message, 'ID_TOKEN_INVALID');
 
-assert.match(indexSource, /id="registrationView"/);
-assert.match(indexSource, /id="registrationForm"/);
-assert.match(indexSource, /id="registrationUserGroup"/);
-assert.match(indexSource, /id="registrationDeptCode"/);
-assert.match(appSource, /async function showRegistrationGate/);
-assert.match(appSource, /async function handleRegistrationSubmit/);
-assert.match(appSource, /if \(registrationSubmitting \|\| !auth\?\.currentUser\) return/);
+assert.doesNotMatch(indexSource, /id="registrationView"/);
+assert.equal((indexSource.match(/\.\/assets\/entiz-logo\.svg/g) || []).length, 2);
+assert.match(gateSource, /export function createRegistrationGate/);
+assert.match(gateSource, /qltdRegistrationName/);
+assert.match(gateSource, /qltdRegistrationDept/);
+assert.match(gateSource, /qltdRegistrationPosition/);
+assert.doesNotMatch(gateSource, /userGroup|roleGroup|deptCode:\s*requiresDepartment/);
+assert.match(appSource, /createRegistrationGate\(\{/);
+assert.match(appSource, /user_lookupemployees/);
+assert.match(appSource, /postBackendJson\(\{ action: 'user_register', empCode \}\)/);
+assert.match(appSource, /onRegistered:\s*resumeAuthenticatedAppAfterRegistration/);
+assert.doesNotMatch(appSource, /user_getregistrationoptions|GUEST_VIEWER/);
 assert.match(appSource, /code === 'USER_NOT_FOUND' \|\| profile\.requiresRegistration === true/);
-assert.match(appSource, /showOnly\(els\.registrationView\)/);
-assert.doesNotMatch(appSource, /GUEST_VIEWER/);
+assert.match(appSource, /registrationGate\?\.show\(user\)/);
+assert.match(extractFunction(appSource, 'fetchBackendJson'), /const includeAuth = options\.auth !== false && action !== 'health'/);
+assert.match(extractFunction(appSource, 'fetchBackendJson'), /getIdToken\(forceRefresh\)/);
+assert.match(extractFunction(appSource, 'fetchBackendJson'), /ID_TOKEN_INVALID/);
+assert.match(extractFunction(appSource, 'postBackendJson'), /getIdToken\(forceRefresh\)/);
 assert.match(extractFunction(appSource, 'loadProjectsForSelector'), /fetchBackendJson\('listProjects',[\s\S]*\{ auth: true \}/);
-assert.match(extractFunction(appSource, 'loadProjectsForSelector'), /Không tải được danh sách dự án/);
+assert.match(extractFunction(appSource, 'renderApp'), /showWeb07View\('dashboard'\)/);
+assert.match(extractFunction(appSource, 'renderApp'), /loadProjectsForSelector\(\)/);
+
+const postRegistrationTrace = [];
+const registeredUser = {
+  getIdToken: async (forceRefresh) => {
+    postRegistrationTrace.push(`token:${forceRefresh}`);
+    return 'fresh-token';
+  }
+};
+const postRegistrationContext = vm.createContext({
+  auth: { currentUser: registeredUser },
+  registrationGate: { hide: () => postRegistrationTrace.push('hide') },
+  bootstrapAuthenticatedUser: async (user) => {
+    assert.equal(user, registeredUser);
+    postRegistrationTrace.push('bootstrap');
+  }
+});
+vm.runInContext(extractFunction(appSource, 'resumeAuthenticatedAppAfterRegistration'), postRegistrationContext);
+await postRegistrationContext.resumeAuthenticatedAppAfterRegistration();
+assert.deepEqual(postRegistrationTrace, ['token:true', 'hide', 'bootstrap']);
+
+const authFlowTrace = [];
+let nextProfile = { success: true, status: 'ACTIVE', role: 'PMO', email: 'existing@example.com' };
+const authFlowContext = vm.createContext({
+  authBootstrapRequestSeq: 0,
+  lastAuthenticatedUser: null,
+  els: { loginView: {} },
+  showOnly: () => {},
+  setStatus: () => {},
+  fetchBackendProfile: async () => nextProfile,
+  getProfileErrorCode: (profile) => String(profile?.errorCode || profile?.message || '').toUpperCase(),
+  registrationGate: { show: () => authFlowTrace.push('registration-gate') },
+  renderDenied: () => authFlowTrace.push('denied'),
+  renderApiError: () => authFlowTrace.push('api-error'),
+  isValidAppProfile: (profile) => profile?.success === true && profile?.status === 'ACTIVE',
+  renderApp: () => authFlowTrace.push('app')
+});
+vm.runInContext(extractFunction(appSource, 'bootstrapAuthenticatedUser'), authFlowContext);
+const existingUser = { email: 'existing@example.com' };
+await authFlowContext.bootstrapAuthenticatedUser(existingUser);
+assert.deepEqual(authFlowTrace, ['app'], 'existing user must enter the shared app bootstrap');
+
+nextProfile = { success: false, errorCode: 'USER_NOT_FOUND', requiresRegistration: true };
+await authFlowContext.bootstrapAuthenticatedUser({ email: 'new@example.com' });
+assert.deepEqual(authFlowTrace, ['app', 'registration-gate'], 'new user must stop at Registration Gate before registration');
+
+nextProfile = { success: true, status: 'ACTIVE', role: 'PMO', email: 'new@example.com' };
+await authFlowContext.bootstrapAuthenticatedUser({ email: 'new@example.com' });
+assert.deepEqual(authFlowTrace, ['app', 'registration-gate', 'app'], 'a reload after registration must enter the app without reopening the Gate');
+
+const employeeProfiles = [
+  { empCode: 'E1', deptCode: 'BLD', deptName: 'Ban lãnh đạo', position: 'Thành viên' },
+  { empCode: 'E2', deptCode: 'KINHDOANH', deptName: 'Kinh doanh', position: 'Trưởng phòng' },
+  { empCode: 'E3', deptCode: 'KINHDOANH', deptName: 'Kinh doanh', position: 'Chuyên viên' }
+];
+assert.deepEqual(buildRegistrationDepartments(employeeProfiles), [
+  { deptCode: 'BLD', deptName: 'Ban lãnh đạo' },
+  { deptCode: 'KINHDOANH', deptName: 'Kinh doanh' }
+]);
+assert.deepEqual(buildRegistrationPositions(employeeProfiles, 'KINHDOANH'), [
+  { empCode: 'E2', label: 'Trưởng phòng' },
+  { empCode: 'E3', label: 'Chuyên viên' }
+]);
+assert.match(getRegistrationErrorMessage({ errorCode: 'EMPLOYEE_ALREADY_LINKED' }), /Google khác/i);
 
 const profileContext = vm.createContext({
   normalizeRoleKey: (role) => String(role || '').trim().toUpperCase()

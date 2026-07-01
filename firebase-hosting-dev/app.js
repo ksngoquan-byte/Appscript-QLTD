@@ -27,6 +27,7 @@ import {
 } from './main-milestone-logic.js';
 import { buildDepartmentDashboardModel } from './department-dashboard.js';
 import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E4_ACTUAL_DATE_LIFECYCLE';
+import { createRegistrationGate } from './registration-gate.js?v=BUG7_EMPLOYEE_REGISTRATION_1';
 
 window.__QLTD_GANTT_PATCH_ROUND__ = 'GANTT_REQUEST_RACE_HOTFIX_3';
 
@@ -179,23 +180,11 @@ document.addEventListener('qltd:pb-detail-changed', (event) => {
 const els = {
   loginView: document.getElementById('loginView'),
   deniedView: document.getElementById('deniedView'),
-  registrationView: document.getElementById('registrationView'),
   appShell: document.getElementById('appShell'),
   signInButton: document.getElementById('signInButton'),
   signOutButton: document.getElementById('signOutButton'),
   deniedSignOutButton: document.getElementById('deniedSignOutButton'),
   retryProfileButton: document.getElementById('retryProfileButton'),
-  registrationForm: document.getElementById('registrationForm'),
-  registrationEmail: document.getElementById('registrationEmail'),
-  registrationDisplayName: document.getElementById('registrationDisplayName'),
-  registrationTitle: document.getElementById('registrationTitle'),
-  registrationUserGroup: document.getElementById('registrationUserGroup'),
-  registrationDepartmentField: document.getElementById('registrationDepartmentField'),
-  registrationDeptCode: document.getElementById('registrationDeptCode'),
-  registrationStatus: document.getElementById('registrationStatus'),
-  registrationSubmitButton: document.getElementById('registrationSubmitButton'),
-  registrationReloadButton: document.getElementById('registrationReloadButton'),
-  registrationSignOutButton: document.getElementById('registrationSignOutButton'),
   loginStatus: document.getElementById('loginStatus'),
   deniedEmail: document.getElementById('deniedEmail'),
   userAvatar: document.getElementById('userAvatar'),
@@ -223,7 +212,7 @@ let currentUserProfile = null;
 let currentPermissions = { ...DEFAULT_PERMISSIONS };
 let authBootstrapRequestSeq = 0;
 let lastAuthenticatedUser = null;
-let registrationSubmitting = false;
+let registrationGate = null;
 
 function getLocalRoleForEmail(email) {
   const normalizedEmail = String(email || '').toLowerCase();
@@ -249,19 +238,19 @@ function setStatus(message, type = 'info') {
 }
 
 function showOnly(view) {
-  [els.loginView, els.deniedView, els.registrationView, els.appShell].forEach((el) => {
+  [els.loginView, els.deniedView, els.appShell].forEach((el) => {
     if (!el) return;
     el.classList.toggle('hidden', el !== view);
   });
 }
 
 function renderSignedOut() {
+  registrationGate?.hide();
   clearWeeklyTaskSessionState();
   clearNotificationState();
   currentUserProfile = null;
   currentPermissions = { ...DEFAULT_PERMISSIONS };
   lastAuthenticatedUser = null;
-  registrationSubmitting = false;
   showOnly(els.loginView);
   setStatus(
     hasFirebaseConfig(firebaseConfig)
@@ -272,6 +261,7 @@ function renderSignedOut() {
 }
 
 function renderDenied(user, message = '') {
+  registrationGate?.hide();
   showOnly(els.deniedView);
 
   if (els.deniedEmail) {
@@ -9679,6 +9669,7 @@ async function loadDeptPlansForSelectedProject(projectCode) {
 async function fetchBackendJson(action, params = {}, options = {}) {
   const startedAt = performance.now();
   let forceRefresh = false;
+  const includeAuth = options.auth !== false && action !== 'health';
 
   while (true) {
     const url = new URL(APPS_SCRIPT_DEV_URL);
@@ -9690,7 +9681,7 @@ async function fetchBackendJson(action, params = {}, options = {}) {
       }
     });
 
-    if (options.auth && auth && auth.currentUser) {
+    if (includeAuth && auth && auth.currentUser) {
       url.searchParams.set('email', auth.currentUser.email || url.searchParams.get('email') || '');
       url.searchParams.set('idToken', await auth.currentUser.getIdToken(forceRefresh));
     }
@@ -9707,7 +9698,7 @@ async function fetchBackendJson(action, params = {}, options = {}) {
 
     const payload = await response.json();
     const message = String(payload?.errorCode || payload?.message || '').trim().toUpperCase();
-    if (options.auth && forceRefresh === false && (message === 'ID_TOKEN_INVALID' || message === 'ID_TOKEN_EXPIRED')) {
+    if (includeAuth && forceRefresh === false && (message === 'ID_TOKEN_INVALID' || message === 'ID_TOKEN_EXPIRED')) {
       forceRefresh = true;
       continue;
     }
@@ -9717,12 +9708,13 @@ async function fetchBackendJson(action, params = {}, options = {}) {
   }
 }
 
-async function fetchBackendProfile(email) {
+async function fetchBackendProfile() {
   await fetchBackendJson('health');
-  return fetchBackendJson('profile', { email }, { auth: true });
+  return fetchBackendJson('profile');
 }
 
 function renderApp(user, role, profile = {}) {
+  registrationGate?.hide();
   showOnly(els.appShell);
   const effectiveProfile = {
     ...profile,
@@ -9761,120 +9753,6 @@ function isValidAppProfile(profile) {
     ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER'].includes(normalizeRoleKey(profile.role));
 }
 
-function setRegistrationStatus(message, type = 'info') {
-  if (!els.registrationStatus) return;
-  els.registrationStatus.textContent = message || '';
-  els.registrationStatus.dataset.type = type;
-}
-
-function updateRegistrationDepartmentVisibility() {
-  const group = String(els.registrationUserGroup?.value || '').trim().toUpperCase();
-  const requiresDepartment = group === 'DEPT_MANAGER' || group === 'EMPLOYEE';
-  if (els.registrationDepartmentField) els.registrationDepartmentField.classList.toggle('hidden', !requiresDepartment);
-  if (els.registrationDeptCode) {
-    els.registrationDeptCode.required = requiresDepartment;
-    els.registrationDeptCode.disabled = !requiresDepartment;
-    if (!requiresDepartment) els.registrationDeptCode.value = '';
-  }
-}
-
-function populateRegistrationOptions(options = {}) {
-  if (els.registrationUserGroup) {
-    els.registrationUserGroup.innerHTML = '<option value="">Chọn nhóm người dùng</option>';
-    (Array.isArray(options.groups) ? options.groups : []).forEach((group) => {
-      const option = document.createElement('option');
-      option.value = String(group.code || '');
-      option.textContent = String(group.name || group.code || '');
-      els.registrationUserGroup.appendChild(option);
-    });
-  }
-  if (els.registrationDeptCode) {
-    els.registrationDeptCode.innerHTML = '<option value="">Chọn phòng/ban</option>';
-    (Array.isArray(options.departments) ? options.departments : []).forEach((department) => {
-      const option = document.createElement('option');
-      option.value = String(department.deptCode || '');
-      option.textContent = `${department.deptCode || ''} - ${department.deptName || department.deptCode || ''}`;
-      els.registrationDeptCode.appendChild(option);
-    });
-  }
-  updateRegistrationDepartmentVisibility();
-}
-
-async function showRegistrationGate(user) {
-  showOnly(els.registrationView);
-  if (els.registrationEmail) els.registrationEmail.textContent = user?.email || '';
-  if (els.registrationDisplayName && !els.registrationDisplayName.value) {
-    els.registrationDisplayName.value = user?.displayName || '';
-  }
-  if (els.registrationSubmitButton) els.registrationSubmitButton.disabled = true;
-  if (els.registrationReloadButton) els.registrationReloadButton.classList.add('hidden');
-  setRegistrationStatus('Đang tải danh mục khai báo...', 'info');
-
-  try {
-    const options = await fetchBackendJson('user_getregistrationoptions', {
-      email: user?.email || ''
-    }, { auth: true });
-    if (!options.success) throw new Error(options.errorMessage || options.message || 'Không tải được danh mục khai báo.');
-    populateRegistrationOptions(options);
-    if (els.registrationSubmitButton) els.registrationSubmitButton.disabled = false;
-    setRegistrationStatus('Vui lòng khai báo đầy đủ thông tin để tiếp tục.', 'success');
-  } catch (error) {
-    if (els.registrationSubmitButton) els.registrationSubmitButton.disabled = true;
-    if (els.registrationReloadButton) els.registrationReloadButton.classList.remove('hidden');
-    setRegistrationStatus(error.message || 'Không tải được biểu mẫu khai báo. Vui lòng thử lại.', 'error');
-  }
-}
-
-async function handleRegistrationSubmit(event) {
-  event?.preventDefault();
-  if (registrationSubmitting || !auth?.currentUser) return;
-
-  const displayName = String(els.registrationDisplayName?.value || '').trim();
-  const title = String(els.registrationTitle?.value || '').trim();
-  const userGroup = String(els.registrationUserGroup?.value || '').trim().toUpperCase();
-  const requiresDepartment = userGroup === 'DEPT_MANAGER' || userGroup === 'EMPLOYEE';
-  const deptCode = requiresDepartment ? String(els.registrationDeptCode?.value || '').trim() : '';
-  if (!displayName || !title || !userGroup || (requiresDepartment && !deptCode)) {
-    setRegistrationStatus('Vui lòng nhập đầy đủ thông tin bắt buộc.', 'error');
-    return;
-  }
-
-  registrationSubmitting = true;
-  if (els.registrationSubmitButton) {
-    els.registrationSubmitButton.disabled = true;
-    els.registrationSubmitButton.textContent = 'Đang lưu...';
-  }
-  setRegistrationStatus('Đang ghi nhận thông tin người dùng...', 'info');
-
-  try {
-    const result = await postBackendJson({
-      action: 'user_register',
-      displayName,
-      title,
-      userGroup,
-      deptCode
-    });
-    if (!result.success) {
-      const code = getProfileErrorCode(result);
-      if (code === 'USER_INACTIVE' || code === 'INVALID_ROLE') {
-        renderDenied(auth.currentUser, result.errorMessage || result.message);
-        return;
-      }
-      throw new Error(result.errorMessage || result.message || 'Không thể hoàn tất khai báo.');
-    }
-    setRegistrationStatus('Đăng ký thành công. Đang tải hồ sơ...', 'success');
-    await bootstrapAuthenticatedUser(auth.currentUser);
-  } catch (error) {
-    setRegistrationStatus(error.message || 'Không thể hoàn tất khai báo. Vui lòng thử lại.', 'error');
-  } finally {
-    registrationSubmitting = false;
-    if (els.registrationSubmitButton) {
-      els.registrationSubmitButton.disabled = false;
-      els.registrationSubmitButton.textContent = 'Hoàn tất khai báo';
-    }
-  }
-}
-
 async function bootstrapAuthenticatedUser(user) {
   const requestSeq = ++authBootstrapRequestSeq;
   lastAuthenticatedUser = user;
@@ -9882,13 +9760,13 @@ async function bootstrapAuthenticatedUser(user) {
   setStatus('Đang kiểm tra hồ sơ người dùng...', 'info');
 
   try {
-    const profile = await fetchBackendProfile(user.email);
+    const profile = await fetchBackendProfile();
     if (requestSeq !== authBootstrapRequestSeq) return;
 
     if (!profile.success) {
       const code = getProfileErrorCode(profile);
       if (code === 'USER_NOT_FOUND' || profile.requiresRegistration === true) {
-        await showRegistrationGate(user);
+        registrationGate?.show(user);
         return;
       }
       if (code === 'USER_INACTIVE') {
@@ -9913,6 +9791,14 @@ async function bootstrapAuthenticatedUser(user) {
   }
 }
 
+async function resumeAuthenticatedAppAfterRegistration() {
+  const user = auth?.currentUser;
+  if (!user) throw new Error('Phiên đăng nhập không còn hiệu lực.');
+  await user.getIdToken(true);
+  registrationGate?.hide();
+  await bootstrapAuthenticatedUser(user);
+}
+
 function renderApiError(user, error) {
   console.error('Apps Script DEV API connection failed', error);
   renderDenied(user, 'Không tải được hồ sơ người dùng. Vui lòng kiểm tra kết nối và thử lại.');
@@ -9926,6 +9812,7 @@ async function handleSignIn() {
   }
 
   const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
 
   try {
     setStatus('\u0110ang m\u1edf Google Login...', 'info');
@@ -9952,6 +9839,12 @@ function boot() {
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  registrationGate = createRegistrationGate({
+    lookup: (fullName) => postBackendJson({ action: 'user_lookupemployees', fullName }),
+    register: (empCode) => postBackendJson({ action: 'user_register', empCode }),
+    onRegistered: resumeAuthenticatedAppAfterRegistration,
+    onSignOut: handleSignOut
+  });
   window.__qltdGetAuthContext = async (forceRefresh = false) => {
     const user = auth?.currentUser;
     if (!user) throw new Error('Phiên đăng nhập không còn hiệu lực.');
@@ -9977,12 +9870,6 @@ if (els.deniedSignOutButton) els.deniedSignOutButton.addEventListener('click', h
 if (els.retryProfileButton) els.retryProfileButton.addEventListener('click', () => {
   if (lastAuthenticatedUser) bootstrapAuthenticatedUser(lastAuthenticatedUser);
 });
-if (els.registrationForm) els.registrationForm.addEventListener('submit', handleRegistrationSubmit);
-if (els.registrationUserGroup) els.registrationUserGroup.addEventListener('change', updateRegistrationDepartmentVisibility);
-if (els.registrationReloadButton) els.registrationReloadButton.addEventListener('click', () => {
-  if (lastAuthenticatedUser) showRegistrationGate(lastAuthenticatedUser);
-});
-if (els.registrationSignOutButton) els.registrationSignOutButton.addEventListener('click', handleSignOut);
 if (els.notificationBellButton) els.notificationBellButton.addEventListener('click', () => setNotificationPanelOpen(!qltdNotificationState.open));
 if (els.notificationCloseButton) els.notificationCloseButton.addEventListener('click', () => setNotificationPanelOpen(false));
 if (els.notificationBackdrop) els.notificationBackdrop.addEventListener('click', () => setNotificationPanelOpen(false));
