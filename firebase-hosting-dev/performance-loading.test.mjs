@@ -6,7 +6,7 @@ const app = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
 
 assert.equal(html.includes('src="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.js"'), false);
 assert.equal(html.includes('rel="preconnect" href="https://script.google.com"'), true);
-assert.equal(html.includes('app.js?v=SCHEDULE_RECALC_GATE5A_1'), true);
+assert.equal(html.includes('app.js?v=GANTT_REQUEST_RACE_HOTFIX_3'), true);
 assert.equal(app.includes('function ensureDhtmlxGanttLoaded()'), true);
 
 console.log('performance-loading.test.mjs: PASS');

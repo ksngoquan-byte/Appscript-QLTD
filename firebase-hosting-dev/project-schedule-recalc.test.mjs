@@ -29,6 +29,18 @@ assert.match(recalculate, /qltdDepartmentDashboardCache\.delete\(code\)/);
 assert.match(recalculate, /loadGanttDataForSelectedProject\(code,\s*\{\s*forceRefresh:\s*true\s*\}\)/);
 assert.match(recalculate, /scheduleState:\s*'DIRTY'/);
 assert.match(recalculate, /qltdProjectScheduleRecalcInFlight\.delete\(code\)/);
+assert.equal((recalculate.match(/refreshProjectScheduleControlInPlace\(code\)/g) || []).length, 2);
+assert.doesNotMatch(recalculate, /renderGanttPanel\(/, 'Schedule state updates must not reset DHTMLX.');
+
+const scheduleControlRefresh = extractFunction(appSource, 'refreshProjectScheduleControlInPlace', 'handleProjectScheduleRecalculate');
+assert.match(scheduleControlRefresh, /control\.outerHTML = renderProjectScheduleControl\(code\)/);
+assert.match(scheduleControlRefresh, /bindProjectScheduleRecalculateButton\(code\)/);
+assert.doesNotMatch(scheduleControlRefresh, /resetWeb07DhtmlxGantt|renderGanttPanel|clearAll/);
+
+const viewLifecycle = extractFunction(appSource, 'showWeb07View', 'bindWeb07Navigation');
+assert.match(viewLifecycle, /ganttLoadStarted/);
+assert.match(viewLifecycle, /viewLoadPromise = loadGanttDataForSelectedProject\(projectCode\)/);
+assert.doesNotMatch(viewLifecycle, /setTimeout\(/, 'Gantt activation must not rely on an arbitrary render timeout.');
 
 const loadGantt = extractFunction(appSource, 'qltdWeb07LoadGanttDataForSelectedProject', 'renderDashboardLoading');
 assert.match(loadGantt, /loadProjectScheduleState\(projectCode,\s*\{\s*render:\s*false\s*\}\)/);
@@ -42,6 +54,7 @@ assert.match(dispatcherSource, /action === 'getprojectschedulestate'/);
 assert.match(dispatcherSource, /qltdProjectScheduleGetStateApi_/);
 assert.match(dispatcherSource, /action === 'recalculateprojectschedule'/);
 assert.match(dispatcherSource, /qltdProjectScheduleRecalculate_/);
-assert.match(indexSource, /app\.js\?v=SCHEDULE_RECALC_GATE5A_1/);
+assert.match(indexSource, /app\.js\?v=GANTT_REQUEST_RACE_HOTFIX_3/);
+assert.match(indexSource, /__QLTD_GANTT_PATCH_ROUND__ = 'GANTT_REQUEST_RACE_HOTFIX_3'/);
 
 console.log('Project schedule recalculation frontend: PASS');

@@ -130,12 +130,17 @@ function extractFunction(source, name) {
 
 const helpersSource = [
   'const qltdGanttDataRequests = new Map();',
+  'let qltdGanttRequestTail = Promise.resolve();',
   'const QLTD_GANTT_REQUEST_TIMEOUT_MS = 40000;',
   'const QLTD_GANTT_BUSY_RETRY_DELAY_MS = 1500;',
+  'const QLTD_GANTT_BUSY_MAX_DELAY_MS = 6000;',
+  'const QLTD_GANTT_BUSY_MAX_ATTEMPTS = 4;',
   extractFunction(appSource, 'qltdWeb07GetOrCreateGanttRequest'),
   extractFunction(appSource, 'qltdWeb07IsGanttBusyResponse'),
   extractFunction(appSource, 'qltdWeb07Delay'),
-  extractFunction(appSource, 'qltdWeb07FetchGanttPayload')
+  extractFunction(appSource, 'qltdWeb07GetGanttBusyRetryDelay'),
+  extractFunction(appSource, 'qltdWeb07FetchGanttPayload'),
+  extractFunction(appSource, 'qltdWeb07RequestGanttPayload')
 ].join('\n');
 
 const context = {
@@ -146,12 +151,13 @@ const context = {
   Number,
   Promise,
   String,
+  console: { warn() {} },
   window: { setTimeout, clearTimeout },
   fetchBackendJson: () => { throw new Error('A test fetcher is required'); }
 };
 vm.createContext(context);
 assert.doesNotThrow(() => new vm.Script(helpersSource));
-vm.runInContext(`${helpersSource}\nthis.api = { qltdWeb07GetOrCreateGanttRequest, qltdWeb07FetchGanttPayload };`, context);
+vm.runInContext(`${helpersSource}\nthis.api = { qltdWeb07GetOrCreateGanttRequest, qltdWeb07FetchGanttPayload, qltdWeb07RequestGanttPayload };`, context);
 
 test('extractor handles async defaults and ignores comment/string lookalikes', () => {
   const fixture = [
@@ -180,6 +186,7 @@ test('two calls for one project share a single physical request', async () => {
   const second = context.api.qltdWeb07GetOrCreateGanttRequest('P1', factory);
   assert.equal(first, second);
   await Promise.resolve();
+  await Promise.resolve();
   assert.equal(factoryCalls, 1);
   resolveRequest({ success: true });
   await first;
@@ -192,6 +199,51 @@ test('two calls for one project share a single physical request', async () => {
   assert.equal(factoryCalls, 2);
 });
 
+test('requests for different projects and force refreshes run in one physical lane', async () => {
+  const events = [];
+  let releaseFirst;
+  const first = context.api.qltdWeb07GetOrCreateGanttRequest('P1', () => {
+    events.push('P1:start');
+    return new Promise((resolve) => {
+      releaseFirst = () => {
+        events.push('P1:end');
+        resolve({ success: true });
+      };
+    });
+  });
+  const second = context.api.qltdWeb07GetOrCreateGanttRequest('P2', async () => {
+    events.push('P2:start');
+    return { success: true };
+  });
+  const forced = context.api.qltdWeb07GetOrCreateGanttRequest('P2::force', async () => {
+    events.push('P2:force:start');
+    return { success: true };
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(events, ['P1:start']);
+  releaseFirst();
+  await Promise.all([first, second, forced]);
+  assert.deepEqual(events, ['P1:start', 'P1:end', 'P2:start', 'P2:force:start']);
+});
+
+test('a failed physical request does not block the next project', async () => {
+  const events = [];
+  const failed = context.api.qltdWeb07GetOrCreateGanttRequest('FAIL', async () => {
+    events.push('FAIL');
+    throw new Error('expected failure');
+  });
+  const next = context.api.qltdWeb07GetOrCreateGanttRequest('NEXT', async () => {
+    events.push('NEXT');
+    return { success: true };
+  });
+
+  await assert.rejects(failed, /expected failure/);
+  assert.equal((await next).success, true);
+  assert.deepEqual(events, ['FAIL', 'NEXT']);
+});
+
 test('Gantt request aborts with a controlled timeout', async () => {
   const fetcher = (action, params, options) => new Promise((resolve, reject) => {
     options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
@@ -202,26 +254,39 @@ test('Gantt request aborts with a controlled timeout', async () => {
   );
 });
 
-test('GANTT_BUSY_RETRY waits once and then succeeds', async () => {
+test('GANTT_BUSY_RETRY three times then succeeds on the fourth attempt', async () => {
   let requestCount = 0;
   let delayCount = 0;
+  const delayValues = [];
+  let activeRequests = 0;
+  let maxActiveRequests = 0;
   const result = await context.api.qltdWeb07FetchGanttPayload('P1', {
     timeoutMs: 1000,
     fetcher: async () => {
       requestCount += 1;
-      return requestCount === 1
+      activeRequests += 1;
+      maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+      await Promise.resolve();
+      activeRequests -= 1;
+      return requestCount < 4
         ? { success: false, error: 'GANTT_BUSY_RETRY', retryAfterMs: 1 }
         : { success: true, data: [{ id: '1' }] };
     },
-    delay: async () => { delayCount += 1; }
+    delay: async (ms) => {
+      delayCount += 1;
+      delayValues.push(ms);
+    }
   });
   assert.equal(result.success, true);
-  assert.equal(requestCount, 2);
-  assert.equal(delayCount, 1);
+  assert.equal(requestCount, 4);
+  assert.equal(delayCount, 3);
+  assert.deepEqual(delayValues, [1500, 3000, 6000]);
+  assert.equal(maxActiveRequests, 1);
 });
 
-test('GANTT_BUSY_RETRY never loops beyond one retry', async () => {
+test('GANTT_BUSY_RETRY stops at the bounded maximum', async () => {
   let requestCount = 0;
+  let retryNotices = 0;
   await assert.rejects(
     context.api.qltdWeb07FetchGanttPayload('P1', {
       timeoutMs: 1000,
@@ -229,11 +294,13 @@ test('GANTT_BUSY_RETRY never loops beyond one retry', async () => {
         requestCount += 1;
         return { success: false, error: 'GANTT_BUSY_RETRY' };
       },
-      delay: async () => {}
+      delay: async () => {},
+      onBusyRetry: () => { retryNotices += 1; }
     }),
     (error) => error.code === 'GANTT_BUSY_RETRY'
   );
-  assert.equal(requestCount, 2);
+  assert.equal(requestCount, 4);
+  assert.equal(retryNotices, 3);
 });
 
 test('ganttData fetch passes AbortController signal and auto-load is view scoped', () => {
@@ -241,4 +308,132 @@ test('ganttData fetch passes AbortController signal and auto-load is view scoped
   assert.match(fetchSource, /signal: options\.signal/);
   const projectOptionsSource = extractFunction(appSource, 'renderProjectOptions');
   assert.match(projectOptionsSource, /qltdActiveView === 'dashboard' \|\| qltdActiveView === 'gantt'/);
+});
+
+test('loader protects current project from stale success and stale error rendering', () => {
+  const loaderSource = extractFunction(appSource, 'qltdWeb07LoadGanttDataForSelectedProject');
+  assert.match(loaderSource, /const requestSeq = \+\+qltdGanttLoadRequestSeq/);
+  assert.equal(
+    (loaderSource.match(/!qltdWeb07IsCurrentGanttLoad\(projectCode, requestSeq\)/g) || []).length,
+    2,
+    'Both success and error paths must reject stale UI writes.'
+  );
+  assert.match(loaderSource, /return payload/);
+  assert.match(loaderSource, /return null/);
+  assert.match(loaderSource, /onBusyRetry/);
+  assert.match(loaderSource, /renderGanttBusyRetry\(projectCode, retryState\)/);
+});
+
+test('A becomes stale during backoff and only the newly selected B is current', () => {
+  let selectedProjectCode = 'A';
+  const staleContext = {
+    String,
+    document: {
+      getElementById: () => ({ get value() { return selectedProjectCode; } })
+    },
+    getStoredProjectCode: () => ''
+  };
+  vm.createContext(staleContext);
+  vm.runInContext(`let qltdGanttLoadRequestSeq = 1;\n${extractFunction(appSource, 'qltdWeb07IsCurrentGanttLoad')}\nthis.isCurrent = qltdWeb07IsCurrentGanttLoad;\nthis.nextRequest = () => { qltdGanttLoadRequestSeq += 1; };`, staleContext);
+
+  assert.equal(staleContext.isCurrent('A', 1), true);
+  selectedProjectCode = 'B';
+  assert.equal(staleContext.isCurrent('A', 1), false);
+  staleContext.nextRequest();
+  assert.equal(staleContext.isCurrent('B', 2), true);
+});
+
+test('all frontend ganttData physical calls go through the shared coordinator', () => {
+  assert.equal((appSource.match(/fetchBackendJson\s*\(\s*['"]ganttData['"]/g) || []).length, 0);
+  assert.equal((appSource.match(/fetcher\s*\(\s*['"]ganttData['"]/g) || []).length, 1);
+  const departmentSource = extractFunction(appSource, 'getDepartmentDashboardPayloads');
+  assert.match(departmentSource, /qltdWeb07RequestGanttPayload\(code/);
+  assert.doesNotMatch(departmentSource, /fetchBackendJson\s*\(/);
+});
+
+test('department dashboard A/B/C uses the physical lane, preserves cache, and continues after error', async () => {
+  let activeRequests = 0;
+  let maxActiveRequests = 0;
+  const requested = [];
+  const dashboardContext = {
+    AbortController,
+    Error,
+    Map,
+    Math,
+    Number,
+    Promise,
+    String,
+    console: { warn() {} },
+    window: { setTimeout, clearTimeout },
+    qltdProjectRegistry: ['A', 'B', 'C'].map((projectCode) => ({ projectCode })),
+    qltdDepartmentDashboardCache: new Map(),
+    fetchBackendJson: async (_action, params) => {
+      requested.push(params.projectCode);
+      activeRequests += 1;
+      maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+      await Promise.resolve();
+      activeRequests -= 1;
+      if (params.projectCode === 'B') throw new Error('B failed');
+      return { success: true, projectCode: params.projectCode, data: [] };
+    }
+  };
+  vm.createContext(dashboardContext);
+  vm.runInContext(`${helpersSource}\n${extractFunction(appSource, 'getDepartmentDashboardPayloads')}\nthis.runDashboard = getDepartmentDashboardPayloads;`, dashboardContext);
+
+  const result = await dashboardContext.runDashboard('', false);
+  assert.deepEqual(requested, ['A', 'B', 'C']);
+  assert.equal(maxActiveRequests, 1);
+  assert.deepEqual(Array.from(dashboardContext.qltdDepartmentDashboardCache.keys()), ['A', 'C']);
+  assert.equal(result.payloads.length, 2);
+  assert.equal(result.warnings.length, 1);
+});
+
+test('terminal error exposes one Retry handler through the current project coordinator', () => {
+  const errorSource = extractFunction(appSource, 'renderGanttError');
+  assert.match(errorSource, /id="ganttRetryButton"/);
+  assert.match(errorSource, /projectSelector/);
+  assert.match(errorSource, /loadGanttDataForSelectedProject\(projectCode, \{ forceRefresh: true \}\)/);
+  assert.equal((errorSource.match(/loadGanttDataForSelectedProject\(/g) || []).length, 1);
+
+  const loaderSource = extractFunction(appSource, 'qltdWeb07LoadGanttDataForSelectedProject');
+  assert.equal((loaderSource.match(/renderGanttError\(error\)/g) || []).length, 1);
+});
+
+test('stale project render cannot mutate DHTMLX after the container wait', async () => {
+  const oldContainer = { querySelector: () => null };
+  const newContainer = { querySelector: () => null };
+  let currentContainer = oldContainer;
+  let releaseContainerWait;
+  let ganttMutations = 0;
+  const renderContext = {
+    document: {
+      getElementById: (id) => id === 'web07GanttContainer' ? currentContainer : null
+    },
+    qltdWeb07EnsureGanttPolishStyles() {},
+    qltdWeb07DecorateGanttToolbar() {},
+    qltdWeb07BindExcelButton() {},
+    qltdPrepareDhtmlxTask: (task) => task,
+    ensureDhtmlxGanttLoaded: async () => ({
+      init: () => { ganttMutations += 1; },
+      clearAll: () => { ganttMutations += 1; },
+      parse: () => { ganttMutations += 1; }
+    }),
+    qltdWeb07WaitForRenderableGanttContainer: () => new Promise((resolve) => {
+      releaseContainerWait = resolve;
+    }),
+    requestAnimationFrame: () => { throw new Error('stale render must not schedule a final frame'); }
+  };
+  vm.createContext(renderContext);
+  vm.runInContext(`let qltdDhtmlxGanttRenderSeq = 0;\n${extractFunction(appSource, 'qltdWeb07OwnsGanttRender')}\n${extractFunction(appSource, 'initDhtmlxGantt')}\nthis.startRender = initDhtmlxGantt;\nthis.invalidateRender = () => { qltdDhtmlxGanttRenderSeq += 1; };`, renderContext);
+
+  const staleRender = renderContext.startRender([{ id: 'A', text: 'A' }], []);
+  for (let index = 0; index < 8 && typeof releaseContainerWait !== 'function'; index += 1) {
+    await Promise.resolve();
+  }
+  assert.equal(typeof releaseContainerWait, 'function');
+  currentContainer = newContainer;
+  renderContext.invalidateRender();
+  releaseContainerWait(true);
+  await staleRender;
+  assert.equal(ganttMutations, 0);
 });

@@ -28,7 +28,7 @@ import {
 import { buildDepartmentDashboardModel } from './department-dashboard.js';
 import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E4_ACTUAL_DATE_LIFECYCLE';
 
-window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
+window.__QLTD_GANTT_PATCH_ROUND__ = 'GANTT_REQUEST_RACE_HOTFIX_3';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBWQoAi2VwMG0Aygckuv1H3CrlNgn_MJQY',
@@ -75,8 +75,12 @@ let qltdGanttBudgetRequestSeq = 0;
 const qltdGanttBudgetCache = new Map();
 const qltdGanttBudgetLoadingProjects = new Set();
 const qltdGanttDataRequests = new Map();
+let qltdGanttRequestTail = Promise.resolve();
+let qltdGanttLoadRequestSeq = 0;
 const QLTD_GANTT_REQUEST_TIMEOUT_MS = 40000;
 const QLTD_GANTT_BUSY_RETRY_DELAY_MS = 1500;
+const QLTD_GANTT_BUSY_MAX_DELAY_MS = 6000;
+const QLTD_GANTT_BUSY_MAX_ATTEMPTS = 4;
 let qltdBudgetSyncRunning = false;
 let qltdActiveView = 'dashboard';
 let qltdDhtmlxLoadPromise = null;
@@ -1798,6 +1802,7 @@ function ensureWeb07Panels() {
 
 function showWeb07View(viewName, options = {}) {
   let viewLoadPromise = null;
+  let ganttLoadStarted = false;
   qltdActiveView = viewName;
   ensureWeb07Panels();
   if (viewName === 'report') ensureDeptPlanPanel();
@@ -1845,15 +1850,17 @@ function showWeb07View(viewName, options = {}) {
       !qltdGanttPayload ||
       String(qltdGanttPayload.projectCode || '') !== String(projectCode)
     );
-    if (needsGanttData) loadGanttDataForSelectedProject(projectCode);
+    if (needsGanttData) {
+      ganttLoadStarted = true;
+      viewLoadPromise = loadGanttDataForSelectedProject(projectCode);
+    }
   }
 
-  if (viewName === 'gantt') {
-    setTimeout(() => {
-      const gantt = getDhtmlxGanttInstance();
-      if (gantt && gantt.setSizes) gantt.setSizes();
-      if (qltdGanttPayload) renderGanttPanel(qltdGanttPayload);
-    }, 80);
+  if (viewName === 'gantt' && !ganttLoadStarted) {
+    const projectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+    if (qltdGanttPayload && String(qltdGanttPayload.projectCode || '') === String(projectCode)) {
+      renderGanttPanel(qltdGanttPayload);
+    }
   }
 
   if (viewName === 'report') {
@@ -5726,7 +5733,7 @@ async function loadProjectScheduleState(projectCode, options = {}) {
     }
     const state = normalizeProjectScheduleState(result, code);
     qltdProjectScheduleStates.set(code, state);
-    if (options.render !== false && qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+    if (options.render !== false) refreshProjectScheduleControlInPlace(code);
     return state;
   } catch (error) {
     const previous = qltdProjectScheduleStates.get(code) || {
@@ -5737,7 +5744,7 @@ async function loadProjectScheduleState(projectCode, options = {}) {
       recalculatedAt: ''
     };
     qltdProjectScheduleStates.set(code, { ...previous, error: error.message || String(error) });
-    if (options.render !== false && qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+    if (options.render !== false) refreshProjectScheduleControlInPlace(code);
     return null;
   }
 }
@@ -5765,11 +5772,28 @@ function renderProjectScheduleControl(projectCode) {
   `;
 }
 
+function bindProjectScheduleRecalculateButton(projectCode) {
+  const code = String(projectCode || '').trim();
+  const button = document.getElementById('projectScheduleRecalculateButton');
+  if (!button || !code) return;
+  button.onclick = () => handleProjectScheduleRecalculate(code);
+}
+
+function refreshProjectScheduleControlInPlace(projectCode) {
+  const code = String(projectCode || '').trim();
+  if (!code || qltdGanttPayload?.projectCode !== code) return false;
+  const control = document.getElementById('projectScheduleControl');
+  if (!control) return false;
+  control.outerHTML = renderProjectScheduleControl(code);
+  bindProjectScheduleRecalculateButton(code);
+  return true;
+}
+
 async function handleProjectScheduleRecalculate(projectCode) {
   const code = String(projectCode || '').trim();
   if (!code || !canAdmin() || qltdProjectScheduleRecalcInFlight.has(code)) return;
   qltdProjectScheduleRecalcInFlight.add(code);
-  if (qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+  refreshProjectScheduleControlInPlace(code);
 
   try {
     const result = await postBackendJson({
@@ -5804,7 +5828,7 @@ async function handleProjectScheduleRecalculate(projectCode) {
     });
   } finally {
     qltdProjectScheduleRecalcInFlight.delete(code);
-    if (qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+    refreshProjectScheduleControlInPlace(code);
   }
 }
 
@@ -5814,7 +5838,9 @@ function qltdWeb07GetOrCreateGanttRequest(projectCode, factory) {
   const inFlight = qltdGanttDataRequests.get(code);
   if (inFlight) return inFlight;
 
-  const request = Promise.resolve().then(factory);
+  const startRequest = () => Promise.resolve().then(factory);
+  const request = qltdGanttRequestTail.then(startRequest, startRequest);
+  qltdGanttRequestTail = request.catch(() => null);
   qltdGanttDataRequests.set(code, request);
   const clearRequest = () => {
     if (qltdGanttDataRequests.get(code) === request) qltdGanttDataRequests.delete(code);
@@ -5834,13 +5860,31 @@ function qltdWeb07Delay(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(ms || 0))));
 }
 
+function qltdWeb07GetGanttBusyRetryDelay(payload, attempt) {
+  const backoffMs = QLTD_GANTT_BUSY_RETRY_DELAY_MS * Math.pow(2, Math.max(0, Number(attempt || 1) - 1));
+  const retryAfterMs = Number(payload?.retryAfterMs || 0);
+  const preferredMs = Number.isFinite(retryAfterMs) && retryAfterMs > 0
+    ? Math.max(retryAfterMs, backoffMs)
+    : backoffMs;
+  return Math.min(QLTD_GANTT_BUSY_MAX_DELAY_MS, preferredMs);
+}
+
+function qltdWeb07IsCurrentGanttLoad(projectCode, requestSeq) {
+  const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+  return requestSeq === qltdGanttLoadRequestSeq &&
+    (!selectedProjectCode || String(selectedProjectCode) === String(projectCode));
+}
+
 async function qltdWeb07FetchGanttPayload(projectCode, options = {}) {
   const timeoutMs = Number(options.timeoutMs || QLTD_GANTT_REQUEST_TIMEOUT_MS);
-  const retryDelayMs = Number(options.retryDelayMs || QLTD_GANTT_BUSY_RETRY_DELAY_MS);
+  const requestedMaxAttempts = Number(options.maxAttempts || QLTD_GANTT_BUSY_MAX_ATTEMPTS);
+  const maxAttempts = Number.isFinite(requestedMaxAttempts) && requestedMaxAttempts > 0
+    ? Math.floor(requestedMaxAttempts)
+    : QLTD_GANTT_BUSY_MAX_ATTEMPTS;
   const fetcher = options.fetcher || fetchBackendJson;
   const delay = options.delay || qltdWeb07Delay;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
     let payload;
@@ -5861,8 +5905,22 @@ async function qltdWeb07FetchGanttPayload(projectCode, options = {}) {
     }
 
     if (!qltdWeb07IsGanttBusyResponse(payload)) return payload;
-    if (attempt === 0) {
-      await delay(Number(payload.retryAfterMs || retryDelayMs));
+    if (attempt < maxAttempts) {
+      const configuredDelayMs = Number(options.retryDelayMs || 0);
+      const delayMs = Number.isFinite(configuredDelayMs) && configuredDelayMs > 0
+        ? Math.min(QLTD_GANTT_BUSY_MAX_DELAY_MS, configuredDelayMs)
+        : qltdWeb07GetGanttBusyRetryDelay(payload, attempt);
+      console.warn('WEB07F: ganttData busy, retrying', {
+        projectCode,
+        attempt,
+        nextAttempt: attempt + 1,
+        maxAttempts,
+        delayMs
+      });
+      if (typeof options.onBusyRetry === 'function') {
+        options.onBusyRetry({ projectCode, attempt, nextAttempt: attempt + 1, maxAttempts, delayMs });
+      }
+      await delay(delayMs);
       continue;
     }
 
@@ -5874,27 +5932,42 @@ async function qltdWeb07FetchGanttPayload(projectCode, options = {}) {
   return null;
 }
 
+function qltdWeb07RequestGanttPayload(projectCode, options = {}) {
+  const code = String(projectCode || '').trim();
+  if (!code) return Promise.resolve(null);
+  const requestKey = options.forceRefresh ? code + '::force' : code;
+  return qltdWeb07GetOrCreateGanttRequest(requestKey, () => qltdWeb07FetchGanttPayload(code, options));
+}
+
 function loadGanttDataForSelectedProject(projectCode, options = {}) {
   const code = String(projectCode || '').trim();
   if (!code) return Promise.resolve(null);
   const shouldForceRefresh = !!options.forceRefresh || qltdGanttForceRefreshProjects.has(code);
-  const requestKey = shouldForceRefresh ? code + '::force' : code;
-  return qltdWeb07GetOrCreateGanttRequest(requestKey, () => qltdWeb07LoadGanttDataForSelectedProject(code, Object.assign({}, options, {
+  return qltdWeb07LoadGanttDataForSelectedProject(code, Object.assign({}, options, {
     forceRefresh: shouldForceRefresh
-  })));
+  }));
 }
 
 async function qltdWeb07LoadGanttDataForSelectedProject(projectCode, options = {}) {
+  const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+  if (selectedProjectCode && String(selectedProjectCode) !== String(projectCode)) return null;
+  const requestSeq = ++qltdGanttLoadRequestSeq;
   ensureWeb07Panels();
   renderGanttLoading(projectCode);
   renderDashboardLoading(projectCode);
 
   try {
     const scheduleStateRequest = loadProjectScheduleState(projectCode, { render: false });
-    const payload = await qltdWeb07FetchGanttPayload(projectCode, { forceRefresh: !!options.forceRefresh });
+    const payload = await qltdWeb07RequestGanttPayload(projectCode, {
+      forceRefresh: !!options.forceRefresh,
+      onBusyRetry: (retryState) => {
+        if (qltdWeb07IsCurrentGanttLoad(projectCode, requestSeq)) {
+          renderGanttBusyRetry(projectCode, retryState);
+        }
+      }
+    });
     await scheduleStateRequest;
-    const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
-    if (selectedProjectCode && String(selectedProjectCode) !== String(projectCode)) return payload;
+    if (!qltdWeb07IsCurrentGanttLoad(projectCode, requestSeq)) return payload;
     qltdGanttPayload = payload;
     if (qltdActiveView === 'report' && qltdDeptPlanPayload?.success) renderDeptPlans(qltdDeptPlanPayload);
     await loadMainMilestonesForProject(projectCode, payload);
@@ -5905,8 +5978,7 @@ async function qltdWeb07LoadGanttDataForSelectedProject(projectCode, options = {
     return payload;
   } catch (error) {
     console.error('Cannot load gantt data', error);
-    const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
-    if (selectedProjectCode && String(selectedProjectCode) !== String(projectCode)) return null;
+    if (!qltdWeb07IsCurrentGanttLoad(projectCode, requestSeq)) return null;
     qltdGanttPayload = null;
     renderDashboardError(error);
     renderGanttError(error);
@@ -6031,9 +6103,15 @@ function renderGanttLoading(projectCode) {
   resetWeb07DhtmlxGantt('renderGanttLoading');
   panel.innerHTML = `
     <div class="web07-card">
-      <p class="empty-state">Đang tải Gantt cho ${escapeHtml(projectCode)}...</p>
+      <p id="ganttLoadingMessage" class="empty-state">Đang tải Gantt cho ${escapeHtml(projectCode)}...</p>
     </div>
   `;
+}
+
+function renderGanttBusyRetry(projectCode, retryState = {}) {
+  const message = document.getElementById('ganttLoadingMessage');
+  if (!message) return;
+  message.textContent = `Gantt ${projectCode} đang được chuẩn bị, hệ thống đang thử lại (${Number(retryState.nextAttempt || 1)}/${Number(retryState.maxAttempts || QLTD_GANTT_BUSY_MAX_ATTEMPTS)})...`;
 }
 
 function renderDashboardError(error) {
@@ -6066,8 +6144,18 @@ function renderGanttError(error) {
     <div class="web07-card">
       <p class="empty-state">Không tải được Gantt từ Apps Script API.</p>
       <p class="web07-muted">${escapeHtml(error.message || error)}</p>
+      <button id="ganttRetryButton" type="button">Thử lại</button>
     </div>
   `;
+  const retryButton = document.getElementById('ganttRetryButton');
+  if (retryButton) {
+    retryButton.onclick = () => {
+      const projectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
+      if (!projectCode) return;
+      retryButton.disabled = true;
+      loadGanttDataForSelectedProject(projectCode, { forceRefresh: true });
+    };
+  }
 }
 
 function renderDashboardFromGanttData(payload) {
@@ -6172,7 +6260,7 @@ async function getDepartmentDashboardPayloads(projectCode, forceRefresh) {
     const code = String(project.projectCode || '');
     if (!forceRefresh && qltdDepartmentDashboardCache.has(code)) return qltdDepartmentDashboardCache.get(code);
     try {
-      const payload = await fetchBackendJson('ganttData', { projectCode: code });
+      const payload = await qltdWeb07RequestGanttPayload(code, { forceRefresh: !!forceRefresh });
       if (!payload || payload.success === false) throw new Error(payload && (payload.message || payload.error) || 'INVALID_PAYLOAD');
       qltdDepartmentDashboardCache.set(code, payload);
       return payload;
@@ -7176,12 +7264,7 @@ function bindGanttToolbar(payload) {
     budgetSyncButton.onclick = () => handleGanttBudgetSyncClick(budgetSyncButton, payload);
   }
 
-  const scheduleRecalculateButton = document.getElementById('projectScheduleRecalculateButton');
-  if (scheduleRecalculateButton) {
-    scheduleRecalculateButton.onclick = () => handleProjectScheduleRecalculate(
-      payload.projectCode || getStoredProjectCode()
-    );
-  }
+  bindProjectScheduleRecalculateButton(payload.projectCode || getStoredProjectCode());
 
   const datesToggle = document.getElementById('ganttDatesToggle');
   if (datesToggle) {
@@ -8681,7 +8764,7 @@ async function initDhtmlxGantt(tasks, links) {
 
   const ganttInstance = await ensureDhtmlxGanttLoaded();
 
-  if (renderSeq !== qltdDhtmlxGanttRenderSeq) {
+  if (!qltdWeb07OwnsGanttRender(renderSeq, container)) {
     return;
   }
 
@@ -8700,6 +8783,9 @@ async function initDhtmlxGantt(tasks, links) {
   }
 
   const canRenderGantt = await qltdWeb07WaitForRenderableGanttContainer(container);
+  if (!qltdWeb07OwnsGanttRender(renderSeq, container)) {
+    return;
+  }
   if (!canRenderGantt) {
     renderGanttFallback(container, tasks, 'Khung Gantt chưa có chiều cao hợp lệ, đang hiển thị bảng fallback.');
     return;
@@ -8853,6 +8939,7 @@ async function initDhtmlxGantt(tasks, links) {
   }
 
   requestAnimationFrame(() => {
+    if (!qltdWeb07OwnsGanttRender(renderSeq, container)) return;
     try {
       if (gantt.setSizes) gantt.setSizes();
       if (gantt.render) gantt.render();
@@ -8860,6 +8947,11 @@ async function initDhtmlxGantt(tasks, links) {
       console.warn('WEB07F: gantt final render ignored', error);
     }
   });
+}
+
+function qltdWeb07OwnsGanttRender(renderSeq, container) {
+  return renderSeq === qltdDhtmlxGanttRenderSeq &&
+    document.getElementById('web07GanttContainer') === container;
 }
 
 function bindMainMilestoneGanttEvents(gantt) {
