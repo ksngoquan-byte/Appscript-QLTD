@@ -1,5 +1,7 @@
 function qltdDevApiBootstrap_(params) {
-  const email = qltdDevApiNormalizeEmail_(params && params.email);
+  const identity = qltdFirebaseResolveIdentity_(params, true);
+  if (!identity.success) return identity;
+  const email = qltdDevApiNormalizeEmail_(identity.email);
   const meta = {
     action: 'bootstrap',
     email: email || 'anonymous'
@@ -39,6 +41,7 @@ function qltdDevApiBootstrap_(params) {
     };
   }
 
+  qltdUsersTouchLastLogin_(user.rowIndex);
   qltdProjectsEnsureSheet_();
   qltdProjectsSeedDefaultIfMissing_();
 
@@ -62,6 +65,7 @@ function qltdDevApiBootstrap_(params) {
       status: user.status,
       deptCode: user.deptCode,
       deptName: user.deptName,
+      empCode: user.empCode || '',
       permissions: qltdPermissionsForRole_(user.role),
       apiStatus: 'CONNECTED',
       source: QLTD_DEV_API_SOURCE

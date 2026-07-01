@@ -50,11 +50,15 @@ function qltdFirebaseResolveIdentity_(payload, tokenRequired) {
     const data = JSON.parse(response.getContentText() || '{}');
     const firebaseUser = data && data.users && data.users[0];
     const verifiedEmail = qltdUsersNormalizeEmail_(firebaseUser && firebaseUser.email);
+    const localId = String(firebaseUser && firebaseUser.localId || '').trim();
     const firebaseError = String(data && data.error && data.error.message || '').trim().toUpperCase();
 
-    if (statusCode < 200 || statusCode >= 300 || !verifiedEmail) {
+    if (statusCode < 200 || statusCode >= 300 || !verifiedEmail || !localId) {
       const errorCode = firebaseError === 'TOKEN_EXPIRED' ? 'ID_TOKEN_EXPIRED' : 'ID_TOKEN_INVALID';
       return qltdUsersBuildAuthError_(errorCode, 'Phien dang nhap Google khong hop le hoac da het han.');
+    }
+    if (firebaseUser.emailVerified !== true) {
+      return qltdUsersBuildAuthError_('EMAIL_NOT_VERIFIED', 'Email Google chua duoc xac minh.');
     }
     if (requestedEmail && requestedEmail !== verifiedEmail) {
       return qltdUsersBuildAuthError_('EMAIL_MISMATCH', 'Email khai bao khong khop tai khoan Google dang dang nhap.');
@@ -64,7 +68,7 @@ function qltdFirebaseResolveIdentity_(payload, tokenRequired) {
       success: true,
       email: verifiedEmail,
       displayName: String(firebaseUser.displayName || '').trim(),
-      localId: String(firebaseUser.localId || '').trim(),
+      localId: localId,
       authMode: 'FIREBASE_ID_TOKEN'
     };
   } catch (error) {

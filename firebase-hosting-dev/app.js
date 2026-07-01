@@ -27,6 +27,7 @@ import {
 } from './main-milestone-logic.js';
 import { buildDepartmentDashboardModel } from './department-dashboard.js';
 import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E4_ACTUAL_DATE_LIFECYCLE';
+import { createRegistrationGate } from './registration-gate.js?v=BUG7_EMPLOYEE_REGISTRATION_1';
 
 window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
 
@@ -138,6 +139,7 @@ const els = {
 
 let auth = null;
 let db = null;
+let registrationGate = null;
 let currentUserProfile = null;
 let currentPermissions = { ...DEFAULT_PERMISSIONS };
 
@@ -195,7 +197,6 @@ function formatRole(role) {
   if (role === 'EDITOR') return 'Editor';
   if (role === 'REPORTER') return 'Reporter';
   if (role === 'VIEWER') return 'Viewer';
-  if (role === 'GUEST_VIEWER') return 'Guest Viewer';
   return role || 'Kh\u00f4ng x\u00e1c \u0111\u1ecbnh';
 }
 
@@ -205,7 +206,7 @@ function normalizeRoleKey(role) {
 
 function isReadOnlyViewer(profile = currentUserProfile) {
   const role = normalizeRoleKey(profile && profile.role);
-  return role === 'VIEWER' || role === 'GUEST_VIEWER' || !canEditPlanning(profile);
+  return role === 'VIEWER' || !canEditPlanning(profile);
 }
 
 function isAuthenticatedUser(profile = currentUserProfile) {
@@ -244,7 +245,7 @@ function canEditPlanning(profile = currentUserProfile) {
 
 function normalizePermissions(permissions = {}, role = '') {
   const roleKey = normalizeRoleKey(role);
-  const canViewCore = ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER', 'GUEST_VIEWER'].includes(roleKey);
+  const canViewCore = ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER'].includes(roleKey);
 
   return {
     dashboard: !!permissions.dashboard || canViewCore,
@@ -3784,8 +3785,26 @@ function showWeeklyToast(message) {
 }
 
 async function postBackendJson(payload) {
-  const response = await fetch(APPS_SCRIPT_DEV_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
-  if (!response.ok) throw new Error(`Apps Script API POST failed: ${response.status}`); return response.json();
+  let forceRefresh = false;
+  while (true) {
+    const requestPayload = { ...(payload || {}) };
+    if (auth?.currentUser) {
+      requestPayload.idToken = await auth.currentUser.getIdToken(forceRefresh);
+    }
+    const response = await fetch(APPS_SCRIPT_DEV_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(requestPayload)
+    });
+    if (!response.ok) throw new Error(`Apps Script API POST failed: ${response.status}`);
+    const result = await response.json();
+    const code = String(result?.errorCode || result?.message || '').trim().toUpperCase();
+    if (!forceRefresh && (code === 'ID_TOKEN_INVALID' || code === 'ID_TOKEN_EXPIRED')) {
+      forceRefresh = true;
+      continue;
+    }
+    return result;
+  }
 }
 
 function getNextWeeklyPeriod(week) { const start = new Date(`${week.weekStart}T12:00:00`); start.setDate(start.getDate() + 7); const end = new Date(start); end.setDate(end.getDate() + 6); const iso = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`; return { weekId: `WEEK-${iso(start)}`, weekStart: iso(start), weekEnd: iso(end) }; }
@@ -6770,26 +6789,9 @@ async function fetchBackendJson(action, params = {}) {
   return payload;
 }
 
-async function fetchBackendProfile(email) {
+async function fetchBackendProfile() {
   await fetchBackendJson('health');
-  return fetchBackendJson('profile', { email });
-}
-
-function buildAuthenticatedViewerProfile(user, base = {}) {
-  return {
-    ...base,
-    success: true,
-    email: user && user.email,
-    role: 'GUEST_VIEWER',
-    apiStatus: base.apiStatus || 'CONNECTED',
-    permissions: {
-      dashboard: true,
-      gantt: true,
-      lookup: true,
-      reportUpdate: false,
-      admin: false
-    }
-  };
+  return postBackendJson({ action: 'profile' });
 }
 
 function renderApp(user, role, profile = {}) {
@@ -6797,7 +6799,7 @@ function renderApp(user, role, profile = {}) {
   const effectiveProfile = {
     ...profile,
     email: profile.email || (user && user.email),
-    role: profile.role || role || 'GUEST_VIEWER'
+    role: profile.role || role || ''
   };
   const displayRole = formatRole(effectiveProfile.role);
   applyPermissions(effectiveProfile);
@@ -6821,7 +6823,11 @@ function renderApp(user, role, profile = {}) {
 
 function renderApiError(user, error) {
   console.error('Apps Script DEV API connection failed', error);
-  renderApp(user, 'GUEST_VIEWER', buildAuthenticatedViewerProfile(user, { apiStatus: 'ERROR' }));
+  registrationGate?.hide();
+  renderDenied(user);
+  if (els.deniedEmail) {
+    els.deniedEmail.textContent = 'Không kết nối được hệ thống xác thực. Vui lòng thử lại.';
+  }
 }
 
 async function handleSignIn() {
@@ -6858,24 +6864,45 @@ function boot() {
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  registrationGate = createRegistrationGate({
+    lookup: (fullName) => postBackendJson({ action: 'user_lookupemployees', fullName }),
+    register: (empCode) => postBackendJson({ action: 'user_register', empCode }),
+    onRegistered: async () => {
+      const user = auth.currentUser;
+      const profile = await fetchBackendProfile();
+      if (!user || !profile?.success) throw profile || new Error('Không tải lại được hồ sơ người dùng.');
+      registrationGate.hide();
+      renderApp(user, profile.role, profile);
+    },
+    onSignOut: handleSignOut
+  });
 
   onAuthStateChanged(auth, async (user) => {
     if (!user) {
+      registrationGate.hide();
       renderSignedOut();
       return;
     }
 
     try {
-      const profile = await fetchBackendProfile(user.email);
+      const profile = await fetchBackendProfile();
 
       if (!profile.success) {
-        renderApp(user, 'GUEST_VIEWER', buildAuthenticatedViewerProfile(user, {
-          apiStatus: profile.apiStatus || 'CONNECTED',
-          profileMessage: profile.message || ''
-        }));
+        if (profile.message === 'USER_NOT_FOUND') {
+          registrationGate.show(user);
+          return;
+        }
+        registrationGate.hide();
+        renderDenied(user);
+        if (els.deniedEmail) {
+          els.deniedEmail.textContent = profile.message === 'USER_INACTIVE'
+            ? 'Tài khoản của bạn đang bị khóa.'
+            : 'Tài khoản chưa có quyền truy cập hợp lệ.';
+        }
         return;
       }
 
+      registrationGate.hide();
       renderApp(user, profile.role, profile);
     } catch (error) {
       renderApiError(user, error);

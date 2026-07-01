@@ -7,19 +7,11 @@ const QLTD_USERS_HEADERS = [
   'DeptCode',
   'DeptName',
   'LastLoginAt',
-  'Note'
+  'Note',
+  'EmpCode'
 ];
 const QLTD_USERS_VALID_ROLES = ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER'];
 const QLTD_USERS_VALID_STATUSES = ['ACTIVE', 'INACTIVE'];
-const QLTD_USERS_REGISTRATION_GROUPS = {
-  BAN_LANH_DAO: 'PMO',
-  DEPT_MANAGER: 'EDITOR',
-  EMPLOYEE: 'REPORTER'
-};
-const QLTD_USERS_EXECUTIVE_DEPT = {
-  deptCode: 'BLD',
-  deptName: 'Ban lãnh đạo'
-};
 const QLTD_USERS_INITIAL_ADMIN = {
   email: 'ksngoquan@gmail.com',
   displayName: 'Ngô Quân',
@@ -28,7 +20,8 @@ const QLTD_USERS_INITIAL_ADMIN = {
   deptCode: 'ADMIN',
   deptName: 'Quản trị hệ thống',
   lastLoginAt: '',
-  note: 'Initial DEV admin'
+  note: 'Initial DEV admin',
+  empCode: ''
 };
 
 function qltdSetupUsersSheet() {
@@ -48,6 +41,9 @@ function qltdUsersEnsureSheet_() {
 
   if (!sheet) {
     sheet = ss.insertSheet(QLTD_USERS_SHEET_NAME);
+    sheet.getRange(1, 1, 1, QLTD_USERS_HEADERS.length).setValues([QLTD_USERS_HEADERS]);
+    sheet.setFrozenRows(1);
+    return sheet;
   }
 
   qltdUsersEnsureHeaders_(sheet);
@@ -55,14 +51,36 @@ function qltdUsersEnsureSheet_() {
 }
 
 function qltdUsersEnsureHeaders_(sheet) {
-  const headerRange = sheet.getRange(1, 1, 1, QLTD_USERS_HEADERS.length);
-  const currentHeaders = headerRange.getValues()[0].map(value => String(value || '').trim());
-  const hasMissingHeader = QLTD_USERS_HEADERS.some((header, index) => currentHeaders[index] !== header);
-
-  if (hasMissingHeader) {
-    headerRange.setValues([QLTD_USERS_HEADERS]);
-    sheet.setFrozenRows(1);
+  const headerMap = qltdUsersHeaderMap_(sheet);
+  const missingHeaders = QLTD_USERS_HEADERS.filter(function(header) {
+    return headerMap[header] === undefined;
+  });
+  if (missingHeaders.length) {
+    throw new Error('USERS_SCHEMA_INVALID: ' + missingHeaders.join(', '));
   }
+  return headerMap;
+}
+
+function qltdUsersHeaderMap_(sheet) {
+  const lastColumn = Math.max(Number(sheet.getLastColumn() || 0), QLTD_USERS_HEADERS.length);
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(function(value) {
+    return String(value || '').trim();
+  });
+  const headerMap = {};
+  headers.forEach(function(header, index) {
+    if (header && headerMap[header] === undefined) headerMap[header] = index;
+  });
+  return headerMap;
+}
+
+function qltdUsersBuildRow_(sheet, valuesByHeader) {
+  const headerMap = qltdUsersEnsureHeaders_(sheet);
+  const width = Math.max(Number(sheet.getLastColumn() || 0), QLTD_USERS_HEADERS.length);
+  const row = new Array(width).fill('');
+  Object.keys(valuesByHeader || {}).forEach(function(header) {
+    if (headerMap[header] !== undefined) row[headerMap[header]] = valuesByHeader[header];
+  });
+  return row;
 }
 
 function qltdUsersSeedAdminIfMissing_() {
@@ -70,16 +88,17 @@ function qltdUsersSeedAdminIfMissing_() {
   if (existing) return false;
 
   const sheet = qltdUsersEnsureSheet_();
-  sheet.appendRow([
-    QLTD_USERS_INITIAL_ADMIN.email,
-    QLTD_USERS_INITIAL_ADMIN.displayName,
-    QLTD_USERS_INITIAL_ADMIN.role,
-    QLTD_USERS_INITIAL_ADMIN.status,
-    QLTD_USERS_INITIAL_ADMIN.deptCode,
-    QLTD_USERS_INITIAL_ADMIN.deptName,
-    QLTD_USERS_INITIAL_ADMIN.lastLoginAt,
-    QLTD_USERS_INITIAL_ADMIN.note
-  ]);
+  sheet.appendRow(qltdUsersBuildRow_(sheet, {
+    Email: QLTD_USERS_INITIAL_ADMIN.email,
+    DisplayName: QLTD_USERS_INITIAL_ADMIN.displayName,
+    Role: QLTD_USERS_INITIAL_ADMIN.role,
+    Status: QLTD_USERS_INITIAL_ADMIN.status,
+    DeptCode: QLTD_USERS_INITIAL_ADMIN.deptCode,
+    DeptName: QLTD_USERS_INITIAL_ADMIN.deptName,
+    LastLoginAt: QLTD_USERS_INITIAL_ADMIN.lastLoginAt,
+    Note: QLTD_USERS_INITIAL_ADMIN.note,
+    EmpCode: QLTD_USERS_INITIAL_ADMIN.empCode
+  }));
 
   return true;
 }
@@ -93,25 +112,26 @@ function qltdUsersGetByEmail_(email) {
 
   if (lastRow < 2) return null;
 
-  const values = sheet
-    .getRange(2, 1, lastRow - 1, QLTD_USERS_HEADERS.length)
-    .getValues();
+  const headerMap = qltdUsersEnsureHeaders_(sheet);
+  const width = Math.max(Number(sheet.getLastColumn() || 0), QLTD_USERS_HEADERS.length);
+  const values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
 
   for (let index = 0; index < values.length; index += 1) {
     const row = values[index];
-    const rowEmail = qltdUsersNormalizeEmail_(row[0]);
+    const rowEmail = qltdUsersNormalizeEmail_(row[headerMap.Email]);
 
     if (rowEmail === normalizedEmail) {
       return {
         rowIndex: index + 2,
         email: rowEmail,
-        displayName: String(row[1] || '').trim(),
-        role: qltdUsersNormalizeRole_(row[2]),
-        status: qltdUsersNormalizeStatus_(row[3]),
-        deptCode: String(row[4] || '').trim(),
-        deptName: String(row[5] || '').trim(),
-        lastLoginAt: row[6] || '',
-        note: String(row[7] || '').trim()
+        displayName: String(row[headerMap.DisplayName] || '').trim(),
+        role: qltdUsersNormalizeRole_(row[headerMap.Role]),
+        status: qltdUsersNormalizeStatus_(row[headerMap.Status]),
+        deptCode: String(row[headerMap.DeptCode] || '').trim(),
+        deptName: String(row[headerMap.DeptName] || '').trim(),
+        lastLoginAt: row[headerMap.LastLoginAt] || '',
+        note: String(row[headerMap.Note] || '').trim(),
+        empCode: String(row[headerMap.EmpCode] || '').trim()
       };
     }
   }
@@ -119,34 +139,25 @@ function qltdUsersGetByEmail_(email) {
   return null;
 }
 
-function qltdUsersGetRegistrationOptions_(params) {
-  const identity = qltdFirebaseResolveIdentity_(params, true);
+function qltdUsersLookupEmployees_(payload) {
+  const identity = qltdFirebaseResolveIdentity_(payload, true);
   if (!identity.success) return identity;
 
-  return {
-    success: true,
-    groups: [
-      { code: 'BAN_LANH_DAO', name: 'Ban lãnh đạo' },
-      { code: 'DEPT_MANAGER', name: 'Trưởng/Phó phòng, ban' },
-      { code: 'EMPLOYEE', name: 'Nhân viên' }
-    ],
-    departments: qltdUsersCollectRegistrationDepartments_(),
-    apiStatus: 'CONNECTED',
-    source: 'users_registration_v2'
-  };
-}
+  const existing = qltdUsersGetByEmail_(identity.email);
+  if (existing) {
+    if (existing.status !== 'ACTIVE') {
+      return qltdUsersBuildAuthError_('USER_INACTIVE', 'Tài khoản của bạn đang bị khóa.');
+    }
+    return qltdUsersBuildAuthError_('USER_ALREADY_EXISTS', 'Tài khoản đã được đăng ký.', {
+      profile: qltdUsersRegistrationSuccess_(existing, false, true)
+    });
+  }
 
-function qltdUsersCollectRegistrationDepartments_() {
-  return qltdMasterDeptList_();
-}
-
-function qltdUsersFindRegistrationDepartment_(deptCode) {
-  const targetCode = qltdMasterDeptCanonicalCode_(deptCode);
-  if (!targetCode) return null;
-
-  return qltdUsersCollectRegistrationDepartments_().find(function(item) {
-    return item.deptCode === targetCode;
-  }) || null;
+  const fullName = String(payload && payload.fullName || '').trim();
+  if (!fullName) {
+    return qltdUsersBuildAuthError_('FULL_NAME_REQUIRED', 'Vui lòng nhập họ và tên.');
+  }
+  return qltdEmployeesLookupByName_(fullName);
 }
 
 function qltdUsersRegister_(payload) {
@@ -154,107 +165,111 @@ function qltdUsersRegister_(payload) {
   if (!identity.success) return identity;
 
   const email = qltdUsersNormalizeEmail_(identity.email);
-  const displayName = String(payload && payload.displayName || identity.displayName || '').trim();
-  const title = qltdUsersSanitizeNotePart_(payload && payload.title);
-  const userGroup = String(payload && payload.userGroup || '').trim().toUpperCase();
-  const role = QLTD_USERS_REGISTRATION_GROUPS[userGroup] || '';
-  const requiresDepartment = userGroup === 'DEPT_MANAGER' || userGroup === 'EMPLOYEE';
-  const selectedDepartment = requiresDepartment ? qltdUsersFindRegistrationDepartment_(payload && payload.deptCode) : null;
-  const deptCode = requiresDepartment ? qltdMasterDeptCanonicalCode_(selectedDepartment && selectedDepartment.deptCode) : QLTD_USERS_EXECUTIVE_DEPT.deptCode;
-  const deptName = requiresDepartment ? String(selectedDepartment && selectedDepartment.deptName || '').trim() : QLTD_USERS_EXECUTIVE_DEPT.deptName;
-
-  const validationErrors = [];
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) validationErrors.push('EMAIL_INVALID');
-  if (displayName.length < 2) validationErrors.push('DISPLAY_NAME_REQUIRED');
-  if (!role) validationErrors.push('USER_GROUP_INVALID');
-  if (!title) validationErrors.push('TITLE_REQUIRED');
-  if (requiresDepartment && (!deptCode || !deptName)) validationErrors.push('DEPARTMENT_REQUIRED');
-
-  if (validationErrors.length) {
-    return {
-      success: false,
-      message: 'REGISTRATION_VALIDATION_FAILED',
-      errors: validationErrors,
-      apiStatus: 'CONNECTED',
-      source: 'users_registration_v2'
-    };
+  const empCode = qltdEmployeesNormalizeCode_(payload && payload.empCode);
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return qltdUsersBuildAuthError_('EMAIL_INVALID', 'Email Google không hợp lệ.');
+  }
+  if (!empCode) {
+    return qltdUsersBuildAuthError_('EMPLOYEE_CODE_REQUIRED', 'Vui lòng chọn đúng hồ sơ nhân sự.');
   }
 
   const lock = LockService.getScriptLock();
+  let locked = false;
   try {
     lock.waitLock(10000);
+    locked = true;
 
     const existing = qltdUsersGetByEmail_(email);
     if (existing) {
       if (existing.status !== 'ACTIVE') {
-        return {
-          success: false,
-          message: 'USER_INACTIVE',
-          apiStatus: 'CONNECTED',
-          source: 'users_registration_v2'
-        };
+        return qltdUsersBuildAuthError_('USER_INACTIVE', 'Tài khoản của bạn đang bị khóa.');
       }
       if (!qltdUsersIsValidRole_(existing.role)) {
-        return {
-          success: false,
-          message: 'INVALID_ROLE',
-          apiStatus: 'CONNECTED',
-          source: 'users_registration_v2'
-        };
+        return qltdUsersBuildAuthError_('INVALID_ROLE', 'Vai trò tài khoản không hợp lệ.');
       }
 
       qltdUsersTouchLastLogin_(existing.rowIndex);
       return qltdUsersRegistrationSuccess_(existing, false, true);
     }
 
+    const linkedUser = qltdUsersFindByEmpCode_(empCode);
+    if (linkedUser && linkedUser.email !== email) {
+      return qltdUsersBuildAuthError_(
+        'EMPLOYEE_ALREADY_LINKED',
+        'Hồ sơ nhân sự này đã được liên kết với tài khoản Google khác.'
+      );
+    }
+
+    const employeeResult = qltdEmployeesReadByCodeFresh_(empCode);
+    if (!employeeResult.success) return employeeResult;
+    const employee = employeeResult.employee;
+    const role = qltdEmployeesRoleFor_(employee);
+    if (role === 'ADMIN' || role === 'VIEWER' || !qltdUsersIsValidRole_(role)) {
+      return qltdUsersBuildAuthError_('ROLE_MAPPING_INVALID', 'Không thể xác định quyền người dùng an toàn.');
+    }
+
     const now = new Date();
     const note = [
-      'SELF_REGISTRATION_V2',
-      'Group=' + userGroup,
-      'Title=' + title,
+      'EMPLOYEE_REGISTRATION_V1',
+      'EmpCode=' + employee.empCode,
       'AuthMode=' + String(identity.authMode || ''),
       'RegisteredAt=' + qltdUsersFormatIsoLocal_(now)
     ].join(' | ');
 
     const sheet = qltdUsersEnsureSheet_();
-    sheet.appendRow([
-      email,
-      displayName,
-      role,
-      'ACTIVE',
-      deptCode,
-      deptName,
-      now,
-      note
-    ]);
+    sheet.appendRow(qltdUsersBuildRow_(sheet, {
+      Email: email,
+      DisplayName: employee.fullName,
+      Role: role,
+      Status: 'ACTIVE',
+      DeptCode: employee.deptCode,
+      DeptName: employee.deptName,
+      LastLoginAt: now,
+      Note: note,
+      EmpCode: employee.empCode
+    }));
     SpreadsheetApp.flush();
 
     const created = qltdUsersGetByEmail_(email);
-    console.log(JSON.stringify({
-      action: 'USER_SELF_REGISTER',
-      email: email,
-      role: role,
-      deptCode: deptCode,
-      created: true
-    }));
+    if (!created || created.empCode !== employee.empCode) {
+      return qltdUsersBuildAuthError_('REGISTRATION_WRITE_FAILED', 'Không xác nhận được dữ liệu đăng ký vừa tạo.');
+    }
 
     return qltdUsersRegistrationSuccess_(created, true, false);
   } catch (error) {
-    console.error('USER_SELF_REGISTER_FAILED', error);
+    console.error('EMPLOYEE_REGISTRATION_FAILED', String(error && error.message || error));
     return {
       success: false,
       message: 'REGISTRATION_WRITE_FAILED',
       error: String(error && error.message || error),
       apiStatus: 'CONNECTED',
-      source: 'users_registration_v2'
+      source: 'employee_registration_v1'
     };
   } finally {
-    try {
-      lock.releaseLock();
-    } catch (releaseError) {
-      // Lock may not have been acquired; no follow-up action is required.
+    if (locked) lock.releaseLock();
+  }
+}
+
+function qltdUsersFindByEmpCode_(empCode) {
+  const normalizedEmpCode = qltdEmployeesNormalizeCode_(empCode);
+  if (!normalizedEmpCode) return null;
+  const sheet = qltdUsersEnsureSheet_();
+  const headerMap = qltdUsersEnsureHeaders_(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  const width = Math.max(Number(sheet.getLastColumn() || 0), QLTD_USERS_HEADERS.length);
+  const values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+  for (let index = 0; index < values.length; index += 1) {
+    const row = values[index];
+    if (qltdEmployeesNormalizeCode_(row[headerMap.EmpCode]) === normalizedEmpCode) {
+      return {
+        rowIndex: index + 2,
+        email: qltdUsersNormalizeEmail_(row[headerMap.Email]),
+        empCode: normalizedEmpCode
+      };
     }
   }
+  return null;
 }
 
 function qltdUsersBuildAuthError_(code, message, extra) {
@@ -264,7 +279,7 @@ function qltdUsersBuildAuthError_(code, message, extra) {
     errorCode: code,
     errorMessage: message,
     apiStatus: 'CONNECTED',
-    source: 'users_registration_v2'
+    source: 'employee_registration_v1'
   };
 
   if (extra && typeof extra === 'object') {
@@ -287,9 +302,10 @@ function qltdUsersRegistrationSuccess_(user, created, alreadyExists) {
     status: user.status,
     deptCode: user.deptCode,
     deptName: user.deptName,
+    empCode: user.empCode || '',
     permissions: qltdPermissionsForRole_(user.role),
     apiStatus: 'CONNECTED',
-    source: 'users_registration_v2'
+    source: 'employee_registration_v1'
   };
 }
 
@@ -298,7 +314,9 @@ function qltdUsersTouchLastLogin_(rowIndex) {
   if (row < 2) return false;
 
   try {
-    qltdUsersEnsureSheet_().getRange(row, 7).setValue(new Date());
+    const sheet = qltdUsersEnsureSheet_();
+    const headerMap = qltdUsersEnsureHeaders_(sheet);
+    sheet.getRange(row, headerMap.LastLoginAt + 1).setValue(new Date());
     return true;
   } catch (error) {
     console.warn('Cannot update Users.LastLoginAt', error);
