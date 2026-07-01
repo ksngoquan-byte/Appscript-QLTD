@@ -48,10 +48,16 @@ function qltdWorkGetDetailTasks_(params) {
   const auth = qltdWorkAuthUser_(params && params.email, action, QLTD_PB_DETAIL_TASK_SOURCE, meta);
   if (auth.error) return auth.error;
 
-  const context = qltdPbDetailResolveContext_(action, params || {}, meta);
-  if (context.error) return context.error;
-  if (!qltdWorkCanReadDept_(auth.user, context.deptCode)) {
-    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'PERMISSION_DENIED', 'User cannot read this dept.', context.meta, context.warnings);
+  const context = qltdPbDetailResolveContext_(action, params || {}, meta, auth.user);
+  if (context.error) {
+    const contextCode = context.error.errors && context.error.errors[0] && context.error.errors[0].code;
+    if (contextCode === 'PROJECT_DEPT_NOT_ASSIGNED') {
+      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', meta);
+    }
+    return context.error;
+  }
+  if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept)) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', context.meta, context.warnings);
   }
 
   const masterTaskCode = qltdPbDetailNormalizeTaskCode_((params || {}).masterTaskCode);
@@ -88,6 +94,15 @@ function qltdWorkCreateDetailTask_(payload) {
     const block = qltdPbDetailFindMasterBlock_(sheetContext, validation.masterTaskCode);
     if (block.error) {
       return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, block.error.code, block.error.message, context.meta, warnings);
+    }
+    const parentFinishError = qltdPbDetailValidateParentFinish_(
+      validation.updates.planFinish,
+      block.masterRow,
+      sheetContext.columns,
+      block.masterTaskCode
+    );
+    if (parentFinishError) {
+      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, parentFinishError.code, parentFinishError.message, context.meta, warnings, parentFinishError.extra);
     }
 
     const detailTaskId = qltdPbDetailGenerateId_(fileIdScan.idSet, context.projectCode, context.deptCode);
@@ -131,41 +146,58 @@ function qltdWorkCreateDetailTask_(payload) {
 
 function qltdWorkUpdateDetailTask_(payload) {
   return qltdPbDetailWriteWithLock_('work_updateDetailTask', payload || {}, function(action, context, sheetContext, warnings) {
-    const validation = qltdPbDetailValidateUpdatePayload_(payload || {}, context, warnings);
-    if (validation.error) return validation.error;
-
-    const fileIdScan = qltdPbDetailScanIdsInFile_(action, context, sheetContext);
-    warnings.push.apply(warnings, fileIdScan.warnings || []);
-    if (fileIdScan.error) return fileIdScan.error;
-
-    const matches = qltdPbDetailFindById_(sheetContext, validation.detailTaskId);
-    if (!matches.length) {
-      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'DETAIL_TASK_NOT_FOUND', 'Detail task not found.', context.meta, warnings);
-    }
-    if (matches.length > 1) {
-      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'DETAIL_TASK_DUPLICATE', 'DetailTaskId is duplicated.', context.meta, warnings, {
-        detailTaskId: validation.detailTaskId
-      });
-    }
-
-    const target = matches[0];
-    const row = target.values.slice();
-    qltdPbDetailApplyUpdates_(row, sheetContext.columns, validation.updates);
-    const mergedDateError = qltdPbDetailValidateMergedDateRow_(row, sheetContext.columns);
-    if (mergedDateError) {
-      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, mergedDateError.code, mergedDateError.message, context.meta, warnings, mergedDateError.extra);
-    }
-    sheetContext.sheet.getRange(target.rowNumber, 1, 1, QLTD_PB_DETAIL_LAST_COLUMN).setValues([row]);
-
-    warnings.push(qltdWorkWarning_('DETAIL_TASK_LOG_SKIPPED', 'Budget log helper is not available in this repo.'));
-    return qltdWorkOk_(QLTD_PB_DETAIL_TASK_SOURCE, action, {
-      projectCode: context.projectCode,
-      deptCode: context.deptCode,
-      sheetName: sheetContext.sheet.getName(),
-      detailTaskId: validation.detailTaskId,
-      rowNumber: target.rowNumber
-    }, warnings, context.meta);
+    return qltdPbDetailApplyUpdateNoLock_(action, payload || {}, context, sheetContext, warnings);
   });
+}
+
+function qltdPbDetailApplyUpdateNoLock_(action, payload, context, sheetContext, warnings) {
+  const validation = qltdPbDetailValidateUpdatePayload_(payload || {}, context, warnings);
+  if (validation.error) return validation.error;
+
+  const fileIdScan = qltdPbDetailScanIdsInFile_(action, context, sheetContext);
+  warnings.push.apply(warnings, fileIdScan.warnings || []);
+  if (fileIdScan.error) return fileIdScan.error;
+
+  const matches = qltdPbDetailFindById_(sheetContext, validation.detailTaskId);
+  if (!matches.length) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'DETAIL_TASK_NOT_FOUND', 'Detail task not found.', context.meta, warnings);
+  }
+  if (matches.length > 1) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'DETAIL_TASK_DUPLICATE', 'DetailTaskId is duplicated.', context.meta, warnings, {
+      detailTaskId: validation.detailTaskId
+    });
+  }
+
+  const target = matches[0];
+  const row = target.values.slice();
+  qltdPbDetailApplyUpdates_(row, sheetContext.columns, validation.updates);
+  const mergedDateError = qltdPbDetailValidateMergedDateRow_(row, sheetContext.columns);
+  if (mergedDateError) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, mergedDateError.code, mergedDateError.message, context.meta, warnings, mergedDateError.extra);
+  }
+  const block = qltdPbDetailFindMasterBlock_(sheetContext, target.masterTaskCode);
+  if (block.error) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, block.error.code, block.error.message, context.meta, warnings);
+  }
+  const parentFinishError = qltdPbDetailValidateParentFinish_(
+    row[sheetContext.columns.planFinish],
+    block.masterRow,
+    sheetContext.columns,
+    block.masterTaskCode
+  );
+  if (parentFinishError) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, parentFinishError.code, parentFinishError.message, context.meta, warnings, parentFinishError.extra);
+  }
+  sheetContext.sheet.getRange(target.rowNumber, 1, 1, QLTD_PB_DETAIL_LAST_COLUMN).setValues([row]);
+
+  warnings.push(qltdWorkWarning_('DETAIL_TASK_LOG_SKIPPED', 'Budget log helper is not available in this repo.'));
+  return qltdWorkOk_(QLTD_PB_DETAIL_TASK_SOURCE, action, {
+    projectCode: context.projectCode,
+    deptCode: context.deptCode,
+    sheetName: sheetContext.sheet.getName(),
+    detailTaskId: validation.detailTaskId,
+    rowNumber: target.rowNumber
+  }, warnings, context.meta);
 }
 
 function qltdPbDetailWriteWithLock_(action, payload, handler) {
@@ -173,9 +205,9 @@ function qltdPbDetailWriteWithLock_(action, payload, handler) {
   const auth = qltdWorkAuthUser_(payload && payload.email, action, QLTD_PB_DETAIL_TASK_SOURCE, meta);
   if (auth.error) return auth.error;
 
-  const context = qltdPbDetailResolveContext_(action, payload || {}, meta);
+  const context = qltdPbDetailResolveContext_(action, payload || {}, meta, auth.user);
   if (context.error) return context.error;
-  if (!qltdWorkCanManageDept_(auth.user, context.deptCode)) {
+  if (!qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'PERMISSION_DENIED', 'User cannot manage this dept.', context.meta, context.warnings);
   }
 
@@ -196,9 +228,10 @@ function qltdPbDetailWriteWithLock_(action, payload, handler) {
   }
 }
 
-function qltdPbDetailResolveContext_(action, params, baseMeta) {
+function qltdPbDetailResolveContext_(action, params, baseMeta, actorUser) {
   const resolved = qltdWorkResolveProjectDept_(action, params, QLTD_PB_DETAIL_TASK_SOURCE, {
     requireDeptSpreadsheet: true,
+    actorUser: actorUser,
     meta: baseMeta || {}
   });
   if (resolved.error) return {
@@ -493,8 +526,8 @@ function qltdPbDetailValidateUpdatePayload_(payload, context, warnings) {
 
 function qltdPbDetailValidateAllowedPayloadFields_(payload, action, context, warnings) {
   const allowedContext = action === 'work_createDetailTask'
-    ? ['action', 'email', 'projectCode', 'deptCode', 'masterTaskCode']
-    : ['action', 'email', 'projectCode', 'deptCode', 'detailTaskId'];
+    ? ['action', 'email', 'actorEmail', 'idToken', 'projectCode', 'deptCode', 'masterTaskCode']
+    : ['action', 'email', 'actorEmail', 'idToken', 'projectCode', 'deptCode', 'detailTaskId'];
   const allowed = {};
   allowedContext.concat(QLTD_PB_DETAIL_EDITABLE_FIELDS).forEach(function(field) {
     allowed[field] = true;
@@ -670,6 +703,86 @@ function qltdPbDetailValidateMergedDateRow_(row, columns) {
     }
   };
   return null;
+}
+
+function qltdPbDetailValidateParentFinish_(childPlanFinishValue, masterRow, columns, masterTaskCode) {
+  const parentPlanFinish = masterRow && columns
+    ? qltdPbDetailDateIso_(masterRow.values[columns.planFinish])
+    : '';
+  const requestedPlanFinish = qltdPbDetailDateIso_(childPlanFinishValue);
+  const normalizedMasterTaskCode = qltdPbDetailNormalizeTaskCode_(masterTaskCode || (masterRow && masterRow.masterTaskCode));
+  if (!parentPlanFinish || !requestedPlanFinish || requestedPlanFinish <= parentPlanFinish) return null;
+
+  return {
+    code: 'DETAIL_PLAN_FINISH_EXCEEDS_MASTER',
+    message: 'Ngày kết thúc việc con ' + requestedPlanFinish +
+      ' vượt ngày kết thúc việc cha ' + parentPlanFinish +
+      ' của mục tiêu ' + normalizedMasterTaskCode + '.',
+    extra: {
+      parentPlanFinish: parentPlanFinish,
+      requestedPlanFinish: requestedPlanFinish,
+      masterTaskCode: normalizedMasterTaskCode
+    }
+  };
+}
+
+function qltdPbDetailAuditParentFinishViolations_(sheetContext) {
+  const violations = [];
+  sheetContext.dataRows
+    .filter(function(row) { return row.rowType === QLTD_PB_DETAIL_ROW_TYPE_MASTER; })
+    .forEach(function(masterRow) {
+      const block = qltdPbDetailFindMasterBlock_(sheetContext, masterRow.masterTaskCode);
+      if (block.error) return;
+      block.rows
+        .filter(function(row) {
+          return row.rowType === QLTD_PB_DETAIL_ROW_TYPE_DETAIL && row.masterTaskCode === block.masterTaskCode;
+        })
+        .forEach(function(detailRow) {
+          const error = qltdPbDetailValidateParentFinish_(
+            detailRow.values[sheetContext.columns.planFinish],
+            masterRow,
+            sheetContext.columns,
+            block.masterTaskCode
+          );
+          if (!error) return;
+          violations.push(Object.assign({
+            rowNumber: detailRow.rowNumber,
+            detailTaskId: detailRow.detailTaskId,
+            wbs: String(detailRow.values[sheetContext.columns.stt] || '').trim(),
+            taskName: String(detailRow.values[sheetContext.columns.taskName] || '').trim()
+          }, error.extra));
+        });
+    });
+  return violations;
+}
+
+function qltdWorkAuditDetailTaskParentFinish_(params) {
+  const action = 'work_auditDetailTaskParentFinish';
+  const meta = {};
+  const auth = qltdWorkAuthUser_(params && params.email, action, QLTD_PB_DETAIL_TASK_SOURCE, meta);
+  if (auth.error) return auth.error;
+  const context = qltdPbDetailResolveContext_(action, params || {}, meta, auth.user);
+  if (context.error) {
+    const contextCode = context.error.errors && context.error.errors[0] && context.error.errors[0].code;
+    if (contextCode === 'PROJECT_DEPT_NOT_ASSIGNED') {
+      return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', meta);
+    }
+    return context.error;
+  }
+  if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept)) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', context.meta, context.warnings);
+  }
+  const sheetContext = qltdPbDetailBuildSheetContext_(action, context);
+  if (sheetContext.error) return sheetContext.error;
+  const violations = qltdPbDetailAuditParentFinishViolations_(sheetContext);
+  return qltdWorkOk_(QLTD_PB_DETAIL_TASK_SOURCE, action, {
+    projectCode: context.projectCode,
+    deptCode: context.deptCode,
+    sheetName: sheetContext.sheet.getName(),
+    violationCount: violations.length,
+    violations: violations,
+    dryRun: true
+  }, sheetContext.warnings, context.meta);
 }
 
 function qltdPbDetailValidateNumbers_(updates) {

@@ -1,5 +1,20 @@
 const QLTD_DEV_API_SERVICE = 'QLTD_DEV_API';
 const QLTD_DEV_API_SOURCE = 'users_sheet';
+const QLTD_DEV_DEPT_READ_ACTIONS = {
+  work_getmytasks: true,
+  work_getdepttasks: true,
+  work_getdetailtasks: true,
+  work_auditdetailtaskparentfinish: true,
+  work_listweeklyitems: true,
+  work_listassignees: true,
+  weekly_taskupdates_get: true,
+  weekly_masterapprovals_get: true,
+  weekly_pbdetailapprovals_get: true,
+  notifications_list: true,
+  weekly_getmyreports: true,
+  weekly_getdeptreports: true,
+  listdeptplans: true
+};
 
 function qltdDevApiHandleGet(e) {
   const params = e && e.parameter ? e.parameter : {};
@@ -14,11 +29,22 @@ function qltdDevApiHandleGet(e) {
   }
 
   if (action === 'profile') {
-    return qltdDevApiProfile_(params.email);
+    return qltdDevApiProfile_(params);
+  }
+
+  if (action === 'user_getregistrationoptions') {
+    return qltdDevApiJson_(qltdUsersGetRegistrationOptions_(params));
   }
 
   if (action === 'bootstrap') {
     return qltdDevApiJson_(qltdDevApiBootstrap_(params));
+  }
+
+  if (QLTD_DEV_DEPT_READ_ACTIONS[action]) {
+    const readIdentity = qltdFirebaseResolveIdentity_(params, true);
+    if (!readIdentity.success) return qltdDevApiJson_(readIdentity);
+    params.email = readIdentity.email;
+    params.actorEmail = readIdentity.email;
   }
 
   if (action === 'budget_getprojects') {
@@ -93,6 +119,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdWorkGetDetailTasks_(params));
   }
 
+  if (action === 'work_auditdetailtaskparentfinish') {
+    return qltdDevApiJson_(qltdWorkAuditDetailTaskParentFinish_(params));
+  }
+
   if (action === 'work_listweeklyitems') {
     return qltdDevApiJson_(qltdWorkListWeeklyItems_(params));
   }
@@ -109,6 +139,18 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdWeeklyMasterApprovalsGet_(params));
   }
 
+  if (action === 'weekly_pbdetailapprovals_get') {
+    return qltdDevApiJson_(qltdWeeklyPbDetailApprovalsGet_(params));
+  }
+
+  if (action === 'getprojectschedulestate') {
+    return qltdDevApiJson_(qltdProjectScheduleGetStateApi_(params));
+  }
+
+  if (action === 'notifications_list') {
+    return qltdDevApiJson_(qltdNotificationsList_(params));
+  }
+
   if (action === 'work_listassignees') {
     return qltdDevApiJson_(qltdWorkListAssignees_(params));
   }
@@ -122,15 +164,15 @@ function qltdDevApiHandleGet(e) {
   }
 
   if (action === 'listprojects') {
-    return qltdDevApiListProjects_(params.email);
+    return qltdDevApiListProjects_(params);
   }
 
   if (action === 'listdeptplans') {
-    return qltdDevApiListDeptPlans_(params.projectCode);
+    return qltdDevApiListDeptPlans_(params);
   }
 
   if (action === 'ganttdata') {
-    return qltdDevApiGanttData_(params.projectCode);
+    return qltdDevApiGanttData_(params);
   }
 
   if (action === 'getmainmilestones') {
@@ -167,6 +209,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(result);
   }
 
+  if (action === 'projectdepts_masterdept_dryrun') {
+    return qltdDevApiJson_(qltdProjectDeptsMasterDeptDryRun_());
+  }
+
   return qltdDevApiJson_({
     success: false,
     message: 'UNKNOWN_ACTION'
@@ -201,6 +247,27 @@ function qltdDevApiHandlePost_(e) {
 
   const payload = parseResult.payload;
   const action = String(payload.action || '').trim().toLowerCase();
+
+  if (action === 'user_register') {
+    return qltdDevApiJson_(qltdUsersRegister_(payload));
+  }
+
+  if (action === 'notifications_markread') {
+    const notificationIdentity = qltdFirebaseResolveIdentity_(payload, true);
+    if (!notificationIdentity.success) return qltdDevApiJson_(notificationIdentity);
+    payload.email = notificationIdentity.email;
+    payload.actorEmail = notificationIdentity.email;
+    return qltdDevApiJson_(qltdNotificationsMarkRead_(payload));
+  }
+
+  if (action === 'recalculateprojectschedule') {
+    return qltdDevApiJson_(qltdProjectScheduleRecalculate_(payload));
+  }
+
+  const scopeResult = qltdDeptScopeAuthorizeWrite_(payload, action);
+  if (!scopeResult.allowed) {
+    return qltdDevApiJson_(scopeResult.response);
+  }
 
   if (action === 'budget_submitplan') {
     return qltdDevApiJson_(qltdBudgetSubmitPlan_(payload));
@@ -254,6 +321,10 @@ function qltdDevApiHandlePost_(e) {
     return qltdDevApiJson_(qltdWeeklyMasterApprovalReview_(payload));
   }
 
+  if (action === 'weekly_pbdetailapproval_review') {
+    return qltdDevApiJson_(qltdWeeklyPbDetailApprovalReview_(payload));
+  }
+
   if (action === 'weekly_savedraft') {
     return qltdDevApiJson_(qltdWeeklySaveDraft_(payload));
   }
@@ -266,6 +337,10 @@ function qltdDevApiHandlePost_(e) {
     return qltdDevApiJson_(qltdWeeklyReview_(payload));
   }
 
+  if (action === 'projectdepts_masterdept_apply') {
+    return qltdDevApiJson_(qltdProjectDeptsMasterDeptApply_(payload));
+  }
+
   return qltdDevApiJson_(qltdBudgetWriteError_('UNKNOWN_POST_ACTION', 'UNKNOWN_POST_ACTION', 'Post action khong hop le.', {
     action: payload.action || ''
   }));
@@ -275,8 +350,13 @@ function qltdDevApiIsActionRequest(e) {
   return !!(e && e.parameter && e.parameter.action);
 }
 
-function qltdDevApiProfile_(emailValue) {
-  const email = qltdDevApiNormalizeEmail_(emailValue);
+function qltdDevApiProfile_(params) {
+  const identity = qltdFirebaseResolveIdentity_(params, true);
+  if (!identity.success) {
+    return qltdDevApiJson_(identity);
+  }
+
+  const email = qltdDevApiNormalizeEmail_(identity.email || (params && params.email));
 
   qltdUsersEnsureSheet_();
   qltdUsersSeedAdminIfMissing_();
@@ -287,6 +367,7 @@ function qltdDevApiProfile_(emailValue) {
     return qltdDevApiJson_({
       success: false,
       message: 'USER_NOT_FOUND',
+      requiresRegistration: true,
       apiStatus: 'CONNECTED',
       source: QLTD_DEV_API_SOURCE
     });
@@ -309,6 +390,8 @@ function qltdDevApiProfile_(emailValue) {
       source: QLTD_DEV_API_SOURCE
     });
   }
+
+  qltdUsersTouchLastLogin_(user.rowIndex);
 
   return qltdDevApiJson_({
     success: true,
@@ -335,11 +418,27 @@ function qltdDevApiJson_(payload) {
 }
 
 
-function qltdDevApiListProjects_(email) {
+function qltdDevApiListProjects_(params) {
+  const identity = qltdFirebaseResolveIdentity_(params, true);
+  if (!identity.success) return qltdDevApiJson_(identity);
+
+  const user = qltdUsersGetByEmail_(identity.email);
+  if (!user) {
+    return qltdDevApiJson_(qltdUsersBuildAuthError_('USER_NOT_FOUND', 'Tai khoan chua duoc dang ky tren he thong.', {
+      requiresRegistration: true
+    }));
+  }
+  if (user.status !== 'ACTIVE') {
+    return qltdDevApiJson_(qltdUsersBuildAuthError_('USER_INACTIVE', 'Tai khoan dang bi khoa.'));
+  }
+  if (!qltdUsersIsValidRole_(user.role)) {
+    return qltdDevApiJson_(qltdUsersBuildAuthError_('INVALID_ROLE', 'Vai tro tai khoan khong hop le.'));
+  }
+
   qltdProjectsEnsureSheet_();
   qltdProjectsSeedDefaultIfMissing_();
 
-  const projects = qltdProjectsListForUser_(email).map(function(project) {
+  const projects = qltdProjectsListForUser_(user.email).map(function(project) {
     return {
       projectCode: project.projectCode,
       projectName: project.projectName,
@@ -356,11 +455,34 @@ function qltdDevApiListProjects_(email) {
     source: 'projects_sheet'
   });
 }
-function qltdDevApiListDeptPlans_(projectCode) {
-  return qltdDevApiJson_(qltdDeptPlanListForProject_(projectCode));
+function qltdDevApiListDeptPlans_(params) {
+  const action = 'listDeptPlans';
+  const auth = qltdWorkAuthUser_(params && params.email, action, 'dept_plan_service');
+  if (auth.error) return qltdDevApiJson_(auth.error);
+  return qltdDevApiJson_(qltdDeptPlanListForProject_(
+    params && params.projectCode,
+    auth.user,
+    auth.email,
+    params && params.deptCode
+  ));
 }
 
-function qltdDevApiGanttData_(projectCode) {
+function qltdDevApiGanttData_(params) {
+  const projectCode = params && params.projectCode;
+  const forceRefresh = String(params && (params.forceRefresh || params.bypassCache) || '').trim() === '1' ||
+    String(params && (params.forceRefresh || params.bypassCache) || '').trim().toLowerCase() === 'true';
+  if (forceRefresh && typeof qltdGanttInvalidateCache_ === 'function') {
+    try {
+      qltdGanttInvalidateCache_(projectCode);
+    } catch (error) {
+      Logger.log(JSON.stringify({
+        action: 'ganttData',
+        stage: 'FORCE_REFRESH_INVALIDATE',
+        projectCode: projectCode,
+        message: error && error.message || String(error)
+      }));
+    }
+  }
   const result = qltdGanttGetDataForProject_(projectCode);
   if (result && result.success !== false) {
     const milestones = qltdMainMilestonesGet_(projectCode, 'gantt-data@authenticated.local', true);

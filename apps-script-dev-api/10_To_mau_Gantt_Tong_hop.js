@@ -368,7 +368,8 @@ function toMauGanttTongHopV1() {
   return toMauGanttBarTienDoTongHopV1();
 }
 
-function toggleDuongGangKeHoachGocV1() {
+// Entry point legacy chỉ phục vụ engine tô Gantt cũ; menu dùng bản canonical trong file 11.
+function toggleDuongGangKeHoachGocLegacyV1_() {
   const props = PropertiesService.getDocumentProperties();
   const current = docHienThiDuongGangKeHoachGocV1_();
   const next = !current;

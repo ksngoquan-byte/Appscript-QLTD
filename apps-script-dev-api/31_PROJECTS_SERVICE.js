@@ -129,21 +129,8 @@ function qltdProjectsListActive_() {
 function qltdProjectsListForUser_(email) {
   const normalizedEmail = qltdUsersNormalizeEmail_(email);
   const user = normalizedEmail ? qltdUsersGetByEmail_(normalizedEmail) : null;
-
-  const allProjects = qltdProjectsListActive_();
-
-  if (!user) return allProjects;
-
-  if (user.role === 'ADMIN') {
-    return allProjects;
-  }
-
-  const allowedProjectCodes = qltdProjectDeptsGetAllowedProjectCodesForUser_(user, normalizedEmail);
-  if (!allowedProjectCodes.length) return [];
-
-  return allProjects.filter(function(project) {
-    return allowedProjectCodes.indexOf(qltdProjectsNormalizeCode_(project.projectCode)) !== -1;
-  });
+  if (!user || user.status !== 'ACTIVE' || !qltdUsersIsValidRole_(user.role)) return [];
+  return qltdProjectsListActive_();
 }
 
 function qltdProjectsListAll_() {

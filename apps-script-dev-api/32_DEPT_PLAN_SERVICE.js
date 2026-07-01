@@ -3,7 +3,8 @@ const QLTD_DEPT_PLAN_ROW_TYPE_MASTER = 'MASTER';
 const QLTD_DEPT_PLAN_ROW_TYPE_DETAIL_SLOT = 'DETAIL_SLOT';
 const QLTD_DEPT_PLAN_ROW_TYPE_PB_DETAIL = 'PB_DETAIL';
 
-function qltdDeptPlanListForProject_(projectCode) {
+function qltdDeptPlanListForProject_(projectCode, actorUser, actorEmail, requestedDeptCode) {
+  const action = 'listDeptPlans';
   const project = qltdProjectsGetByCode_(projectCode);
 
   if (!project) {
@@ -36,15 +37,44 @@ function qltdDeptPlanListForProject_(projectCode) {
     };
   }
 
-  const ss = SpreadsheetApp.openById(project.deptSpreadsheetId);
   const departments = [];
   const warnings = [];
-  const mappedDepts = qltdProjectDeptsListActive_().filter(function(row) {
+  const allMappedDepts = qltdProjectDeptsListActive_().filter(function(row) {
     return row.projectCode === project.projectCode;
   });
+  const requestedCode = qltdWorkNormalizeCode_(requestedDeptCode);
+  const mappedDepts = requestedCode
+    ? allMappedDepts.filter(function(dept) {
+      return qltdDeptPlanMatchesRequestedDept_(dept, requestedCode);
+    })
+    : allMappedDepts;
+  const isAdminScope = qltdWorkIsAdminScope_(actorUser);
+  const allowedMappedDepts = isAdminScope
+    ? mappedDepts
+    : mappedDepts.filter(function(dept) {
+      return qltdWorkCanReadDept_(actorUser, dept.deptCode, dept);
+    });
 
-  if (mappedDepts.length) {
-    mappedDepts.forEach(function(dept) {
+  if (!isAdminScope && !allowedMappedDepts.length) {
+    return qltdWorkError_(
+      'dept_plan_service',
+      action,
+      'ACCESS_DENIED',
+      'Bạn không có quyền truy cập dữ liệu của phòng/ban này.',
+      {
+        email: actorEmail || actorUser && actorUser.email || '',
+        projectCode: project.projectCode,
+        deptCode: requestedCode
+      }
+    );
+  }
+
+  const masterContextResult = qltdDeptPlanBuildMasterContextMap_(project.projectCode);
+  if (masterContextResult.warning) warnings.push(masterContextResult.warning);
+  const ss = SpreadsheetApp.openById(project.deptSpreadsheetId);
+
+  if (allowedMappedDepts.length) {
+    allowedMappedDepts.forEach(function(dept) {
       const sheet = qltdDeptPlanFindMappedSheet_(ss, dept);
 
       if (!sheet) {
@@ -76,6 +106,12 @@ function qltdDeptPlanListForProject_(projectCode) {
       deptPlan.deptName = dept.deptName || deptPlan.deptCode;
       deptPlan.projectUnitCode = dept.projectUnitCode || '';
       deptPlan.projectUnitCodeRaw = dept.projectUnitCodeRaw || deptPlan.projectUnitCode;
+      qltdDeptPlanEnrichWithMasterContext_(
+        deptPlan,
+        masterContextResult.byCode,
+        warnings,
+        project.projectCode
+      );
 
       if (deptPlan.masterCount > 0) {
         departments.push(deptPlan);
@@ -88,10 +124,16 @@ function qltdDeptPlanListForProject_(projectCode) {
         });
       }
     });
-  } else {
+  } else if (isAdminScope && !requestedCode) {
     ss.getSheets().forEach(function(sheet) {
       const deptPlan = qltdDeptPlanParseSheet_(sheet, project);
       if (deptPlan && deptPlan.masterCount > 0) {
+        qltdDeptPlanEnrichWithMasterContext_(
+          deptPlan,
+          masterContextResult.byCode,
+          warnings,
+          project.projectCode
+        );
         departments.push(deptPlan);
       }
     });
@@ -110,8 +152,8 @@ function qltdDeptPlanListForProject_(projectCode) {
   }
 
   departments.sort(function(a, b) {
-    const aOrder = qltdDeptPlanFindMappedSortOrder_(mappedDepts, a);
-    const bOrder = qltdDeptPlanFindMappedSortOrder_(mappedDepts, b);
+    const aOrder = qltdDeptPlanFindMappedSortOrder_(allowedMappedDepts, a);
+    const bOrder = qltdDeptPlanFindMappedSortOrder_(allowedMappedDepts, b);
 
     if (aOrder !== bOrder) {
       return aOrder - bOrder;
@@ -129,6 +171,21 @@ function qltdDeptPlanListForProject_(projectCode) {
     apiStatus: 'CONNECTED',
     source: 'dept_plan_service'
   };
+}
+
+function qltdDeptPlanMatchesRequestedDept_(dept, requestedCode) {
+  const normalized = qltdWorkNormalizeCode_(requestedCode);
+  const canonical = qltdMasterDeptCanonicalCode_(requestedCode);
+  return [
+    dept && dept.deptCode,
+    dept && dept.deptCodeRaw,
+    dept && dept.projectUnitCode,
+    dept && dept.projectUnitCodeRaw
+  ].some(function(value) {
+    return qltdWorkNormalizeCode_(value) === normalized;
+  }) || (!!canonical && qltdMasterDeptCanonicalCode_(
+    dept && (dept.masterDeptCode || dept.deptCode || dept.projectUnitCode)
+  ) === canonical);
 }
 
 function qltdDeptPlanFindMappedSheet_(ss, dept) {
@@ -254,6 +311,77 @@ function qltdDeptPlanParseSheet_(sheet, project) {
     contexts: contexts,
     masters: masters
   };
+}
+
+function qltdDeptPlanBuildMasterContextMap_(projectCode) {
+  const byCode = {};
+  const result = qltdGanttGetDataForProject_(projectCode);
+  if (!result || result.success === false || !Array.isArray(result.data)) {
+    return {
+      byCode: byCode,
+      warning: {
+        type: 'MASTER_CONTEXT_UNAVAILABLE',
+        projectCode: projectCode
+      }
+    };
+  }
+  result.data.forEach(function(task) {
+    [task.masterTaskCode, task.code, task.taskId, task.id].forEach(function(value) {
+      const key = qltdDeptPlanNormalizeMasterCode_(value);
+      if (key && !byCode[key]) byCode[key] = task;
+    });
+  });
+  return { byCode: byCode, warning: null };
+}
+
+function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, projectCode) {
+  (deptPlan && deptPlan.masters || []).forEach(function(master) {
+    const key = qltdDeptPlanNormalizeMasterCode_(master.masterCode);
+    const official = masterByCode && masterByCode[key];
+    if (!official) {
+      master.zone = '';
+      master.loaiCongTrinh = '';
+      master.congTrinh = '';
+      master.hangMuc = '';
+      master.wbs = master.stt || '';
+      master.wbsPath = '';
+      master.contextPath = '';
+      master.mappingWarnings = ['MASTER_TASK_NOT_FOUND'];
+      warnings.push({
+        type: 'MASTER_TASK_NOT_FOUND',
+        projectCode: projectCode,
+        masterTaskCode: master.masterCode,
+        rowNumber: master.rowIndex
+      });
+      return;
+    }
+
+    master.zone = official.zone || '';
+    master.loaiCongTrinh = official.loaiCongTrinh || '';
+    master.congTrinh = official.congTrinh || '';
+    master.hangMuc = official.hangMuc || '';
+    master.wbs = official.wbs || master.stt || '';
+    master.wbsPath = official.wbsPath || '';
+    master.contextPath = official.contextPath || '';
+    master.mappingWarnings = Array.isArray(official.mappingWarnings)
+      ? official.mappingWarnings.slice()
+      : [];
+
+    (master.details || []).forEach(function(detail) {
+      detail.zone = master.zone;
+      detail.loaiCongTrinh = master.loaiCongTrinh;
+      detail.congTrinh = master.congTrinh;
+      detail.hangMuc = master.hangMuc;
+      detail.wbsPath = master.wbsPath;
+      detail.contextPath = master.contextPath;
+      detail.mappingWarnings = master.mappingWarnings.slice();
+    });
+  });
+  return deptPlan;
+}
+
+function qltdDeptPlanNormalizeMasterCode_(value) {
+  return String(value || '').trim().toUpperCase();
 }
 
 function qltdDeptPlanFindDeptCode_(values, fallbackSheetName) {
