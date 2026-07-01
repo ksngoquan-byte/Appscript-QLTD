@@ -108,10 +108,9 @@ const qltdWeeklyTaskCache = new Map();
 const qltdWeeklyTaskInFlight = new Map();
 const qltdWeeklyTaskCacheVersions = new Map();
 const qltdGanttDirtyProjects = new Set();
-const MASTER_APPROVAL_DEPENDENCY_OPTIONS = {
-  KEEP_CURRENT: 'Giữ nguyên tiến độ các công việc liên quan — có biện pháp bù',
-  RECALCULATE_DEPENDENCIES: 'Điều chỉnh tự động các công việc phụ thuộc'
-};
+const qltdGanttForceRefreshProjects = new Set();
+const qltdProjectScheduleStates = new Map();
+const qltdProjectScheduleRecalcInFlight = new Set();
 let qltdWeeklyTaskRequestSeq = 0;
 let qltdWeeklyTaskSessionVersion = 0;
 let qltdWeeklyTaskCacheIdentity = '';
@@ -129,7 +128,7 @@ const qltdDetailPopupCache = new Map();
 let qltdDetailPopupRequestSeq = 0;
 let qltdAdminApprovalRequestSeq = 0;
 let qltdAdminApprovalReviewSeq = 0;
-let qltdAdminApprovalView = { projectCode: '', loading: false, error: '', approvals: [], reviewing: null, reviewDrafts: {} };
+let qltdAdminApprovalView = { projectCode: '', loading: false, error: '', notice: '', approvals: [], reviewing: null, reviewDrafts: {} };
 let qltdPbDetailApprovalRequestSeq = 0;
 let qltdPbDetailApprovalReviewSeq = 0;
 let qltdPbDetailApprovalView = { projectCode: '', loading: false, error: '', approvals: [], reviewing: null };
@@ -990,6 +989,43 @@ function ensureWeb07InlineStyles() {
       font-weight: 800;
       padding: 5px 10px;
       white-space: nowrap;
+    }
+
+    .web07-schedule-state {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 0 0 14px;
+      border: 1px solid #f2c46d;
+      border-radius: 10px;
+      background: #fff8e6;
+      color: #8a4b08;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .web07-schedule-state.is-clean {
+      border-color: #9dd8c8;
+      background: #ecfdf5;
+      color: #0f6a55;
+    }
+
+    .web07-schedule-state button {
+      min-height: 32px;
+      border: 0;
+      border-radius: 8px;
+      background: #0b3ea8;
+      color: #ffffff;
+      padding: 6px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .web07-schedule-state button:disabled {
+      cursor: wait;
+      opacity: .65;
     }
 
     .web07-table {
@@ -2411,37 +2447,30 @@ function renderAdminPanel() {
   const state = qltdAdminApprovalView;
   panel.innerHTML = `<div class="web07-card admin-approval-card">
     <div class="admin-approval-heading">
-      <div><span>Weekly workflow · ${state.approvals.length} yêu cầu đang chờ</span><h2>YÊU CẦU CẬP NHẬT HOÀN THÀNH MASTER</h2><p>Duyệt APPROVED sẽ cập nhật Cong_viec, cột W và tính lại tiến độ trước khi lưu trạng thái duyệt.</p></div>
+      <div><span>Weekly workflow · ${state.approvals.length} yêu cầu đang chờ</span><h2>YÊU CẦU CẬP NHẬT HOÀN THÀNH MASTER</h2><p>Duyệt sẽ cập nhật Master. Tiến độ liên kết chưa được tính lại và dự án sẽ chuyển sang trạng thái cần tính lại.</p></div>
       <button type="button" class="secondary-button" id="reloadMasterApprovalsButton" ${state.loading || state.reviewing ? 'disabled' : ''}>${state.loading ? 'Đang tải...' : 'Tải lại'}</button>
     </div>
     ${state.error ? `<p class="weekly-update-note is-error">${escapeHtml(state.error)}</p>` : ''}
+    ${state.notice ? `<p class="weekly-update-note">${escapeHtml(state.notice)}</p>` : ''}
     ${renderAdminMasterApprovals(state.approvals || [])}
   </div>`;
   const reload = document.getElementById('reloadMasterApprovalsButton');
   if (reload) reload.onclick = () => { if (!qltdAdminApprovalView.reviewing) loadAdminMasterApprovals({ force: true }); };
-  document.querySelectorAll('[data-master-dependency-decision]').forEach((select) => {
-    select.onchange = () => {
-      const updateId = select.dataset.masterDependencyDecision || '';
-      const patch = { dependencyDecision: select.value || '' };
-      if (select.value !== 'KEEP_CURRENT') patch.recoveryPlan = '';
-      updateMasterApprovalDraft(updateId, patch);
-      updateMasterApprovalRecoveryVisibility(updateId);
-    };
-    updateMasterApprovalRecoveryVisibility(select.dataset.masterDependencyDecision || '');
-  });
-  document.querySelectorAll('[data-master-recovery-plan]').forEach((textarea) => {
-    textarea.oninput = () => updateMasterApprovalDraft(textarea.dataset.masterRecoveryPlan || '', { recoveryPlan: textarea.value || '' });
-  });
   document.querySelectorAll('[data-master-approval-approve]').forEach((button) => {
     button.onclick = () => {
       const updateId = button.dataset.masterApprovalApprove || '';
-      const decision = readMasterApprovalDecision(updateId);
-      if (decision.error) {
-        window.alert(decision.error);
+      const impactMode = button.closest('tr')?.querySelector('[data-master-impact-mode]')?.value || '';
+      if (!impactMode) {
+        qltdAdminApprovalView = { ...qltdAdminApprovalView, error: 'Vui lòng chọn mức ảnh hưởng đến công việc liên kết sau.' };
+        renderAdminPanel();
         return;
       }
-      reviewMasterApproval(updateId, 'APPROVED', '', decision);
+      updateMasterApprovalDraft(updateId, { impactMode });
+      reviewMasterApproval(updateId, 'APPROVED', '', { impactMode });
     };
+  });
+  document.querySelectorAll('[data-master-impact-mode]').forEach((select) => {
+    select.onchange = () => updateMasterApprovalDraft(select.dataset.masterImpactMode || '', { impactMode: select.value || '' });
   });
   document.querySelectorAll('[data-master-approval-reject]').forEach((button) => {
     button.onclick = () => {
@@ -2457,52 +2486,14 @@ function renderAdminPanel() {
 function renderAdminMasterApprovals(approvals) {
   if (!approvals.length) return '<p class="empty-state">Không có yêu cầu PENDING.</p>';
   const reviewing = qltdAdminApprovalView.reviewing;
-  return `<div class="admin-approval-table-wrap"><table class="dept-plan-table admin-approval-table"><thead><tr><th>Dự án</th><th>Phòng/Ban</th><th>WBS</th><th>Công việc</th><th>Trạng thái đề xuất</th><th>Ngày HT đề xuất</th><th>Người gửi</th><th>Xử lý liên kết</th><th>Trạng thái duyệt</th><th>Thao tác</th></tr></thead><tbody>${approvals.map((item) => {
+  return `<div class="admin-approval-table-wrap"><table class="dept-plan-table admin-approval-table"><thead><tr><th>Dự án</th><th>Phòng/Ban</th><th>WBS</th><th>Công việc</th><th>Trạng thái đề xuất</th><th>Ngày HT đề xuất</th><th>Người gửi</th><th>Ảnh hưởng liên kết</th><th>Trạng thái duyệt</th><th>Thao tác</th></tr></thead><tbody>${approvals.map((item) => {
     const isCurrent = reviewing?.updateId === item.updateId;
     const approveLabel = isCurrent && reviewing.approvalStatus === 'APPROVED' ? 'Đang duyệt...' : 'Duyệt';
     const rejectLabel = isCurrent && reviewing.approvalStatus === 'REJECTED' ? 'Đang trả lại...' : 'Không duyệt';
     const disabled = reviewing ? 'disabled' : '';
-    return `<tr class="${isNotificationApprovalHighlight('MASTER', item) ? 'is-notification-target' : ''}" data-notification-approval-id="${escapeHtml(item.updateId || '')}"><td>${escapeHtml(item.projectCode || '')}</td><td>${escapeHtml(item.deptCode || '')}</td><td class="mono">${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.taskStatus || '')} · ${escapeHtml(item.progressEnd ?? '')}%</td><td>${escapeHtml(formatIsoDateVi(item.actualFinish || '') || '—')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td>${renderMasterApprovalDependencyControls(item)}</td><td><span class="approval-status-badge is-${escapeHtml(String(item.approvalStatus || '').toLowerCase())}">${escapeHtml(formatApprovalStatus(item.approvalStatus))}</span></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-master-approval-approve="${escapeHtml(item.updateId || '')}" ${disabled}>${approveLabel}</button><button type="button" class="secondary-button" data-master-approval-reject="${escapeHtml(item.updateId || '')}" ${disabled}>${rejectLabel}</button></div></td></tr>`;
+    const impactMode = qltdAdminApprovalView.reviewDrafts?.[String(item.updateId || '')]?.impactMode || '';
+    return `<tr class="${isNotificationApprovalHighlight('MASTER', item) ? 'is-notification-target' : ''}" data-notification-approval-id="${escapeHtml(item.updateId || '')}"><td>${escapeHtml(item.projectCode || '')}</td><td>${escapeHtml(item.deptCode || '')}</td><td class="mono">${escapeHtml(item.wbs || '')}</td><td>${escapeHtml(item.taskName || item.itemId || '')}</td><td>${escapeHtml(item.taskStatus || '')} · ${escapeHtml(item.progressEnd ?? '')}%</td><td>${escapeHtml(formatIsoDateVi(item.actualFinish || '') || '—')}</td><td>${escapeHtml(item.updatedBy || '')}</td><td><select data-master-impact-mode="${escapeHtml(item.updateId || '')}"><option value="">Chọn ảnh hưởng</option><option value="KEEP_PLAN" ${impactMode === 'KEEP_PLAN' ? 'selected' : ''}>Không ảnh hưởng đến công việc liên kết sau</option><option value="PROPAGATE_ACTUAL" ${impactMode === 'PROPAGATE_ACTUAL' ? 'selected' : ''}>Có ảnh hưởng đến công việc liên kết sau</option></select></td><td><span class="approval-status-badge is-${escapeHtml(String(item.approvalStatus || '').toLowerCase())}">${escapeHtml(formatApprovalStatus(item.approvalStatus))}</span></td><td><div class="admin-approval-actions"><button type="button" class="weekly-update-button" data-master-approval-approve="${escapeHtml(item.updateId || '')}" ${disabled}>${approveLabel}</button><button type="button" class="secondary-button" data-master-approval-reject="${escapeHtml(item.updateId || '')}" ${disabled}>${rejectLabel}</button></div></td></tr>`;
   }).join('')}</tbody></table></div>`;
-}
-
-function renderMasterApprovalDependencyControls(item) {
-  const updateId = escapeHtml(item.updateId || '');
-  const draft = getMasterApprovalDraft(item.updateId);
-  const decision = String(draft.dependencyDecision || '');
-  return `<div class="admin-approval-dependency">
-    <select data-master-dependency-decision="${updateId}">
-      <option value="">Chọn quyết định</option>
-      <option value="KEEP_CURRENT" ${decision === 'KEEP_CURRENT' ? 'selected' : ''}>${escapeHtml(MASTER_APPROVAL_DEPENDENCY_OPTIONS.KEEP_CURRENT)}</option>
-      <option value="RECALCULATE_DEPENDENCIES" ${decision === 'RECALCULATE_DEPENDENCIES' ? 'selected' : ''}>${escapeHtml(MASTER_APPROVAL_DEPENDENCY_OPTIONS.RECALCULATE_DEPENDENCIES)}</option>
-    </select>
-    <textarea data-master-recovery-plan="${updateId}" rows="2" placeholder="Biện pháp bù tiến độ">${escapeHtml(draft.recoveryPlan || '')}</textarea>
-  </div>`;
-}
-
-function findMasterApprovalControl(attributeName, updateId) {
-  return Array.from(document.querySelectorAll(`[${attributeName}]`))
-    .find((element) => element.getAttribute(attributeName) === String(updateId || '')) || null;
-}
-
-function updateMasterApprovalRecoveryVisibility(updateId) {
-  const select = findMasterApprovalControl('data-master-dependency-decision', updateId);
-  const textarea = findMasterApprovalControl('data-master-recovery-plan', updateId);
-  if (!select || !textarea) return;
-  const needsPlan = select.value === 'KEEP_CURRENT';
-  textarea.hidden = !needsPlan;
-  textarea.required = needsPlan;
-  if (!needsPlan) textarea.value = '';
-}
-
-function readMasterApprovalDecision(updateId) {
-  const select = findMasterApprovalControl('data-master-dependency-decision', updateId);
-  const textarea = findMasterApprovalControl('data-master-recovery-plan', updateId);
-  const dependencyDecision = String(select?.value || '').trim();
-  const recoveryPlan = String(textarea?.value || '').trim();
-  if (!dependencyDecision) return { error: 'Vui lòng chọn quyết định xử lý liên kết trước khi duyệt.' };
-  if (dependencyDecision === 'KEEP_CURRENT' && !recoveryPlan) return { error: 'Vui lòng nhập biện pháp bù tiến độ.' };
-  return { dependencyDecision, recoveryPlan };
 }
 
 function formatApprovalStatus(status, compact = false) {
@@ -2799,8 +2790,14 @@ async function navigateNotificationDeepLink(notification, navigationSeq) {
 
 async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '', reviewOptions = {}) {
   if (!updateId || qltdAdminApprovalView.reviewing) return;
+  const impactMode = String(reviewOptions.impactMode || '').trim().toUpperCase();
   if (approvalStatus === 'APPROVED') {
-    const ok = window.confirm('Hệ thống sẽ cập nhật Cong_viec, cột W và chạy lại tiến độ trước khi lưu APPROVED. Tiếp tục?');
+    if (!['KEEP_PLAN', 'PROPAGATE_ACTUAL'].includes(impactMode)) {
+      qltdAdminApprovalView = { ...qltdAdminApprovalView, error: 'Vui lòng chọn mức ảnh hưởng đến công việc liên kết sau.' };
+      renderAdminPanel();
+      return;
+    }
+    const ok = window.confirm('Hệ thống chỉ cập nhật Master. Tiến độ công việc liên kết chưa được tính lại và dự án sẽ ở trạng thái cần tính lại. Tiếp tục?');
     if (!ok) return;
   }
   const approval = (qltdAdminApprovalView.approvals || []).find((item) => item.updateId === updateId) || {};
@@ -2808,13 +2805,13 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
   const reviewSeq = ++qltdAdminApprovalReviewSeq;
   const draftPatch = { reviewReason: String(reviewReason || '').trim() };
   if (approvalStatus === 'APPROVED') {
-    draftPatch.dependencyDecision = reviewOptions.dependencyDecision || '';
-    draftPatch.recoveryPlan = reviewOptions.recoveryPlan || '';
+    draftPatch.impactMode = impactMode;
   }
   updateMasterApprovalDraft(updateId, draftPatch);
   qltdAdminApprovalView = {
     ...qltdAdminApprovalView,
     error: '',
+    notice: '',
     reviewing: { seq: reviewSeq, updateId, approvalStatus }
   };
   renderAdminPanel();
@@ -2825,8 +2822,7 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
       updateId,
       approvalStatus,
       reviewReason,
-      dependencyDecision: reviewOptions.dependencyDecision || '',
-      recoveryPlan: reviewOptions.recoveryPlan || ''
+      impactMode: approvalStatus === 'APPROVED' ? impactMode : ''
     });
     if (!result.success) {
       if (getBackendErrorCode(result) === 'APPROVAL_NOT_PENDING') {
@@ -2841,7 +2837,7 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
         }
         return;
       }
-      const backendError = new Error(getBackendErrorMessage(result, 'Không cập nhật được trạng thái duyệt.'));
+      const backendError = new Error(formatMasterApprovalBackendError(result, 'Không cập nhật được trạng thái duyệt.'));
       backendError.backendResult = result;
       throw backendError;
     }
@@ -2852,7 +2848,8 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
       qltdAdminApprovalView = {
         ...qltdAdminApprovalView,
         approvals: (qltdAdminApprovalView.approvals || []).filter((item) => item.updateId !== updateId),
-        error: ''
+        error: '',
+        notice: approvalStatus === 'APPROVED' ? 'Tiến độ dự án chưa được tính lại.' : ''
       };
     }
   } catch (error) {
@@ -2870,6 +2867,13 @@ async function reviewMasterApproval(updateId, approvalStatus, reviewReason = '',
   }
 }
 
+function formatMasterApprovalBackendError(result, fallback) {
+  const message = getBackendErrorMessage(result, fallback);
+  const errorCode = getBackendErrorCode(result);
+  const stage = String(result?.stage || result?.meta?.stage || result?.data?.stage || '').trim();
+  return [message, errorCode ? `errorCode: ${errorCode}` : '', stage ? `stage: ${stage}` : ''].filter(Boolean).join(' · ');
+}
+
 function markMasterApprovalDataDirty(result, fallbackApproval = {}) {
   const approval = result?.approval || fallbackApproval || {};
   const projectCode = result?.affectedProjectCode || approval.projectCode || '';
@@ -2882,6 +2886,17 @@ function markMasterApprovalDataDirty(result, fallbackApproval = {}) {
     invalidateWeeklyTaskCacheKey(getWeeklyTaskCacheKey(projectCode, deptCode, weekCode));
   }
   if (projectCode) qltdGanttDirtyProjects.add(projectCode);
+  if (projectCode) {
+    qltdProjectScheduleStates.set(String(projectCode), {
+      projectCode: String(projectCode),
+      scheduleState: 'DIRTY',
+      reason: 'WEEKLY_MASTER_APPROVED',
+      markedAt: result?.masterSync?.scheduleMarkedAt || new Date().toISOString(),
+      recalculatedAt: '',
+      error: ''
+    });
+  }
+  if (projectCode && result?.masterWriteback?.ganttCacheInvalidated === false) qltdGanttForceRefreshProjects.add(projectCode);
 }
 
 
@@ -3442,9 +3457,8 @@ function getOfficialMasterMapFromGantt(payload = qltdGanttPayload) {
 }
 
 function isOfficialMasterComplete(task) {
-  const progress = Number(task?.percent ?? Math.round(Number(task?.progress || 0) * 100));
-  const status = String(task?.status || '').toLocaleLowerCase('vi-VN');
-  return progress >= 100 || !!(task?.actualFinish || task?.actualEnd) || status.includes('hoàn thành') || status.includes('complete') || status.includes('done');
+  const status = normalizeWeeklyStatusKey(task?.status || '');
+  return !!(task?.actualFinish || task?.actualEnd) || status.includes('hoanthanh') || status.includes('complete') || status.includes('done');
 }
 
 function enrichDeptPlanPayloadWithOfficialMasters(payload) {
@@ -3899,7 +3913,7 @@ function bindWeeklyTaskUpdateControlsLegacy() {
   const filter = () => loadWeeklyTaskDataForCurrent({ search: search?.value || '', group: group?.value || 'ALL', force: true });
   if (search) search.onchange = filter; if (group) group.onchange = filter;
   const progress = document.getElementById('weeklyTaskProgress');
-  if (progress) progress.onchange = () => { if (Number(progress.value) === 100) { const finish = document.getElementById('weeklyTaskActualFinish'); const status = document.getElementById('weeklyTaskStatus'); if (finish && !finish.value) finish.value = new Date().toISOString().slice(0, 10); if (status) status.value = 'Hoàn thành'; } };
+  if (progress) progress.onchange = () => {};
   const save = document.getElementById('saveWeeklyTaskUpdateButton'); if (save) save.onclick = saveWeeklyTaskUpdate;
 }
 
@@ -4702,11 +4716,16 @@ function normalizeWeeklyStatusKey(value) {
 
 function isWeeklyCompletionValue(progress, status, actualFinish = '') {
   const key = normalizeWeeklyStatusKey(status);
-  return Number(progress || 0) >= 100 || !!actualFinish || key.includes('hoanthanh') || key.includes('complete') || key.includes('done');
+  return key.includes('hoanthanh') || key.includes('complete') || key.includes('done');
+}
+
+function isWeeklyStartedValue(status) {
+  const key = normalizeWeeklyStatusKey(status);
+  return key.includes('danglam') || key.includes('dangthuchien');
 }
 
 function renderWeeklyStatusSelect(currentStatus) {
-  const options = ['Chưa bắt đầu', 'Đang thực hiện', 'Tạm dừng', 'Hoàn thành'];
+  const options = ['Chưa bắt đầu', 'Đang làm', 'Tạm dừng', 'Hoàn thành'];
   const current = String(currentStatus || '').trim();
   const values = current && !options.includes(current) ? options.concat([current]) : options;
   return `<select id="weeklyTaskStatus">${values.map((status) => `<option value="${escapeHtml(status)}" ${status === current ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select>`;
@@ -4715,7 +4734,7 @@ function renderWeeklyStatusSelect(currentStatus) {
 function renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusValue) {
   const actualStart = saved?.actualStart || selected.actualStart || '';
   const actualFinish = saved?.actualFinish || selected.actualFinish || '';
-  const isCompleted = selected.officialComplete || isWeeklyCompletionValue(progressValue, statusValue, actualFinish);
+  const isCompleted = isWeeklyCompletionValue(progressValue, statusValue, actualFinish);
   return `<div id="weeklyActualDateLifecycle" class="weekly-actual-date-lifecycle" data-existing-start="${escapeHtml(actualStart)}" data-existing-finish="${escapeHtml(actualFinish)}" data-completed="${isCompleted ? '1' : '0'}">
     <input id="weeklyTaskActualStartEdit" type="hidden" value="">
     <input id="weeklyTaskActualFinishEdit" type="hidden" value="">
@@ -4733,7 +4752,7 @@ function renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusV
       <small>Chỉ ghi khi chưa có ngày hoặc bạn chủ động bấm “Sửa ngày”.</small>
     </div>
     <div id="weeklyActualFinishHidden" class="weekly-actual-state is-muted">
-      <div><strong>Ngày hoàn thành thực tế chưa mở</strong><span>Chỉ xuất hiện khi tiến độ đạt 100% hoặc trạng thái là Hoàn thành.</span></div>
+      <div><strong>Ngày hoàn thành thực tế chưa mở</strong><span>Chỉ xuất hiện khi trạng thái là Hoàn thành.</span></div>
     </div>
     <div id="weeklyActualFinishReadonly" class="weekly-actual-state" hidden>
       <div><strong>Đã hoàn thành từ ${escapeHtml(formatIsoDateVi(actualFinish) || '—')}</strong><span>Ngày hoàn thành đang ở chế độ chỉ đọc.</span></div>
@@ -4741,15 +4760,15 @@ function renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusV
     <div id="weeklyActualFinishInputWrap" class="weekly-update-field" hidden>
       <label for="weeklyTaskActualFinish">Ngày hoàn thành thực tế *</label>
       <input id="weeklyTaskActualFinish" type="date" value="${escapeHtml(actualFinish)}">
-      <small>Bắt buộc khi báo hoàn thành 100%.</small>
+      <small>Bắt buộc khi chọn trạng thái Hoàn thành.</small>
     </div>
   </div>`;
 }
 
 function renderWeeklySelectedForm(selected, saved) {
-  const completionHint = selected.itemType === 'MASTER' ? '<p class="weekly-approval-hint">Nếu đề xuất 100%, trạng thái Hoàn thành hoặc có ngày hoàn thành thực tế, hệ thống chỉ gửi Admin duyệt. Không tự cập nhật Cong_viec hoặc cột W.</p>' : '';
+  const completionHint = selected.itemType === 'MASTER' ? '<p class="weekly-approval-hint">Chỉ khi chọn trạng thái Hoàn thành, hệ thống mới gửi Admin/PMO phê duyệt. Tỷ lệ hoàn thành chỉ dùng để báo cáo tiến độ.</p>' : '';
   const progressValue = saved?.progressEnd ?? selected.progress ?? 0;
-  const statusValue = saved?.taskStatus || selected.status || (Number(progressValue) >= 100 ? 'Hoàn thành' : 'Chưa bắt đầu');
+  const statusValue = saved?.taskStatus || selected.status || 'Chưa bắt đầu';
   const effectiveState = getWeeklyEffectiveTaskState(selected, saved);
   const currentStatusDisplay = selected.officialComplete ? 'Hoàn thành — 100%' : `${effectiveState.status} — ${effectiveState.progress}%`;
   const ownerDisplay = getWeeklyPersonDisplay(selected.owner);
@@ -4812,8 +4831,17 @@ function bindWeeklyTaskUpdateControls() {
   if (retry) retry.onclick = () => loadWeeklyTaskDataForCurrent({ force: true });
   const progress = document.getElementById('weeklyTaskProgress');
   const status = document.getElementById('weeklyTaskStatus');
-  if (progress) progress.oninput = () => { if (Number(progress.value) >= 100 && status && !isWeeklyCompletionValue(progress.value, status.value)) status.value = 'Hoàn thành'; syncWeeklyActualDateLifecycle(); syncWeeklyBudgetValidation(); };
-  if (status) status.onchange = syncWeeklyActualDateLifecycle;
+  if (progress) progress.oninput = () => { syncWeeklyActualDateLifecycle(); syncWeeklyBudgetValidation(); };
+  if (status) status.onchange = () => {
+    const startInput = document.getElementById('weeklyTaskActualStart');
+    const startEdit = document.getElementById('weeklyTaskActualStartEdit');
+    const root = document.getElementById('weeklyActualDateLifecycle');
+    if (isWeeklyStartedValue(status.value) && !root?.dataset.existingStart) {
+      if (startEdit) startEdit.value = 'confirm';
+      if (startInput && !startInput.value) startInput.value = getTodayIsoLocal();
+    }
+    syncWeeklyActualDateLifecycle();
+  };
   document.querySelectorAll('[data-actual-start-confirm]').forEach((button) => {
     button.onclick = () => {
       const edit = document.getElementById('weeklyTaskActualStartEdit');
@@ -5298,9 +5326,10 @@ function syncWeeklyActualDateLifecycle() {
   const complete = isWeeklyCompletionValue(progress, status, existingFinish);
   const startInput = document.getElementById('weeklyTaskActualStart');
   const finishInput = document.getElementById('weeklyTaskActualFinish');
-  const showStartInput = !!startEdit || (!existingStart && progress > 0);
+  const started = isWeeklyStartedValue(status);
+  const showStartInput = !!startEdit || (!existingStart && started);
   const showStartReadonly = !!existingStart && !startEdit;
-  const showNotStarted = !existingStart && !showStartInput && progress <= 0;
+  const showNotStarted = !existingStart && !showStartInput && !started;
   const showFinishInput = complete && (!existingFinish || !!finishEdit);
   const showFinishReadonly = complete && !!existingFinish && !finishEdit;
   setElementHidden(document.getElementById('weeklyActualStartNotStarted'), !showNotStarted);
@@ -5311,7 +5340,7 @@ function syncWeeklyActualDateLifecycle() {
   setElementHidden(document.getElementById('weeklyActualFinishInputWrap'), !showFinishInput);
   if (startInput) {
     startInput.disabled = !showStartInput;
-    startInput.required = showStartInput && progress > 0;
+    startInput.required = showStartInput && started;
     if (showStartInput && existingStart && !startInput.value) startInput.value = existingStart;
   }
   if (finishInput) {
@@ -5325,13 +5354,15 @@ function getWeeklyActualDatePayload() {
   const root = document.getElementById('weeklyActualDateLifecycle');
   const startInput = document.getElementById('weeklyTaskActualStart');
   const finishInput = document.getElementById('weeklyTaskActualFinish');
+  const status = document.getElementById('weeklyTaskStatus')?.value || '';
   const startEdit = document.getElementById('weeklyTaskActualStartEdit')?.value || '';
   const finishEdit = document.getElementById('weeklyTaskActualFinishEdit')?.value || '';
   const existingStart = root?.dataset.existingStart || '';
   const existingFinish = root?.dataset.existingFinish || '';
+  const complete = isWeeklyCompletionValue(0, status, existingFinish);
   return {
     actualStart: startInput && !startInput.disabled ? startInput.value : existingStart,
-    actualFinish: finishInput && !finishInput.disabled ? finishInput.value : existingFinish,
+    actualFinish: complete ? (finishInput && !finishInput.disabled ? finishInput.value : existingFinish) : '',
     actualStartEdit: startEdit,
     actualFinishEdit: finishEdit
   };
@@ -5357,8 +5388,9 @@ function validateWeeklyTaskForm(item) {
   const status = document.getElementById('weeklyTaskStatus')?.value || '';
   const dates = getWeeklyActualDatePayload();
   if (isNaN(progressEnd) || progressEnd < 0 || progressEnd > 100) return { error: 'Mức hoàn thành phải nằm trong khoảng 0–100%.' };
-  if (progressEnd > 0 && progressEnd < 100 && !dates.actualStart) return { error: 'Vui lòng nhập ngày bắt đầu thực tế một lần khi công việc đã bắt đầu.' };
+  if (isWeeklyStartedValue(status) && !dates.actualStart) return { error: 'Vui lòng nhập ngày bắt đầu thực tế khi chuyển sang Đang làm.' };
   if (isWeeklyCompletionValue(progressEnd, status) && !dates.actualFinish) return { error: 'Vui lòng nhập ngày hoàn thành thực tế khi báo hoàn thành.' };
+  if (item?.itemType === 'MASTER' && isWeeklyCompletionValue(progressEnd, status) && !String(document.getElementById('weeklyTaskResult')?.value || '').trim()) return { error: 'Vui lòng nhập kết quả thực hiện khi chọn trạng thái Hoàn thành.' };
   if (!syncWeeklyBudgetValidation()) return { error: 'Vui lòng kiểm tra lại ngân sách tuần.' };
   const budgetRaw = String(document.getElementById('weeklyTaskBudget')?.value || '').trim();
   if (budgetRaw && (isNaN(Number(budgetRaw)) || Number(budgetRaw) < 0)) return { error: 'Ngân sách tuần phải là số không âm.' };
@@ -5580,7 +5612,13 @@ async function saveWeeklyTaskUpdate() {
     const localRefresh = applyWeeklySavedUpdateToView(body, data.update, { budgetUpdates: budgetPayload.updates, budgetResults: data.budget?.results || [], clearBudgetDrafts: true });
     const syncWarning = getWeeklySyncWarning(result);
     const budgetSaved = Number(data.budget?.savedCount || 0);
-    const message = reporterProposal ? 'Đã gửi cập nhật PB_DETAIL để Trưởng/Phó phòng duyệt.' : syncWarning ? `Công việc đã lưu; ${budgetSaved} khoản ngân sách đã lưu, nhưng đồng bộ trạng thái nguồn chưa hoàn tất.` : data.update?.approvalStatus === 'PENDING' ? `Đã gửi phê duyệt cập nhật hoàn thành MASTER; ${budgetSaved} khoản ngân sách đã lưu.` : `Công việc đã lưu; ${budgetSaved} khoản ngân sách đã lưu.`;
+    const message = reporterProposal
+      ? 'Đã gửi cập nhật PB_DETAIL để Trưởng/Phó phòng duyệt.'
+      : syncWarning
+        ? `Công việc đã lưu; ${budgetSaved} khoản ngân sách đã lưu, nhưng đồng bộ trạng thái nguồn chưa hoàn tất.`
+        : data.update?.approvalStatus === 'PENDING'
+          ? 'Đã gửi đề nghị hoàn thành mục tiêu, chờ Admin/PMO phê duyệt.'
+          : 'Đã cập nhật kết quả mục tiêu và làm mới Gantt.';
     qltdWeeklyEditingItemKey = '';
     showWeeklyToast(message);
     qltdWeeklySaveRequestId = '';
@@ -5653,12 +5691,120 @@ function getNextWeeklyPeriod(week) { const start = new Date(`${week.weekStart}T1
 function formatWeeklyCurrency(value) { return Number(value || 0).toLocaleString('vi-VN') + ' ₫'; }
 function formatWeeklyDateTime(value) { if (!value) return ''; const date = new Date(value); return isNaN(date.getTime()) ? String(value) : date.toLocaleString('vi-VN'); }
 
-async function markWeeklyGanttRefreshRequired(projectCode) {
+async function markWeeklyGanttRefreshRequired(projectCode, options = {}) {
   if (!projectCode) return;
   qltdGanttDirtyProjects.add(projectCode);
+  if (options.forceRefresh) qltdGanttForceRefreshProjects.add(projectCode);
   const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
   if (selectedProjectCode === projectCode && (qltdActiveView === 'dashboard' || qltdActiveView === 'gantt')) {
-    await loadGanttDataForSelectedProject(projectCode);
+    await loadGanttDataForSelectedProject(projectCode, { forceRefresh: !!options.forceRefresh });
+  }
+}
+
+function normalizeProjectScheduleState(result, projectCode) {
+  return {
+    projectCode: String(result?.projectCode || projectCode || ''),
+    scheduleState: String(result?.scheduleState || 'DIRTY').toUpperCase() === 'CLEAN' ? 'CLEAN' : 'DIRTY',
+    reason: String(result?.reason || ''),
+    markedAt: String(result?.markedAt || ''),
+    markedBy: String(result?.markedBy || ''),
+    recalculatedAt: String(result?.recalculatedAt || ''),
+    recalculatedBy: String(result?.recalculatedBy || ''),
+    error: ''
+  };
+}
+
+async function loadProjectScheduleState(projectCode, options = {}) {
+  const code = String(projectCode || '').trim();
+  if (!code) return null;
+  try {
+    const result = await fetchBackendJson('getProjectScheduleState', { projectCode: code }, { auth: true });
+    if (!result?.ok) {
+      const error = new Error(formatMasterApprovalBackendError(result, 'Không đọc được trạng thái tiến độ dự án.'));
+      error.backendResult = result;
+      throw error;
+    }
+    const state = normalizeProjectScheduleState(result, code);
+    qltdProjectScheduleStates.set(code, state);
+    if (options.render !== false && qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+    return state;
+  } catch (error) {
+    const previous = qltdProjectScheduleStates.get(code) || {
+      projectCode: code,
+      scheduleState: 'DIRTY',
+      reason: 'STATE_READ_FAILED',
+      markedAt: '',
+      recalculatedAt: ''
+    };
+    qltdProjectScheduleStates.set(code, { ...previous, error: error.message || String(error) });
+    if (options.render !== false && qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+    return null;
+  }
+}
+
+function renderProjectScheduleControl(projectCode) {
+  const code = String(projectCode || '').trim();
+  const state = qltdProjectScheduleStates.get(code);
+  const running = qltdProjectScheduleRecalcInFlight.has(code);
+  const isClean = state?.scheduleState === 'CLEAN';
+  const statusText = isClean
+    ? 'Tiến độ dự án đã được tính lại.'
+    : 'Tiến độ dự án chưa được tính lại.';
+  const timestamp = isClean && state?.recalculatedAt
+    ? ` Cập nhật: ${formatWeeklyDateTime(state.recalculatedAt)}.`
+    : '';
+  const error = state?.error
+    ? `<span class="web07-muted">${escapeHtml(state.error)}</span>`
+    : '';
+  return `
+    <div id="projectScheduleControl" class="web07-schedule-state ${isClean ? 'is-clean' : 'is-dirty'}">
+      <span>${escapeHtml(statusText + timestamp)}</span>
+      ${error}
+      ${canAdmin() ? `<button id="projectScheduleRecalculateButton" type="button" ${running ? 'disabled' : ''}>${running ? 'Đang tính lại...' : 'Tính lại tiến độ dự án'}</button>` : ''}
+    </div>
+  `;
+}
+
+async function handleProjectScheduleRecalculate(projectCode) {
+  const code = String(projectCode || '').trim();
+  if (!code || !canAdmin() || qltdProjectScheduleRecalcInFlight.has(code)) return;
+  qltdProjectScheduleRecalcInFlight.add(code);
+  if (qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
+
+  try {
+    const result = await postBackendJson({
+      action: 'recalculateProjectSchedule',
+      projectCode: code
+    });
+    if (!result?.ok) {
+      const error = new Error(formatMasterApprovalBackendError(result, 'Không thể tính lại tiến độ dự án.'));
+      error.backendResult = result;
+      throw error;
+    }
+
+    qltdProjectScheduleStates.set(code, normalizeProjectScheduleState(result, code));
+    qltdGanttDirtyProjects.add(code);
+    qltdGanttForceRefreshProjects.add(code);
+    qltdDepartmentDashboardCache.delete(code);
+    await loadGanttDataForSelectedProject(code, { forceRefresh: true });
+    window.alert([
+      'Đã tính lại tiến độ dự án.',
+      `Công việc xử lý: ${Number(result.processedTaskCount || 0)}`,
+      `J thay đổi: ${Number(result.changedDurationCount || 0)}`,
+      `L thay đổi: ${Number(result.changedStartCount || 0)}`,
+      `M thay đổi: ${Number(result.changedFinishCount || 0)}`,
+      `Q thay đổi: ${Number(result.changedErrorCount || 0)}`
+    ].join('\n'));
+  } catch (error) {
+    const previous = qltdProjectScheduleStates.get(code) || { projectCode: code };
+    qltdProjectScheduleStates.set(code, {
+      ...previous,
+      scheduleState: 'DIRTY',
+      error: error.message || String(error)
+    });
+  } finally {
+    qltdProjectScheduleRecalcInFlight.delete(code);
+    if (qltdGanttPayload?.projectCode === code) renderGanttPanel(qltdGanttPayload);
   }
 }
 
@@ -5699,7 +5845,10 @@ async function qltdWeb07FetchGanttPayload(projectCode, options = {}) {
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
     let payload;
     try {
-      payload = await fetcher('ganttData', { projectCode }, { signal: controller.signal });
+      payload = await fetcher('ganttData', {
+        projectCode,
+        forceRefresh: options.forceRefresh ? '1' : ''
+      }, { signal: controller.signal });
     } catch (error) {
       if (controller.signal.aborted) {
         const timeoutError = new Error(`Quá thời gian tải Gantt sau ${Math.round(timeoutMs / 1000)} giây. Vui lòng thử lại.`);
@@ -5725,19 +5874,25 @@ async function qltdWeb07FetchGanttPayload(projectCode, options = {}) {
   return null;
 }
 
-function loadGanttDataForSelectedProject(projectCode) {
+function loadGanttDataForSelectedProject(projectCode, options = {}) {
   const code = String(projectCode || '').trim();
   if (!code) return Promise.resolve(null);
-  return qltdWeb07GetOrCreateGanttRequest(code, () => qltdWeb07LoadGanttDataForSelectedProject(code));
+  const shouldForceRefresh = !!options.forceRefresh || qltdGanttForceRefreshProjects.has(code);
+  const requestKey = shouldForceRefresh ? code + '::force' : code;
+  return qltdWeb07GetOrCreateGanttRequest(requestKey, () => qltdWeb07LoadGanttDataForSelectedProject(code, Object.assign({}, options, {
+    forceRefresh: shouldForceRefresh
+  })));
 }
 
-async function qltdWeb07LoadGanttDataForSelectedProject(projectCode) {
+async function qltdWeb07LoadGanttDataForSelectedProject(projectCode, options = {}) {
   ensureWeb07Panels();
   renderGanttLoading(projectCode);
   renderDashboardLoading(projectCode);
 
   try {
-    const payload = await qltdWeb07FetchGanttPayload(projectCode);
+    const scheduleStateRequest = loadProjectScheduleState(projectCode, { render: false });
+    const payload = await qltdWeb07FetchGanttPayload(projectCode, { forceRefresh: !!options.forceRefresh });
+    await scheduleStateRequest;
     const selectedProjectCode = document.getElementById('projectSelector')?.value || getStoredProjectCode() || '';
     if (selectedProjectCode && String(selectedProjectCode) !== String(projectCode)) return payload;
     qltdGanttPayload = payload;
@@ -5746,6 +5901,7 @@ async function qltdWeb07LoadGanttDataForSelectedProject(projectCode) {
     renderDashboardFromGanttData(payload);
     renderGanttPanel(payload);
     qltdGanttDirtyProjects.delete(projectCode);
+    qltdGanttForceRefreshProjects.delete(projectCode);
     return payload;
   } catch (error) {
     console.error('Cannot load gantt data', error);
@@ -6898,6 +7054,7 @@ function renderGanttPanel(payload) {
         <span class="web07-chip">${escapeHtml((payload.data || []).length)} công việc · ${escapeHtml((payload.links || []).length)} liên kết</span>
       </div>
 
+      ${renderProjectScheduleControl(payload.projectCode)}
       <div class="web07-toolbar">
         <nav class="gantt-mode-tabs" aria-label="Chế độ Gantt">
           <button type="button" data-gantt-view-mode="progress" class="${qltdGanttViewMode === 'progress' ? 'active' : ''}">Gantt tiến độ</button>
@@ -7017,6 +7174,13 @@ function bindGanttToolbar(payload) {
   const budgetSyncButton = document.getElementById('ganttBudgetSyncButton');
   if (budgetSyncButton) {
     budgetSyncButton.onclick = () => handleGanttBudgetSyncClick(budgetSyncButton, payload);
+  }
+
+  const scheduleRecalculateButton = document.getElementById('projectScheduleRecalculateButton');
+  if (scheduleRecalculateButton) {
+    scheduleRecalculateButton.onclick = () => handleProjectScheduleRecalculate(
+      payload.projectCode || getStoredProjectCode()
+    );
   }
 
   const datesToggle = document.getElementById('ganttDatesToggle');

@@ -25,6 +25,7 @@ const SCHEDULE_ENGINE_V1 = {
     START: 12,
     END: 13,
     ERROR: 17,
+    STATUS: 18,
     ACTUAL_START: 19,
     ACTUAL_FINISH: 20,
     ADJUST_LINK: 23
@@ -78,24 +79,40 @@ function xuLySuaScheduleEngineV1(e) {
   }
 }
 function chayScheduleEngineV1(options) {
-  options = options || {};
-  const perf = options.debugPerf === true ? taoPerfScheduleV1_('chayScheduleEngineV1') : null;
-  return chayCoKhoa_(() => {
-    const ss = SpreadsheetApp.getActive();
-    const sheet = ss.getSheetByName(SCHEDULE_ENGINE_V1.SHEET_TASK);
-    if (!sheet) throw new Error('Khong tim thay sheet Cong_viec');
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  return chayCoKhoa_(function() {
+    return chayScheduleEngineV1NoLockForSpreadsheet_(spreadsheet, options);
+  });
+}
 
+function chayScheduleEngineV1NoLockForSpreadsheet_(spreadsheet, options) {
+  options = options || {};
+  const startedAt = Date.now();
+  const perf = options.debugPerf === true ? taoPerfScheduleV1_('chayScheduleEngineV1') : null;
+  let stage = 'VALIDATION';
+  try {
+    if (!spreadsheet || typeof spreadsheet.getSheetByName !== 'function') {
+      throw taoLoiScheduleEngineV1_('Spreadsheet khong hop le', stage);
+    }
+    const sheet = spreadsheet.getSheetByName(SCHEDULE_ENGINE_V1.SHEET_TASK);
+    if (!sheet) throw taoLoiScheduleEngineV1_('Khong tim thay sheet Cong_viec', 'OPEN_SHEET');
+
+    stage = 'READ_DATA';
     const cfg = SCHEDULE_ENGINE_V1;
     const lastRow = sheet.getLastRow();
-    if (lastRow < cfg.START_ROW) return;
+    if (lastRow < cfg.START_ROW) {
+      return taoSummaryScheduleEngineV1_({}, 0, startedAt);
+    }
 
     const numRows = lastRow - cfg.START_ROW + 1;
     const numCols = Math.max(sheet.getLastColumn(), cfg.COL.ADJUST_LINK);
     const data = sheet.getRange(cfg.START_ROW, 1, numRows, numCols).getValues();
-    const anchorDate = layNgayNeoKeHoachV1_(ss);
+    const anchorDate = layNgayNeoKeHoachV1_(spreadsheet);
     SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_ = null;
+    layNgayNghiSetScheduleV1_(spreadsheet);
     if (perf) perf.mark('01_doc_du_lieu_va_cau_hinh');
 
+    stage = 'BUILD_TASKS';
     const tasks = [];
     const taskByRef = {};
 
@@ -115,6 +132,7 @@ function chayScheduleEngineV1(options) {
         predecessorText: row[cfg.COL.PREDECESSOR - 1],
         forecastStart: layNgayHopLeHoacNullV1_(row[cfg.COL.START - 1]),
         forecastEnd: layNgayHopLeHoacNullV1_(row[cfg.COL.END - 1]),
+        status: row[cfg.COL.STATUS - 1],
         actualStart: layNgayHopLeHoacNullV1_(row[cfg.COL.ACTUAL_START - 1]),
         actualFinish: layNgayHopLeHoacNullV1_(row[cfg.COL.ACTUAL_FINISH - 1]),
         adjustLink: row[cfg.COL.ADJUST_LINK - 1],
@@ -145,18 +163,39 @@ function chayScheduleEngineV1(options) {
     });
 
     if (perf) perf.mark('02_parse_task_va_tien_nhiem');
+    stage = 'CALCULATE';
     danhDauLoiVongLapV1_(tasks, taskByRef);
     if (perf) perf.mark('03_kiem_tra_vong_lap');
     tinhLichCongViecV1_(tasks, taskByRef, anchorDate);
     if (perf) perf.mark('04_tinh_lich');
-    ghiKetQuaScheduleV1_(sheet, tasks, numRows, data);
+    stage = 'WRITE_RESULTS';
+    const changed = ghiKetQuaScheduleV1_(sheet, tasks, numRows, data);
     if (perf) perf.mark('05_ghi_ket_qua');
-    if (options.normalizeFormat === true && typeof normalizeCongViecRowBackgrounds_ === 'function') {
-      normalizeCongViecRowBackgrounds_(sheet);
-      if (perf) perf.mark('06_don_dinh_dang');
-    }
     if (perf) perf.done();
-  });
+    return taoSummaryScheduleEngineV1_(changed, tasks.length, startedAt);
+  } catch (error) {
+    if (!error.stage) error.stage = stage;
+    throw error;
+  }
+}
+
+function taoLoiScheduleEngineV1_(message, stage) {
+  const error = new Error(message);
+  error.stage = stage || 'SCHEDULE_ENGINE';
+  return error;
+}
+
+function taoSummaryScheduleEngineV1_(changed, processedTaskCount, startedAt) {
+  changed = changed || {};
+  return {
+    ok: true,
+    changedDurationCount: Number(changed.changedDurationCount || 0),
+    changedStartCount: Number(changed.changedStartCount || 0),
+    changedFinishCount: Number(changed.changedFinishCount || 0),
+    changedErrorCount: Number(changed.changedErrorCount || 0),
+    processedTaskCount: Number(processedTaskCount || 0),
+    durationMs: Math.max(0, Date.now() - startedAt)
+  };
 }
 
 function phanTichTienNhiemV1_(input, currentRef) {
@@ -267,29 +306,6 @@ function tinhLichCongViecV1_(tasks, taskByRef, anchorDate) {
     });
 
     if (task.errors.length) return;
-
-    // Uu tien K khi tien nhiem co dong thoi rang buoc dau va cuoi.
-    // Vi du: 15SS;25FF hoac 8FS;33FF => L/M lay theo K, J duoc suy lai tu L/M.
-    if (
-      !actualStart &&
-      !actualFinish &&
-      coRangBuocDauVaCuoiTuTienNhiemV1_(task) &&
-      startConstraintCandidates.length > 0 &&
-      endConstraintCandidates.length > 0
-    ) {
-      task.start = layNgayLonNhatV1_(startConstraintCandidates);
-      task.end = layNgayLonNhatV1_(endConstraintCandidates);
-
-      if (task.end.getTime() < task.start.getTime()) {
-        task.errors.push('ERR_DURATION_INFER_CONFLICT');
-        task.start = null;
-        task.end = null;
-        return;
-      }
-
-      task.duration = tinhSoNgayBaoGomV1_(task.start, task.end);
-      return;
-    }
 
     if (task.duration && task.duration > 0) {
       endCandidates.forEach(endMin => {
@@ -500,6 +516,12 @@ function ghiKetQuaScheduleV1_(sheet, tasks, numRows, currentData) {
     ', M=' + changedEnd +
     ', Q=' + changedError
   );
+  return {
+    changedDurationCount: changedDuration,
+    changedStartCount: changedStart,
+    changedFinishCount: changedEnd,
+    changedErrorCount: changedError
+  };
 }
 
 function ghiCotTheoCumNeuKhacScheduleV1_(sheet, col, startRow, currentValues, nextValues) {
@@ -659,34 +681,36 @@ function layNgayHopLeHoacNullV1_(value) {
 }
 
 function layNgayBatDauHieuLucV1_(task) {
-  if (!choPhepDieuChinhLienKetTuTienNhiemV1_(task)) {
-    return task.forecastStart || task.start || null;
-  }
-
-  return task.actualStart || task.start || task.forecastStart || null;
+  return scheduleResolvePredecessorAnchor_(task, 'SS');
 }
 
 function layNgayKetThucHieuLucV1_(task) {
-  if (!choPhepDieuChinhLienKetTuTienNhiemV1_(task)) {
-    return task.forecastEnd || task.end || null;
-  }
-
-  return task.actualFinish || task.end || task.forecastEnd || null;
+  return scheduleResolvePredecessorAnchor_(task, 'FS');
 }
 
-function choPhepDieuChinhLienKetTuTienNhiemV1_(task) {
-  const raw = task && task.adjustLink;
-  const text = String(raw || '').trim();
-
-  if (!text) return true;
-
-  const normalized = text
+function scheduleNormalizeDecisionValue_(value) {
+  return String(value || '')
+    .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd');
+}
 
-  return normalized !== 'khong' && normalized !== 'no' && normalized !== 'false' && normalized !== '0';
+function scheduleShouldUseActualForDependency_(task) {
+  return scheduleNormalizeDecisionValue_(task && task.status) === 'hoan thanh' &&
+    scheduleNormalizeDecisionValue_(task && task.adjustLink) === 'co';
+}
+
+function scheduleResolvePredecessorAnchor_(predecessor, relationType) {
+  const relation = String(relationType || 'FS').trim().toUpperCase();
+  const useStart = relation === 'SS';
+  const planned = useStart
+    ? (predecessor.forecastStart || predecessor.start || null)
+    : (predecessor.forecastEnd || predecessor.end || null);
+  if (!scheduleShouldUseActualForDependency_(predecessor)) return planned;
+  const actual = useStart ? predecessor.actualStart : predecessor.actualFinish;
+  return actual || planned;
 }
 
 function danhDauXungDotActualV1_(task, startConstraintCandidates, endConstraintCandidates) {
@@ -703,27 +727,6 @@ function danhDauXungDotActualV1_(task, startConstraintCandidates, endConstraintC
       task.errors.push('ERR_ACTUAL_CONFLICT');
     }
   }
-}
-
-function coRangBuocDauVaCuoiTuTienNhiemV1_(task) {
-  if (!task || !Array.isArray(task.predecessors)) return false;
-
-  let hasStartConstraint = false;
-  let hasEndConstraint = false;
-
-  task.predecessors.forEach(function(pred) {
-    if (!pred || !pred.type) return;
-
-    if (pred.type === 'SS' || pred.type === 'FS') {
-      hasStartConstraint = true;
-    }
-
-    if (pred.type === 'FF') {
-      hasEndConstraint = true;
-    }
-  });
-
-  return hasStartConstraint && hasEndConstraint;
 }
 
 function layNgayLonNhatV1_(dates) {
@@ -855,7 +858,11 @@ function testScheduleEngineV1() {
     taoTaskTestScheduleV1_('5', 3, '1FS'),
     taoTaskTestScheduleV1_('6', 4, '1FS; 3SS+2; 5FF-1')
   ], anchor);
+  // J=4 la co dinh. Candidate start: 1FS=07/01, 3SS+2=09/01,
+  // 5FF-1 quy nguoc theo J=4 => 05/01. Chon max=09/01, finish=12/01.
   assertScheduleV1_('Case 6 max constraint', bangNgayV1_(case6['6'].start, new Date(2026, 0, 9)));
+  assertScheduleV1_('Case 6 fixed duration', case6['6'].duration === 4);
+  assertScheduleV1_('Case 6 finish from max constraint', bangNgayV1_(case6['6'].end, new Date(2026, 0, 12)));
 
   const case7 = chayTestMangScheduleEngineV1_([
     taoTaskTestScheduleV1_('7', 5, '99FS')
@@ -887,27 +894,27 @@ function testScheduleEngineV1() {
 
   const actualFinish = new Date(2026, 4, 8);
   const case11 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('5', 4, '', null, actualFinish, null, new Date(2026, 4, 4)),
+    taoTaskTestScheduleV1_('5', 4, '', null, actualFinish, null, new Date(2026, 4, 4), 'Có', 'Hoàn thành'),
     taoTaskTestScheduleV1_('7', 10, '5FS')
   ], anchor);
   assertScheduleV1_('Case 11 FS actual finish start', bangNgayV1_(case11['7'].start, new Date(2026, 4, 9)));
   assertScheduleV1_('Case 11 FS actual finish end', bangNgayV1_(case11['7'].end, new Date(2026, 4, 18)));
 
   const case12 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('5', 4, '', null, actualFinish, null, new Date(2026, 4, 4)),
+    taoTaskTestScheduleV1_('5', 4, '', null, actualFinish, null, new Date(2026, 4, 4), 'Có', 'Hoàn thành'),
     taoTaskTestScheduleV1_('7', 10, '5FS+10')
   ], anchor);
   assertScheduleV1_('Case 12 FS+lag actual finish start', bangNgayV1_(case12['7'].start, new Date(2026, 4, 19)));
   assertScheduleV1_('Case 12 FS+lag actual finish end', bangNgayV1_(case12['7'].end, new Date(2026, 4, 28)));
 
   const case13 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('3', 10, '', new Date(2026, 4, 1), null),
+    taoTaskTestScheduleV1_('3', 10, '', new Date(2026, 4, 1), null, null, null, 'Có', 'Hoàn thành'),
     taoTaskTestScheduleV1_('4', 5, '3SS+2')
   ], anchor);
   assertScheduleV1_('Case 13 SS actual start', bangNgayV1_(case13['4'].start, new Date(2026, 4, 3)));
 
   const case14 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('3', 5, '', null, new Date(2026, 4, 10)),
+    taoTaskTestScheduleV1_('3', 5, '', null, new Date(2026, 4, 10), null, null, 'Có', 'Hoàn thành'),
     taoTaskTestScheduleV1_('4', 5, '3FF+2')
   ], anchor);
   assertScheduleV1_('Case 14 FF actual finish end', bangNgayV1_(case14['4'].end, new Date(2026, 4, 12)));
@@ -929,52 +936,52 @@ function testScheduleEngineV1() {
   );
 
   const case17 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('1', 4, '', null, new Date(2026, 4, 8)),
-    taoTaskTestScheduleV1_('2', 3, '', new Date(2026, 4, 20), null),
+    taoTaskTestScheduleV1_('1', 4, '', null, new Date(2026, 4, 8), null, null, 'Có', 'Hoàn thành'),
+    taoTaskTestScheduleV1_('2', 3, '', new Date(2026, 4, 20), null, null, null, 'Có', 'Hoàn thành'),
     taoTaskTestScheduleV1_('3', 5, '1FS; 2SS+3')
   ], anchor);
   assertScheduleV1_('Case 17 multi pred actual tightest start', bangNgayV1_(case17['3'].start, new Date(2026, 4, 23)));
   assertScheduleV1_('Case 17 multi pred actual tightest end', bangNgayV1_(case17['3'].end, new Date(2026, 4, 27)));
 
   const case18 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), 'Không'),
+    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), 'Không', 'Hoàn thành'),
     taoTaskTestScheduleV1_('2', 2, '1FS')
   ], anchor);
   assertScheduleV1_('Case 18 FS W Khong uses planned finish', bangNgayV1_(case18['2'].start, new Date(2026, 0, 4)));
 
   const case19 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), 'Có'),
+    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), 'Có', 'Hoàn thành'),
     taoTaskTestScheduleV1_('2', 2, '1FS')
   ], anchor);
   assertScheduleV1_('Case 19 FS W Co uses actual finish', bangNgayV1_(case19['2'].start, new Date(2026, 0, 21)));
 
   const case20 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('1', 3, '', new Date(2026, 0, 10), null, new Date(2026, 0, 1), new Date(2026, 0, 3), 'Không'),
+    taoTaskTestScheduleV1_('1', 3, '', new Date(2026, 0, 10), null, new Date(2026, 0, 1), new Date(2026, 0, 3), 'Không', 'Hoàn thành'),
     taoTaskTestScheduleV1_('2', 2, '1SS')
   ], anchor);
   assertScheduleV1_('Case 20 SS W Khong uses planned start', bangNgayV1_(case20['2'].start, new Date(2026, 0, 1)));
 
   const case21 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('1', 3, '', new Date(2026, 0, 10), null, new Date(2026, 0, 1), new Date(2026, 0, 3), 'Có'),
+    taoTaskTestScheduleV1_('1', 3, '', new Date(2026, 0, 10), null, new Date(2026, 0, 1), new Date(2026, 0, 3), 'Có', 'Hoàn thành'),
     taoTaskTestScheduleV1_('2', 2, '1SS')
   ], anchor);
   assertScheduleV1_('Case 21 SS W Co uses actual start', bangNgayV1_(case21['2'].start, new Date(2026, 0, 10)));
 
   const case22 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), 'Không'),
+    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), 'Không', 'Hoàn thành'),
     taoTaskTestScheduleV1_('2', 2, '1FF')
   ], anchor);
   assertScheduleV1_('Case 22 FF W Khong uses planned finish', bangNgayV1_(case22['2'].end, new Date(2026, 0, 3)));
 
   const case23 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), ''),
+    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), '', 'Hoàn thành'),
     taoTaskTestScheduleV1_('2', 2, '1FS')
   ], anchor);
-  assertScheduleV1_('Case 23 blank W behaves as Co', bangNgayV1_(case23['2'].start, new Date(2026, 0, 21)));
+  assertScheduleV1_('Case 23 blank W behaves as Khong', bangNgayV1_(case23['2'].start, new Date(2026, 0, 4)));
 
   const case24 = chayTestMangScheduleEngineV1_([
-    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), 'Không'),
-    taoTaskTestScheduleV1_('2', 3, '', null, new Date(2026, 0, 15), new Date(2026, 0, 4), new Date(2026, 0, 6), 'Có'),
+    taoTaskTestScheduleV1_('1', 3, '', null, new Date(2026, 0, 20), new Date(2026, 0, 1), new Date(2026, 0, 3), 'Không', 'Hoàn thành'),
+    taoTaskTestScheduleV1_('2', 3, '', null, new Date(2026, 0, 15), new Date(2026, 0, 4), new Date(2026, 0, 6), 'Có', 'Hoàn thành'),
     taoTaskTestScheduleV1_('3', 2, '1FS;2FS')
   ], anchor);
   assertScheduleV1_('Case 24 multi pred mixes W rules', bangNgayV1_(case24['3'].start, new Date(2026, 0, 16)));
@@ -1010,7 +1017,7 @@ function chayTestMangScheduleEngineV1_(tasks, anchorDate) {
   return taskByRef;
 }
 
-function taoTaskTestScheduleV1_(ref, duration, predecessorText, actualStart, actualFinish, forecastStart, forecastEnd, adjustLink) {
+function taoTaskTestScheduleV1_(ref, duration, predecessorText, actualStart, actualFinish, forecastStart, forecastEnd, adjustLink, status) {
   return {
     rowIndex: 0,
     index: 0,
@@ -1023,6 +1030,7 @@ function taoTaskTestScheduleV1_(ref, duration, predecessorText, actualStart, act
     actualStart: layNgayHopLeHoacNullV1_(actualStart),
     actualFinish: layNgayHopLeHoacNullV1_(actualFinish),
     adjustLink: adjustLink,
+    status: status,
     predecessors: [],
     start: null,
     end: null,
@@ -1043,12 +1051,14 @@ function assertScheduleV1_(name, ok) {
 var SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_ = null;
     if (perf) perf.mark('01_doc_du_lieu_va_cau_hinh');
 
-function layNgayNghiSetScheduleV1_() {
+function layNgayNghiSetScheduleV1_(spreadsheet) {
   if (SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_) {
     return SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_;
   }
 
-  if (typeof cal_getNgayNghiSet_ === 'function') {
+  if (spreadsheet && typeof cal_getNgayNghiSetForSpreadsheet_ === 'function') {
+    SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_ = cal_getNgayNghiSetForSpreadsheet_(spreadsheet);
+  } else if (typeof cal_getNgayNghiSet_ === 'function') {
     SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_ = cal_getNgayNghiSet_();
   } else {
     SCHEDULE_ENGINE_V1_NGAY_NGHI_SET_CACHE_ = new Set();

@@ -143,6 +143,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiJson_(qltdWeeklyPbDetailApprovalsGet_(params));
   }
 
+  if (action === 'getprojectschedulestate') {
+    return qltdDevApiJson_(qltdProjectScheduleGetStateApi_(params));
+  }
+
   if (action === 'notifications_list') {
     return qltdDevApiJson_(qltdNotificationsList_(params));
   }
@@ -168,7 +172,7 @@ function qltdDevApiHandleGet(e) {
   }
 
   if (action === 'ganttdata') {
-    return qltdDevApiGanttData_(params.projectCode);
+    return qltdDevApiGanttData_(params);
   }
 
   if (action === 'getmainmilestones') {
@@ -254,6 +258,10 @@ function qltdDevApiHandlePost_(e) {
     payload.email = notificationIdentity.email;
     payload.actorEmail = notificationIdentity.email;
     return qltdDevApiJson_(qltdNotificationsMarkRead_(payload));
+  }
+
+  if (action === 'recalculateprojectschedule') {
+    return qltdDevApiJson_(qltdProjectScheduleRecalculate_(payload));
   }
 
   const scopeResult = qltdDeptScopeAuthorizeWrite_(payload, action);
@@ -459,7 +467,22 @@ function qltdDevApiListDeptPlans_(params) {
   ));
 }
 
-function qltdDevApiGanttData_(projectCode) {
+function qltdDevApiGanttData_(params) {
+  const projectCode = params && params.projectCode;
+  const forceRefresh = String(params && (params.forceRefresh || params.bypassCache) || '').trim() === '1' ||
+    String(params && (params.forceRefresh || params.bypassCache) || '').trim().toLowerCase() === 'true';
+  if (forceRefresh && typeof qltdGanttInvalidateCache_ === 'function') {
+    try {
+      qltdGanttInvalidateCache_(projectCode);
+    } catch (error) {
+      Logger.log(JSON.stringify({
+        action: 'ganttData',
+        stage: 'FORCE_REFRESH_INVALIDATE',
+        projectCode: projectCode,
+        message: error && error.message || String(error)
+      }));
+    }
+  }
   const result = qltdGanttGetDataForProject_(projectCode);
   if (result && result.success !== false) {
     const milestones = qltdMainMilestonesGet_(projectCode, 'gantt-data@authenticated.local', true);

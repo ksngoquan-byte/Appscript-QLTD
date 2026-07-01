@@ -209,7 +209,7 @@ function qltdGanttReadSourceValues_(sheet, warnings) {
       Math.min(sheet.getLastRow() || headerRowCount, QLTD_GANTT_MAX_SCAN_ROWS));
   }
 
-  const rowsRead = Math.max(headerRowCount, lastDataRow);
+  const rowsRead = Math.max(detected.rowIndex + 1, lastDataRow);
   return {
     values: sheet.getRange(1, 1, rowsRead, lastColumn).getValues(),
     rowsRead: rowsRead,
@@ -324,8 +324,18 @@ function qltdGanttInvalidateCache_(projectCode) {
       for (let index = 0; index < chunkCount; index += 1) keys.push(baseKey + '_C' + index);
     }
     cache.removeAll(keys);
+    return {
+      success: true,
+      projectCode: String(projectCode || '').trim(),
+      removedKeyCount: keys.length
+    };
   } catch (error) {
     console.warn('Gantt cache invalidation failed', error);
+    return {
+      success: false,
+      code: 'GANTT_CACHE_INVALIDATE_FAILED',
+      message: error && error.message || String(error)
+    };
   }
 }
 

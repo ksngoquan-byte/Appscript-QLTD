@@ -213,14 +213,16 @@ function createApprovalReviewContext({ result, delayed = false } = {}) {
       projectCode: 'P1',
       approvals: [{ updateId: 'A1', projectCode: 'P1', deptCode: 'D1', weekCode: 'W1' }],
       reviewing: null,
-      reviewDrafts: { A1: { dependencyDecision: 'KEEP_CURRENT', recoveryPlan: 'Bù tiến độ cũ' } },
+      reviewDrafts: { A1: { impactMode: 'KEEP_PLAN' } },
       error: ''
     },
     currentUserProfile: { email: 'admin@example.com' },
     window: { confirm: () => true },
     postCount: 0,
-    postBackendJson: async () => {
+    lastPayload: null,
+    postBackendJson: async (payload) => {
       context.postCount += 1;
+      context.lastPayload = payload;
       if (delayed) await new Promise((resolve) => { releasePost = resolve; });
       return result || { success: true, data: { approval: { updateId: 'A1', projectCode: 'P1', deptCode: 'D1', weekCode: 'W1', approvalStatus: 'APPROVED' } } };
     },
@@ -244,13 +246,19 @@ function createApprovalReviewContext({ result, delayed = false } = {}) {
   return context;
 }
 
+const missingImpactContext = createApprovalReviewContext();
+await missingImpactContext.reviewMasterApproval('A1', 'APPROVED');
+assert.equal(missingImpactContext.postCount, 0);
+assert.equal(missingImpactContext.qltdAdminApprovalView.error, 'Vui lòng chọn mức ảnh hưởng đến công việc liên kết sau.');
+
 const duplicateApprovalContext = createApprovalReviewContext({ delayed: true });
-const firstApproval = duplicateApprovalContext.reviewMasterApproval('A1', 'APPROVED', '', { dependencyDecision: 'KEEP_CURRENT', recoveryPlan: 'Bù tiến độ' });
+const firstApproval = duplicateApprovalContext.reviewMasterApproval('A1', 'APPROVED', '', { impactMode: 'KEEP_PLAN' });
 await Promise.resolve();
-const duplicateApproval = duplicateApprovalContext.reviewMasterApproval('A1', 'APPROVED', '', { dependencyDecision: 'KEEP_CURRENT', recoveryPlan: 'Bù tiến độ' });
+const duplicateApproval = duplicateApprovalContext.reviewMasterApproval('A1', 'APPROVED', '', { impactMode: 'KEEP_PLAN' });
 const oppositeApproval = duplicateApprovalContext.reviewMasterApproval('A1', 'REJECTED', 'Trả lại');
 assert.equal(duplicateApprovalContext.postCount, 1);
 assert.equal(duplicateApprovalContext.qltdAdminApprovalView.reviewing.approvalStatus, 'APPROVED');
+assert.equal(duplicateApprovalContext.lastPayload.impactMode, 'KEEP_PLAN');
 duplicateApprovalContext.releasePost();
 await Promise.all([firstApproval, duplicateApproval, oppositeApproval]);
 assert.equal(duplicateApprovalContext.postCount, 1);
@@ -264,10 +272,9 @@ const failedApprovalContext = createApprovalReviewContext({
 await failedApprovalContext.reviewMasterApproval('A1', 'REJECTED', 'Cần bổ sung');
 assert.equal(failedApprovalContext.qltdAdminApprovalView.approvals.length, 1);
 assert.equal(failedApprovalContext.qltdAdminApprovalView.reviewing, null);
-assert.equal(failedApprovalContext.qltdAdminApprovalView.error, 'Không duyệt được');
+assert.equal(failedApprovalContext.qltdAdminApprovalView.error, 'Không duyệt được · errorCode: WRITE_ERROR');
 assert.equal(failedApprovalContext.qltdAdminApprovalView.reviewDrafts.A1.reviewReason, 'Cần bổ sung');
-assert.equal(failedApprovalContext.qltdAdminApprovalView.reviewDrafts.A1.dependencyDecision, 'KEEP_CURRENT');
-assert.equal(failedApprovalContext.qltdAdminApprovalView.reviewDrafts.A1.recoveryPlan, 'Bù tiến độ cũ');
+assert.equal(failedApprovalContext.qltdAdminApprovalView.reviewDrafts.A1.impactMode, 'KEEP_PLAN');
 
 const alreadyHandledContext = createApprovalReviewContext({
   result: { success: false, errors: [{ code: 'APPROVAL_NOT_PENDING', message: 'Already handled' }] }
@@ -278,8 +285,9 @@ assert.equal(alreadyHandledContext.qltdAdminApprovalView.error, 'Yêu cầu này
 assert.equal(alreadyHandledContext.qltdAdminApprovalView.reviewing, null);
 
 const staleApprovalContext = createApprovalReviewContext({ delayed: true });
-const staleApproval = staleApprovalContext.reviewMasterApproval('A1', 'APPROVED', '', { dependencyDecision: 'RECALCULATE_DEPENDENCIES' });
+const staleApproval = staleApprovalContext.reviewMasterApproval('A1', 'APPROVED', '', { impactMode: 'PROPAGATE_ACTUAL' });
 await Promise.resolve();
+assert.equal(staleApprovalContext.lastPayload.impactMode, 'PROPAGATE_ACTUAL');
 staleApprovalContext.qltdAdminApprovalView.projectCode = 'P2';
 staleApprovalContext.qltdAdminApprovalView.approvals = [{ updateId: 'B1', projectCode: 'P2' }];
 staleApprovalContext.releasePost();
@@ -751,7 +759,8 @@ assert.match(weeklyForm, /TÌNH TRẠNG CÔNG VIỆC/);
 assert.match(weeklyForm, /Mức hoàn thành đến hết tuần/);
 assert.match(weeklyForm, /renderWeeklyActualDateLifecycle/);
 assert.match(weeklyForm, /weekly-form-close/);
-assert.match(weeklyForm, /Cong_viec/);
+assert.match(weeklyForm, /Chỉ khi chọn trạng thái Hoàn thành/);
+assert.match(weeklyForm, /Tỷ lệ hoàn thành chỉ dùng để báo cáo tiến độ/);
 assert.equal((weeklyForm.match(/saveWeeklyTaskUpdateButton/g) || []).length, 1);
 assert.match(weeklyForm, /Lý do trả lại/);
 const weeklySaveActionsSource = extractFunction(app, 'renderWeeklySaveActions');

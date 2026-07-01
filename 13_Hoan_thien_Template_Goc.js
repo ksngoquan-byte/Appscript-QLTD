@@ -1,5 +1,44 @@
 const CONG_VIEC_FORMULA_TEMPLATE_CELLS_V1 = ['A5', 'D5', 'G5'];
 
+const QLTD_TEMPLATE_CONG_VIEC_30_HEADERS_V1 = [
+  'Mã công việc mẫu',
+  'WBS',
+  'Zone',
+  'Loại công trình',
+  'Công trình',
+  'Hạng mục/Tầng',
+  'ID',
+  'Công việc / Phạm vi',
+  'Chủ trì',
+  'Số ngày kế hoạch',
+  'Công việc liên kết',
+  'Bắt đầu kế hoạch',
+  'Kết thúc kế hoạch',
+  'Ghi chú',
+  'Mã công việc',
+  'Mã mốc hệ thống',
+  'Lỗi tiền nhiệm',
+  'Trạng thái thực hiện',
+  'Bắt đầu thực tế',
+  'Hoàn thành thực tế',
+  'Ghi chú cập nhật',
+  'Ngày cập nhật',
+  'Điều chỉnh liên kết?',
+  '',
+  '',
+  'WBS_LEVEL_SYS',
+  '',
+  'Trần chi phí trực tiếp',
+  'Dự thu kế hoạch',
+  'Trạng thái ngân sách'
+];
+
+const QLTD_TEMPLATE_CONG_VIEC_MASTER_SPREADSHEET_BY_SCRIPT_V1 = {
+  '1Tx-3JSUug5wvcosVfwjng9KaCJyKf_0s9YB6ZqJWdJQLVBMcEzql3fmI': '1EuIOvxEVT0IIzPq53AY_oBIgHxJI7qqOknkFrcyFwWU',
+  '1QKFkAHLYlHxN0tTYQr9K2I66idyYtH8d8QdNxM18s_y4hBxtNKg965b5': '1EZk5YM-P132IkM9TWoKVHAqcajbiKs2O2hgjTWPe8K0',
+  '1u4cdaLgra0Rr22Q1KaoLCziaEzsVN_KU3-QmSpFUkkN6w9dkjzQJCXGh': '1vvO54Lqimem-wpAD-O1UNtqcItBk-hDAnzbBVKtO2Js'
+};
+
 function menuHoanThienTemplateGocQltdV1() {
   const ui = SpreadsheetApp.getUi();
 
@@ -39,13 +78,15 @@ function hoanThienTemplateGocQltdV1_() {
 function hoanThienTemplateCongViecQltdV1_(ss) {
   const sheet = layTemplateBatBuocQltdV1_(ss, '_TEMPLATE_Cong_viec');
 
+  kiemTraDungTemplateCongViec30ColsQltdV1_(sheet);
+
   boCoDinhDongCotTruocKhiMergeTemplateQltdV1_(sheet);
 
-  damBaoSoCotQltdTemplateV1_(sheet, 26);
+  damBaoSoCotQltdTemplateV1_(sheet, 30);
   xoaNhomHangTemplateQltdV1_(sheet);
 
-  sheet.getRange(1, 1, 1, 26).breakApart();
-  sheet.getRange(1, 1, 1, 26)
+  sheet.getRange(1, 1, 1, 30).breakApart();
+  sheet.getRange(1, 1, 1, 30)
     .mergeAcross()
     .setValue('BẢNG TIẾN ĐỘ DỰ ÁN / TEMPLATE')
     .setFontWeight('bold')
@@ -55,77 +96,21 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
     .setHorizontalAlignment('left')
     .setVerticalAlignment('middle');
 
-  const headers = [[
-    'Mã công việc mẫu',
-    'WBS',
-    'Zone',
-    'Loại công trình',
-    'Công trình',
-    'Hạng mục/Tầng',
-    'ID',
-    'Công việc / Phạm vi',
-    'Chủ trì',
-    'Số ngày kế hoạch',
-    'Công việc liên kết',
-    'Bắt đầu kế hoạch',
-    'Kết thúc kế hoạch',
-    'Ghi chú',
-    'Mã công việc',
-    'Mã mốc hệ thống',
-    'Lỗi tiền nhiệm',
-    'Trạng thái thực hiện',
-    'Bắt đầu thực tế',
-    'Hoàn thành thực tế',
-    'Ghi chú cập nhật',
-    'Ngày cập nhật',
-    'Cảnh báo tiến độ',
-    '',
-    '',
-    'WBS_LEVEL_SYS'
-  ]];
-
-  sheet.getRange(4, 1, 1, 26).setValues(headers);
-
   const maxRows = sheet.getMaxRows();
 
   // Dòng 5 là dòng mẫu công thức. Không clear dòng 5.
   if (maxRows >= 6) {
-    sheet.getRange(6, 1, maxRows - 5, 26).clearContent();
+    sheet.getRange(6, 1, maxRows - 5, 30).clearContent();
   }
 
   // Vẫn format từ dòng 5 để dòng mẫu và vùng nhập liệu đẹp.
   if (maxRows >= 5) {
-    apDungZebraVaKeBangTemplateQltdV1_(sheet, 5, 1, maxRows - 4, 26);
+    apDungZebraVaKeBangTemplateQltdV1_(sheet, 5, 1, maxRows - 4, 30);
   }
 
-  dinhDangHeaderBangTemplateQltdV1_(sheet.getRange(4, 1, 1, 26));
+  chuanHoaCauTrucTemplateCongViec30ColsQltdV1_(sheet);
 
   sheet.setFrozenRows(4);
-
-  sheet.setColumnWidth(1, 120); // A
-  sheet.setColumnWidth(2, 90);  // B - WBS
-  sheet.setColumnWidth(3, 90);
-  sheet.setColumnWidth(4, 120);
-  sheet.setColumnWidth(5, 140);
-  sheet.setColumnWidth(6, 140);
-  sheet.setColumnWidth(7, 70);  // G - ID
-  sheet.setColumnWidth(8, 360); // H - Công việc
-  sheet.setColumnWidth(9, 130);
-  sheet.setColumnWidth(10, 100);
-  sheet.setColumnWidth(11, 160);
-  sheet.setColumnWidth(12, 120);
-  sheet.setColumnWidth(13, 120);
-  sheet.setColumnWidth(14, 180);
-  sheet.setColumnWidth(15, 120);
-  sheet.setColumnWidth(16, 120);
-  sheet.setColumnWidth(17, 160);
-  sheet.setColumnWidth(18, 140);
-  sheet.setColumnWidth(19, 120);
-  sheet.setColumnWidth(20, 120);
-  sheet.setColumnWidth(21, 220);
-  sheet.setColumnWidth(22, 120);
-  sheet.setColumnWidth(23, 180);
-  sheet.setColumnWidth(26, 120);
 
   const rule = SpreadsheetApp.newDataValidation()
     .requireValueInList(['Cấp 1', 'Cấp 2', 'Cấp 3', 'Cấp 4'], true)
@@ -136,16 +121,143 @@ function hoanThienTemplateCongViecQltdV1_(ss) {
     sheet.getRange(5, 2, maxRows - 4, 1).setDataValidation(rule);
   }
 
-  try {
-    sheet.hideColumns(26);
-  } catch (err) {
-    Logger.log('Không ẩn được cột Z _TEMPLATE_Cong_viec: ' + err.message);
-  }
-
   const formulaWarning = canhBaoOCoHamNhungMatFormulaTemplateQltdV1_(sheet);
-  const message = '- Đã hoàn thiện _TEMPLATE_Cong_viec: B=WBS, G=ID, Z=WBS_LEVEL_SYS, dropdown Cấp 1–4.';
+  const message = '- Đã hoàn thiện _TEMPLATE_Cong_viec: Z=WBS_LEVEL_SYS, AA=cột đệm, AB:AD=ngân sách; chỉ ẩn cột Z.';
 
   return formulaWarning ? message + '\n' + formulaWarning : message;
+}
+
+function migrateTemplateCongViec30ColsV1() {
+  const scriptId = ScriptApp.getScriptId();
+  const expectedSpreadsheetId = QLTD_TEMPLATE_CONG_VIEC_MASTER_SPREADSHEET_BY_SCRIPT_V1[scriptId];
+
+  if (!expectedSpreadsheetId) {
+    throw new Error('Migration bị chặn: Script ID không nằm trong allowlist 3 Master QLTD: ' + scriptId);
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const actualSpreadsheetId = ss && ss.getId ? ss.getId() : '';
+
+  if (actualSpreadsheetId !== expectedSpreadsheetId) {
+    throw new Error(
+      'Migration bị chặn: Spreadsheet ID không khớp. Expected=' +
+      expectedSpreadsheetId + ', actual=' + actualSpreadsheetId
+    );
+  }
+
+  const targetName = '_TEMPLATE_Cong_viec';
+  if (targetName === 'Cong_viec') {
+    throw new Error('Migration bị chặn vì target trỏ vào sheet vận hành Cong_viec.');
+  }
+
+  const sheet = ss.getSheetByName(targetName);
+  if (!sheet) {
+    throw new Error('Không tìm thấy sheet bắt buộc: ' + targetName);
+  }
+
+  kiemTraDungTemplateCongViec30ColsQltdV1_(sheet);
+
+  const before = docTrangThaiTemplateCongViec30ColsQltdV1_(sheet);
+  Logger.log('migrateTemplateCongViec30ColsV1 BEFORE ' + JSON.stringify(before));
+
+  chuanHoaCauTrucTemplateCongViec30ColsQltdV1_(sheet);
+
+  const after = docTrangThaiTemplateCongViec30ColsQltdV1_(sheet);
+  Logger.log('migrateTemplateCongViec30ColsV1 AFTER ' + JSON.stringify(after));
+
+  CONG_VIEC_FORMULA_TEMPLATE_CELLS_V1.forEach(function(a1) {
+    if (before.formulas[a1] !== after.formulas[a1]) {
+      throw new Error('Migration bị chặn: công thức ' + a1 + ' đã thay đổi ngoài dự kiến.');
+    }
+  });
+
+  return JSON.stringify({
+    ok: true,
+    scriptId: scriptId,
+    spreadsheetId: actualSpreadsheetId,
+    sheet: targetName,
+    before: before,
+    after: after
+  });
+}
+
+function chuanHoaCauTrucTemplateCongViec30ColsQltdV1_(sheet) {
+  kiemTraDungTemplateCongViec30ColsQltdV1_(sheet);
+  damBaoSoCotQltdTemplateV1_(sheet, 30);
+
+  sheet.getRange(4, 1, 1, 30).setValues([QLTD_TEMPLATE_CONG_VIEC_30_HEADERS_V1]);
+  dinhDangHeaderBangTemplateQltdV1_(sheet.getRange(4, 1, 1, 30));
+
+  const widths = {
+    1: 120, 2: 90, 3: 90, 4: 120, 5: 140, 6: 140, 7: 70, 8: 360,
+    9: 130, 10: 100, 11: 160, 12: 120, 13: 120, 14: 180, 15: 120,
+    16: 120, 17: 160, 18: 140, 19: 120, 20: 120, 21: 220, 22: 120,
+    23: 180, 26: 120, 27: 14, 28: 150, 29: 135, 30: 145
+  };
+
+  Object.keys(widths).forEach(function(col) {
+    sheet.setColumnWidth(Number(col), widths[col]);
+  });
+
+  const maxRows = sheet.getMaxRows();
+  if (maxRows >= 5) {
+    const numRows = maxRows - 4;
+    thietLapDropdownTemplateCongViec30ColsQltdV1_(sheet, 5, numRows);
+
+    sheet.getRange(5, 28, numRows, 2)
+      .setNumberFormat('#,##0')
+      .setHorizontalAlignment('right');
+  }
+
+  sheet.hideColumns(26);
+  sheet.showColumns(27, 4);
+}
+
+function thietLapDropdownTemplateCongViec30ColsQltdV1_(sheet, startRow, numRows) {
+  if (!sheet || numRows <= 0) return;
+
+  const linkRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Có', 'Không'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  sheet.getRange(startRow, 23, numRows, 1)
+    .setDataValidation(linkRule)
+    .setHorizontalAlignment('center');
+
+  const budgetStatusRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Nháp', 'Đã chốt', 'Khóa'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  sheet.getRange(startRow, 30, numRows, 1)
+    .setDataValidation(budgetStatusRule)
+    .setHorizontalAlignment('center');
+}
+
+function kiemTraDungTemplateCongViec30ColsQltdV1_(sheet) {
+  const actualName = sheet && sheet.getName ? sheet.getName() : '';
+  if (actualName !== '_TEMPLATE_Cong_viec' || actualName === 'Cong_viec') {
+    throw new Error(
+      'Chỉ được phép xử lý _TEMPLATE_Cong_viec; target hiện tại=' + (actualName || '(không xác định)')
+    );
+  }
+}
+
+function docTrangThaiTemplateCongViec30ColsQltdV1_(sheet) {
+  const formulas = {};
+  CONG_VIEC_FORMULA_TEMPLATE_CELLS_V1.forEach(function(a1) {
+    formulas[a1] = String(sheet.getRange(a1).getFormula() || '');
+  });
+
+  const headerValues = sheet.getRange(4, 1, 1, Math.min(sheet.getMaxColumns(), 30)).getValues()[0];
+
+  return {
+    maxColumns: sheet.getMaxColumns(),
+    headerW: headerValues[22] || '',
+    headersABAD: [headerValues[27] || '', headerValues[28] || '', headerValues[29] || ''],
+    formulas: formulas
+  };
 }
 
 function hoanThienTemplateTienDoTongHopQltdV1_(ss) {
