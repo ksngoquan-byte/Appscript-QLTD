@@ -292,7 +292,7 @@
     <main class="page">
       <section id="loginView" class="auth-view">
         <div class="brand-panel" aria-hidden="true">
-          <img class="entiz-logo" src="./entiz-logo.png?v=ENTIZ_OFFICIAL_PNG_1" alt="">
+          <img class="entiz-logo" src="./assets/entiz-logo.svg" alt="Entiz">
           <div class="brand-copy">
             <p>Entiz</p>
             <h1>Entiz Project 360</h1>
@@ -330,50 +330,10 @@
         </div>
       </section>
 
-      <section id="registrationView" class="auth-view hidden">
-        <div class="login-card registration-card">
-          <div class="login-heading">
-            <p>Khai báo lần đầu</p>
-            <h2>Thông tin người dùng</h2>
-            <span id="registrationEmail">Đang xác thực tài khoản...</span>
-          </div>
-          <form id="registrationForm" class="registration-form">
-            <div class="registration-grid">
-              <label class="registration-field">
-                Họ và tên
-                <input id="registrationDisplayName" name="displayName" autocomplete="name" required minlength="2">
-              </label>
-              <label class="registration-field">
-                Chức danh
-                <input id="registrationTitle" name="title" required>
-              </label>
-              <label class="registration-field">
-                Nhóm người dùng
-                <select id="registrationUserGroup" name="userGroup" required>
-                  <option value="">Đang tải...</option>
-                </select>
-              </label>
-              <label id="registrationDepartmentField" class="registration-field">
-                Phòng/Ban
-                <select id="registrationDeptCode" name="deptCode">
-                  <option value="">Chọn phòng/ban</option>
-                </select>
-              </label>
-            </div>
-            <p id="registrationStatus" class="status-text" role="status"></p>
-            <div class="registration-actions">
-              <button id="registrationSubmitButton" class="google-button" type="submit">Hoàn tất khai báo</button>
-              <button id="registrationReloadButton" class="secondary-button hidden" type="button">Tải lại biểu mẫu</button>
-              <button id="registrationSignOutButton" class="secondary-button" type="button">Đăng xuất</button>
-            </div>
-          </form>
-        </div>
-      </section>
-
       <section id="appShell" class="shell hidden" aria-label="Entiz Project 360">
         <header class="topbar">
           <div class="topbar-brand">
-            <img class="topbar-logo" src="./entiz-logo.png?v=ENTIZ_OFFICIAL_PNG_1" alt="">
+            <img class="topbar-logo" src="./assets/entiz-logo.svg" alt="Entiz">
             <div class="topbar-brand-copy">
               <p>Entiz Project 360</p>
               <h1>Nền tảng quản trị dự án tổng thể</h1>
@@ -467,7 +427,7 @@
       window.__QLTD_GANTT_PATCH_ROUND__ = 'GANTT_REQUEST_RACE_HOTFIX_3';
     </script>
     <script type="module" src="./api-read-cache.js?v=PERF_API_CACHE_2"></script>
-    <script type="module" src="./app.js?v=GANTT_REQUEST_RACE_HOTFIX_3"></script>
+    <script type="module" src="./app.js?v=GANTT_REQUEST_RACE_HOTFIX_3_BUG7_AUTH_1"></script>
     <script type="module" src="./pb-detail-ui.js?v=PERF_LAZY_GANTT_1"></script>
     <script type="module" src="./help-documents.js?v=HELP_AUDIENCE_PDF_3"></script>
     <script src="./ui-polish.js?v=UI_KPI_ICON_1" defer></script>
