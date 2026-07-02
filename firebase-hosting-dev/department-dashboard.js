@@ -25,33 +25,87 @@ export function normalizeDeptName(owner) {
   return text(owner).replace(/\b(phong|ban|bo phan|department|dept)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-export function getDeptCode(owner) {
-  const value = normalizeDeptName(owner);
-  const compact = value.replace(/\s/g, '');
-  if (!compact) return 'UNASSIGNED';
-  if (compact === 'ptda' || value.includes('phat trien du an')) return 'PTDA';
-  if (compact === 'gpmb' || value.includes('giai phong mat bang')) return 'GPMB';
-  if (compact === 'qlda' || value.includes('quan ly du an')) return 'QLDA';
-  if (compact === 'tk') return 'TK';
-  if (value.includes('thiet ke')) return 'THIETKE';
-  if (compact === 'kd') return 'KD';
-  if (value.includes('kinh doanh')) return 'KINHDOANH';
-  return compact.toUpperCase();
+export const CANONICAL_DEPARTMENT_CODES = Object.freeze([
+  'BQLDA', 'PTDA', 'GPMB', 'THIETKE', 'TIEUCHUAN', 'DAUTHAU',
+  'KEHOACH', 'KETOAN', 'KINHDOANH', 'PHAPCHE', 'TAICHINH', 'MKT',
+  'VANHANH', 'UBNCSP', 'KSXD', 'NHANSU', 'HANHCHINH', 'CNTT', 'TROLY', 'BIM'
+]);
+
+const DEPARTMENT_ALIAS_TO_CANONICAL = Object.freeze({
+  BQLDA: 'BQLDA',
+  QLDA: 'BQLDA',
+  BANQUANLYDUAN: 'BQLDA',
+  QUANLYDUAN: 'BQLDA',
+  PTDA: 'PTDA',
+  PHATTRIENDUAN: 'PTDA',
+  GPMB: 'GPMB',
+  GIAIPHONGMATBANG: 'GPMB',
+  TK: 'THIETKE',
+  THIETKE: 'THIETKE',
+  THIETKEKYTHUAT: 'THIETKE',
+  TIEUCHUAN: 'TIEUCHUAN',
+  DAUTHAU: 'DAUTHAU',
+  KEHOACH: 'KEHOACH',
+  KETOAN: 'KETOAN',
+  KD: 'KINHDOANH',
+  KINHDOANH: 'KINHDOANH',
+  QUANLYKINHDOANH: 'KINHDOANH',
+  PHAPCHE: 'PHAPCHE',
+  TAICHINH: 'TAICHINH',
+  MKT: 'MKT',
+  MARKETING: 'MKT',
+  MARKETINGTRUYENTHONG: 'MKT',
+  VANHANH: 'VANHANH',
+  QUANLYKHAITHACBDS: 'VANHANH',
+  UBNCSP: 'UBNCSP',
+  UYBANRD: 'UBNCSP',
+  KSXD: 'KSXD',
+  KIEMSOATXAYDUNG: 'KSXD',
+  NHANSU: 'NHANSU',
+  HANHCHINH: 'HANHCHINH',
+  CNTT: 'CNTT',
+  QUANTRIHETHONG: 'CNTT',
+  TROLY: 'TROLY',
+  TROLYTHUKY: 'TROLY',
+  BIM: 'BIM'
+});
+
+function normalizeDeptAliasToken(value) {
+  return text(value).toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(/_+/g, '_');
+}
+
+export function getDeptCode(value) {
+  const token = normalizeDeptAliasToken(value);
+  if (!token) return 'UNASSIGNED';
+  const compact = token.replace(/_/g, '');
+  if (DEPARTMENT_ALIAS_TO_CANONICAL[compact]) return DEPARTMENT_ALIAS_TO_CANONICAL[compact];
+
+  // ProjectUnitCode có thể mang hậu tố dự án: BQLDA_DB, KINHDOANH_HL, THIETKE_HL1.
+  const projectUnitPrefix = token.split('_')[0];
+  if (DEPARTMENT_ALIAS_TO_CANONICAL[projectUnitPrefix]) {
+    return DEPARTMENT_ALIAS_TO_CANONICAL[projectUnitPrefix];
+  }
+
+  const normalizedName = normalizeDeptName(value).replace(/\s/g, '').toUpperCase();
+  return DEPARTMENT_ALIAS_TO_CANONICAL[normalizedName] || compact;
 }
 
 export function getDeptDisplayName(code, owners = []) {
+  const canonicalCode = getDeptCode(code);
   const preferred = {
     PTDA: 'Phát triển dự án', GPMB: 'Giải phóng mặt bằng',
-    BQLDA: 'Ban quản lý dự án', QLDA: 'Quản lý dự án',
-    THIETKE: 'Thiết kế', TK: 'Thiết kế',
-    KINHDOANH: 'Kinh doanh', KD: 'Kinh doanh',
+    BQLDA: 'Ban Quản lý dự án',
+    THIETKE: 'Thiết kế',
+    KINHDOANH: 'Kinh doanh',
     TIEUCHUAN: 'Tiêu chuẩn', KEHOACH: 'Kế hoạch', DAUTHAU: 'Đấu thầu',
     KETOAN: 'Kế toán', PHAPCHE: 'Pháp chế', TAICHINH: 'Tài chính',
-    MKT: 'Marketing - Truyền thông', VANHANH: 'Vận hành',
+    MKT: 'Marketing', VANHANH: 'Vận hành', UBNCSP: 'Ủy ban R&D',
+    KSXD: 'Kiểm soát xây dựng', NHANSU: 'Nhân sự', HANHCHINH: 'Hành chính',
+    CNTT: 'Quản trị hệ thống', TROLY: 'Trợ lý - Thư ký', BIM: 'BIM',
     UNASSIGNED: 'Chưa phân công'
   };
-  if (preferred[code]) return preferred[code];
-  return owners.find((owner) => getDeptCode(owner) === code) || code;
+  if (preferred[canonicalCode]) return preferred[canonicalCode];
+  return owners.find((owner) => getDeptCode(owner) === canonicalCode) || canonicalCode;
 }
 
 function firstDepartmentCode(source) {

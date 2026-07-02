@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildDepartmentDashboardModel, getDepartmentOwnerPresentation, getDepartmentPerformancePresentation, getDepartmentTaskCategory, getDeptCode, getProjectDeptKey } from './department-dashboard.js';
+import { CANONICAL_DEPARTMENT_CODES, buildDepartmentDashboardModel, getDepartmentOwnerPresentation, getDepartmentPerformancePresentation, getDepartmentTaskCategory, getDeptCode, getDeptDisplayName, getProjectDeptKey } from './department-dashboard.js';
 
 const today = new Date(2026, 5, 18);
 const payloads = [
@@ -29,16 +29,35 @@ const payloads = [
 ];
 
 assert.equal(getDeptCode('Phong Phat trien du an'), 'PTDA');
-assert.equal(getDeptCode('Phong Quan ly du an'), 'QLDA');
+assert.equal(getDeptCode('Phong Quan ly du an'), 'BQLDA');
 assert.equal(getDeptCode('Thiet ke'), 'THIETKE');
 assert.equal(getDeptCode('THIETKE'), 'THIETKE');
-assert.equal(getDeptCode('TK'), 'TK');
+assert.equal(getDeptCode('TK'), 'THIETKE');
 assert.equal(getDeptCode('KINHDOANH'), 'KINHDOANH');
-assert.equal(getDeptCode('KD'), 'KD');
-for (const code of ['THIETKE', 'TK', 'KINHDOANH', 'KD', 'BQLDA', 'QLDA', 'TIEUCHUAN', 'KEHOACH', 'PTDA', 'GPMB', 'DAUTHAU', 'KETOAN', 'PHAPCHE', 'TAICHINH', 'MKT', 'VANHANH']) {
+assert.equal(getDeptCode('KD'), 'KINHDOANH');
+assert.deepEqual(CANONICAL_DEPARTMENT_CODES, ['BQLDA', 'PTDA', 'GPMB', 'THIETKE', 'TIEUCHUAN', 'DAUTHAU', 'KEHOACH', 'KETOAN', 'KINHDOANH', 'PHAPCHE', 'TAICHINH', 'MKT', 'VANHANH', 'UBNCSP', 'KSXD', 'NHANSU', 'HANHCHINH', 'CNTT', 'TROLY', 'BIM']);
+for (const code of CANONICAL_DEPARTMENT_CODES) {
   assert.equal(getDeptCode(code), code);
 }
+for (const [alias, canonical] of Object.entries({
+  QLDA: 'BQLDA', BQLDA: 'BQLDA',
+  TK: 'THIETKE', Thietke: 'THIETKE', THIETKE_KYTHUAT: 'THIETKE',
+  KD: 'KINHDOANH', KinhDoanh: 'KINHDOANH',
+  Tieuchuan: 'TIEUCHUAN', Dauthau: 'DAUTHAU', Kehoach: 'KEHOACH',
+  KeToan: 'KETOAN', Phapche: 'PHAPCHE', TaiChinh: 'TAICHINH',
+  VanHanh: 'VANHANH', NhanSu: 'NHANSU', HanhChinh: 'HANHCHINH',
+  Troly: 'TROLY', Bim: 'BIM'
+})) {
+  assert.equal(getDeptCode(alias), canonical);
+}
+assert.equal(getDeptCode('BQLDA_DB'), 'BQLDA');
+assert.equal(getDeptCode('KinhDoanh_HL'), 'KINHDOANH');
+assert.equal(getDeptCode('Thietke_HL1'), 'THIETKE');
+assert.equal(getDeptDisplayName('QLDA'), 'Ban Quản lý dự án');
+assert.equal(getDeptDisplayName('TK'), 'Thiết kế');
+assert.equal(getDeptDisplayName('KD'), 'Kinh doanh');
 assert.equal(getProjectDeptKey(' 37-5.hl ', 'Thiet ke'), '37-5.HL::THIETKE');
+assert.equal(getProjectDeptKey('24-1.ĐB', 'QLDA'), '24-1.ĐB::BQLDA');
 assert.equal(getDepartmentTaskCategory(payloads[0].data[0]), 'Phap ly');
 assert.equal(getDepartmentTaskCategory(payloads[0].data[1]), '');
 
@@ -275,7 +294,7 @@ assert.equal(threeProjectModel.tasks.filter((task) => task.dashboardSource === '
 assert.equal(threeProjectModel.tasks.some((task) => task.id === 'partial-b'), true);
 assert.equal(threeProjectModel.tasks.some((task) => task.id === 'partial-a'), false);
 
-// Mã chuẩn từ Project_Depts thắng alias suy luận; BQLDA và QLDA vẫn là hai đơn vị.
+// Mọi alias phải quy về canonical duy nhất; BQLDA và QLDA là cùng một đơn vị.
 const aliasModel = buildDepartmentDashboardModel([{
   projectCode: 'ALIAS',
   data: [
@@ -293,10 +312,70 @@ const aliasModel = buildDepartmentDashboardModel([{
     { deptCode: 'QLDA', deptName: 'Quản lý dự án', masters: [] }
   ]
 }] });
-assert.deepEqual(aliasModel.departmentEfficiency.map((row) => row.deptCode).sort(), ['BQLDA', 'KINHDOANH', 'QLDA', 'THIETKE']);
+assert.deepEqual(aliasModel.departmentEfficiency.map((row) => row.deptCode).sort(), ['BQLDA', 'KINHDOANH', 'THIETKE']);
+assert.equal(aliasModel.departmentEfficiency.find((row) => row.deptCode === 'BQLDA')?.total, 2);
 assert.equal(aliasModel.tasks.find((task) => task.id === 'alias-tk')?.deptCode, 'THIETKE');
 assert.equal(aliasModel.tasks.find((task) => task.id === 'alias-kd')?.deptCode, 'KINHDOANH');
 assert.equal(aliasModel.tasks.find((task) => task.id === 'alias-bqlda')?.deptCode, 'BQLDA');
+assert.equal(aliasModel.tasks.find((task) => task.id === 'alias-qlda')?.deptCode, 'BQLDA');
+
+// Master QLDA và PB_DETAIL BQLDA cùng project phải dùng chung key và chỉ đếm detail.
+const bqldaCanonicalModel = buildDepartmentDashboardModel([{
+  projectCode: '24-1.ĐB',
+  projectName: 'Điện Biên',
+  data: [{ id: 'db-master', code: 'DB-M1', text: 'Master QLDA', deptCode: 'QLDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }]
+}], {}, today, { detailPayloads: [{
+  projectCode: '24-1.ĐB',
+  projectName: 'Điện Biên',
+  departments: [{
+    deptCode: 'BQLDA',
+    MasterDeptCode: 'QLDA',
+    projectUnitCode: 'BQLDA_DB',
+    deptName: 'Ban Quản lý dự án Điện Biên',
+    masters: [{ masterCode: 'DB-M1', details: [makeDetail('db-detail', 'DB User <db@example.com>')] }]
+  }]
+}] });
+assert.equal(bqldaCanonicalModel.kpis.total, 1);
+assert.equal(bqldaCanonicalModel.tasks[0]?.id, 'db-detail');
+assert.equal(bqldaCanonicalModel.tasks[0]?.deptCode, 'BQLDA');
+assert.deepEqual(bqldaCanonicalModel.departmentEfficiency.map((row) => row.deptCode), ['BQLDA']);
+assert.equal(bqldaCanonicalModel.departmentEfficiency[0]?.deptName, 'Ban Quản lý dự án Điện Biên');
+assert.equal(bqldaCanonicalModel.tasks.some((task) => task.id === 'db-master'), false);
+
+// Thứ tự nguồn mã và hậu tố ProjectUnitCode phải canonicalize trước khi tạo key.
+const projectUnitModel = buildDepartmentDashboardModel([{
+  projectCode: 'UNIT',
+  data: [
+    { id: 'unit-bqlda', text: 'BQLDA suffix', projectUnitCode: 'BQLDA_DB', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'unit-kd', text: 'KD suffix', projectUnitCode: 'KinhDoanh_HL', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'unit-tk', text: 'TK suffix', projectUnitCode: 'Thietke_HL1', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'unit-priority', text: 'DeptCode wins', deptCode: 'KeToan', projectUnitCode: 'BQLDA_DB', MasterDeptCode: 'QLDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }
+  ]
+}], {}, today, { detailPayloads: [{ projectCode: 'UNIT', departments: [] }] });
+assert.equal(projectUnitModel.tasks.find((task) => task.id === 'unit-bqlda')?.deptCode, 'BQLDA');
+assert.equal(projectUnitModel.tasks.find((task) => task.id === 'unit-kd')?.deptCode, 'KINHDOANH');
+assert.equal(projectUnitModel.tasks.find((task) => task.id === 'unit-tk')?.deptCode, 'THIETKE');
+assert.equal(projectUnitModel.tasks.find((task) => task.id === 'unit-priority')?.deptCode, 'KETOAN');
+
+// Mixed projects dùng alias khác nhau vẫn không split hoặc đếm đồng thời Master + detail.
+const canonicalMixedMasters = [
+  { projectCode: 'CAN-A', data: [{ id: 'can-a-master', code: 'CAN-A-M', text: 'QLDA master', deptCode: 'QLDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }] },
+  { projectCode: 'CAN-B', data: [{ id: 'can-b-master', code: 'CAN-B-M', text: 'TK master', deptCode: 'TK', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }] },
+  { projectCode: 'CAN-C', data: [{ id: 'can-c-master', code: 'CAN-C-M', text: 'Kinh doanh master', deptCode: 'KINHDOANH', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }] }
+];
+const canonicalMixedDetails = [
+  { projectCode: 'CAN-A', departments: [{ deptCode: 'BQLDA', masters: [{ masterCode: 'CAN-A-M', details: [makeDetail('can-a-detail', 'A <a@example.com>')] }] }] },
+  { projectCode: 'CAN-B', departments: [{ deptCode: 'Thietke', masters: [{ masterCode: 'CAN-B-M', details: [makeDetail('can-b-detail', 'B <b@example.com>')] }] }] },
+  { projectCode: 'CAN-C', departments: [{ deptCode: 'KD', masters: [{ masterCode: 'CAN-C-M', details: [makeDetail('can-c-detail', 'C <c@example.com>')] }] }] }
+];
+const canonicalMixedModel = buildDepartmentDashboardModel(canonicalMixedMasters, {}, today, { detailPayloads: canonicalMixedDetails });
+assert.equal(canonicalMixedModel.kpis.total, 3);
+assert.equal(canonicalMixedModel.tasks.every((task) => task.dashboardSource === 'detail'), true);
+assert.deepEqual(canonicalMixedModel.departmentEfficiency.map((row) => row.deptCode).sort(), ['BQLDA', 'KINHDOANH', 'THIETKE']);
+assert.equal(buildDepartmentDashboardModel(canonicalMixedMasters, { projectCode: 'CAN-A' }, today, { detailPayloads: canonicalMixedDetails }).kpis.total, 1);
+assert.equal(buildDepartmentDashboardModel(canonicalMixedMasters, { deptCode: 'QLDA' }, today, { detailPayloads: canonicalMixedDetails }).kpis.total, 1);
+assert.equal(buildDepartmentDashboardModel(canonicalMixedMasters, { deptCode: 'TK', projectCode: 'CAN-B' }, today, { detailPayloads: canonicalMixedDetails }).kpis.total, 1);
+assert.equal(buildDepartmentDashboardModel(canonicalMixedMasters, { deptCode: 'KD', projectCode: 'CAN-C' }, today, { detailPayloads: canonicalMixedDetails }).kpis.total, 1);
 
 // Owner rỗng/placeholder vẫn tính KPI phòng nhưng tuyệt đối không tạo cá nhân giả.
 const unassignedOwnerModel = buildDepartmentDashboardModel([], { deptCode: 'KEHOACH', projectCode: 'OWNER' }, today, { detailPayloads: [{
