@@ -14,6 +14,7 @@ const apiSource = fs.readFileSync(new URL('../apps-script-dev-api/28_DEV_API.js'
 const usersSource = fs.readFileSync(new URL('../apps-script-dev-api/29_USERS_SERVICE.js', import.meta.url), 'utf8');
 const projectsSource = fs.readFileSync(new URL('../apps-script-dev-api/31_PROJECTS_SERVICE.js', import.meta.url), 'utf8');
 const scopeSource = fs.readFileSync(new URL('../apps-script-dev-api/37_SELF_REGISTRATION_SCOPE.js', import.meta.url), 'utf8');
+const firebaseConfig = JSON.parse(fs.readFileSync(new URL('./firebase.json', import.meta.url), 'utf8'));
 
 function extractFunction(source, name) {
   const signatures = [`async function ${name}`, `function ${name}`];
@@ -171,7 +172,14 @@ assert.equal(markReadRouteContext.qltdDevApiHandlePost_({ payload: {
 } }).message, 'ID_TOKEN_INVALID');
 
 assert.doesNotMatch(indexSource, /id="registrationView"/);
-assert.equal((indexSource.match(/\.\/assets\/entiz-logo\.svg/g) || []).length, 2);
+assert.equal((indexSource.match(/src="\/assets\/entiz-logo\.png"/g) || []).length, 2);
+assert.match(indexSource, /<link rel="preload" as="image" href="\/assets\/entiz-logo\.png" fetchpriority="high">/);
+assert.match(indexSource, /class="entiz-logo"[^>]*width="607"[^>]*height="317"[^>]*loading="eager"[^>]*fetchpriority="high"[^>]*decoding="async"/);
+assert.doesNotMatch(indexSource, /entiz-logo\.svg|\.\/entiz-logo\.png/);
+assert.deepEqual(firebaseConfig.hosting.headers, [{
+  source: '/assets/**',
+  headers: [{ key: 'Cache-Control', value: 'public, max-age=86400' }]
+}]);
 assert.match(gateSource, /export function createRegistrationGate/);
 assert.match(gateSource, /qltdRegistrationName/);
 assert.match(gateSource, /qltdRegistrationDept/);
