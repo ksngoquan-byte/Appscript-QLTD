@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildDepartmentDashboardModel, getDepartmentTaskCategory, getDeptCode } from './department-dashboard.js';
+import { buildDepartmentDashboardModel, getDepartmentPerformancePresentation, getDepartmentTaskCategory, getDeptCode } from './department-dashboard.js';
 
 const today = new Date(2026, 5, 18);
 const payloads = [
@@ -34,33 +34,90 @@ assert.equal(getDeptCode('Thiet ke'), 'TK');
 assert.equal(getDepartmentTaskCategory(payloads[0].data[0]), 'Phap ly');
 assert.equal(getDepartmentTaskCategory(payloads[0].data[1]), '');
 
-const one = buildDepartmentDashboardModel(payloads, { deptCode: 'PTDA', projectCode: 'HL' }, today);
-assert.equal(one.kpis.total, 5);
-assert.equal(one.kpis.overdue, 3);
-assert.equal(one.kpis.upcoming, 1);
-assert.equal(one.overdue.some((task) => task.id === 'e'), true);
-assert.equal(one.overdue.some((task) => task.id === 'f'), true);
-assert.equal(one.tasks.find((task) => task.id === 'a')?.contextLabel, 'Phap ly');
-assert.equal(one.tasks.find((task) => task.id === 'b')?.contextLabel, '');
-assert.equal(one.tasks.find((task) => task.id === 'b')?.contextLabel === 'VIII.1', false);
-assert.equal(one.milestones.find((task) => task.id === 'g')?.isCompleted, true);
+const individualPayloads = [
+  {
+    success: true,
+    projectCode: 'HL',
+    projectName: 'Hung Loc',
+    requestedDeptCode: 'PTDA',
+    departments: [{
+      deptCode: 'PTDA',
+      masters: [{
+        masterCode: 'CV-A',
+        taskName: 'Phap ly',
+        details: [
+          { detailTaskId: 'hl-1', taskName: 'Viec Alice 1', owner: 'Alice Nguyen <alice@example.com>', status: 'Hoan thanh', progress: 100, planStart: '2026-06-01', planFinish: '2026-06-10', actualFinish: '2026-06-10' },
+          { detailTaskId: 'hl-2', taskName: 'Viec Alice 2', owner: 'Alice Nguyen <ALICE@example.com>', status: 'Dang thuc hien', progress: 50, planStart: '2026-06-01', planFinish: '2026-06-17' },
+          { detailTaskId: 'hl-3', taskName: 'Owner cu', owner: 'Cuu Nhan Su <former@example.com>', status: 'Chua bat dau', progress: 0, planStart: '2026-06-01', planFinish: '2026-06-25' },
+          { detailTaskId: 'hl-4', taskName: 'Chua giao', owner: '', status: '', progress: 0, planStart: '2026-06-01', planFinish: '2026-06-16' }
+        ]
+      }]
+    }]
+  },
+  {
+    success: true,
+    projectCode: 'NC',
+    projectName: 'Nam Cam',
+    requestedDeptCode: 'PTDA',
+    departments: [{
+      deptCode: 'PTDA',
+      masters: [{
+        masterCode: 'CV-D',
+        taskName: 'Ha tang',
+        details: [
+          { detailTaskId: 'nc-1', taskName: 'Viec Alice 3', owner: 'Alice Nguyen <alice@example.com>', status: 'Hoan thanh', progress: 100, planStart: '2026-05-01', planFinish: '2026-06-15', actualFinish: '2026-06-16' }
+        ]
+      }]
+    }]
+  }
+];
 
-const all = buildDepartmentDashboardModel(payloads, { deptCode: 'PTDA' }, today);
-assert.equal(all.kpis.total, 6);
-assert.equal(all.completedThisMonth.length, 2);
-assert.equal(all.projectSummary.length, 2);
-assert.equal(all.kpis.milestones, 2);
-assert.equal(all.tasks.some((task) => task.id === 'cat'), false);
-assert.equal(all.upcoming.some((task) => task.id === 'a'), false);
-assert.equal(Object.prototype.hasOwnProperty.call(all.kpis, 'missingDates'), false);
-assert.equal(all.departmentEfficiency[0].deptCode, 'PTDA');
-assert.equal(all.departmentEfficiency[0].total, 6);
-assert.equal(all.departmentEfficiency[0].completed, 2);
-assert.equal(all.departmentEfficiency[0].overdue, 3);
-assert.equal(all.departmentEfficiency[0].completionPercent, 33);
-assert.equal(all.departmentEfficiency.some((row) => row.deptCode === 'GPMB' && row.total === 1 && row.completionPercent === 100), true);
+// A. Tất cả phòng/ban + tất cả dự án: group by DeptCode.
+const allDepartmentsAllProjects = buildDepartmentDashboardModel(payloads, {}, today);
+assert.equal(allDepartmentsAllProjects.kpis.total, 7);
+assert.equal(allDepartmentsAllProjects.departmentEfficiency.find((row) => row.deptCode === 'PTDA')?.total, 6);
+assert.equal(allDepartmentsAllProjects.departmentEfficiency.find((row) => row.deptCode === 'GPMB')?.total, 1);
 
-const invalidDept = buildDepartmentDashboardModel(payloads, { deptCode: 'TK', projectCode: 'HL' }, today);
-assert.equal(invalidDept.kpis.total, 0);
+// B. Tất cả phòng/ban + một dự án: vẫn group by DeptCode và chỉ lấy HL.
+const allDepartmentsOneProject = buildDepartmentDashboardModel(payloads, { projectCode: 'HL' }, today);
+assert.equal(allDepartmentsOneProject.kpis.total, 6);
+assert.equal(allDepartmentsOneProject.departmentEfficiency.find((row) => row.deptCode === 'PTDA')?.total, 5);
+assert.equal(allDepartmentsOneProject.departmentEfficiency.find((row) => row.deptCode === 'GPMB')?.total, 1);
 
-console.log('Department dashboard hotfix: overdue/deadline/category/missing-date cases passed.');
+// C. Một phòng/ban + tất cả dự án: group chủ trì ổn định theo email.
+const oneDepartmentAllProjects = buildDepartmentDashboardModel(payloads, { deptCode: 'PTDA' }, today, { individualPayloads });
+assert.equal(oneDepartmentAllProjects.kpis.total, 5);
+assert.equal(oneDepartmentAllProjects.individualEfficiency.reduce((sum, row) => sum + row.total, 0), oneDepartmentAllProjects.kpis.total);
+assert.equal(oneDepartmentAllProjects.individualEfficiency.find((row) => row.ownerEmail === 'alice@example.com')?.total, 3);
+assert.equal(oneDepartmentAllProjects.individualEfficiency.find((row) => row.ownerEmail === 'former@example.com')?.ownerLabel, 'Cuu Nhan Su <former@example.com>');
+assert.equal(oneDepartmentAllProjects.individualEfficiency.find((row) => row.ownerKey === 'UNASSIGNED')?.ownerLabel, 'CHƯA PHÂN CÔNG');
+
+// D. Một phòng/ban + một dự án: chỉ lấy PB_DETAIL của HL.
+const oneDepartmentOneProject = buildDepartmentDashboardModel(payloads, { deptCode: 'PTDA', projectCode: 'HL' }, today, { individualPayloads });
+assert.equal(oneDepartmentOneProject.kpis.total, 4);
+assert.equal(oneDepartmentOneProject.individualEfficiency.reduce((sum, row) => sum + row.total, 0), 4);
+assert.equal(oneDepartmentOneProject.individualEfficiency.find((row) => row.ownerEmail === 'alice@example.com')?.total, 2);
+assert.equal(oneDepartmentOneProject.kpis.completed, 1);
+assert.equal(oneDepartmentOneProject.kpis.inProgress, 1);
+assert.equal(oneDepartmentOneProject.kpis.notStarted, 2);
+assert.equal(oneDepartmentOneProject.individualEfficiency.find((row) => row.ownerEmail === 'alice@example.com')?.completionPercent, 50);
+
+// Phòng/ban hoặc dự án không có công việc phải giữ filter và trả tập rỗng an toàn.
+const emptyDepartment = buildDepartmentDashboardModel(payloads, { deptCode: 'TK' }, today, { individualPayloads });
+assert.equal(emptyDepartment.kpis.total, 0);
+assert.equal(emptyDepartment.departments.some((dept) => dept.code === 'TK'), true);
+const emptyProject = buildDepartmentDashboardModel(payloads, { deptCode: 'PTDA', projectCode: 'EMPTY' }, today, { individualPayloads });
+assert.equal(emptyProject.kpis.total, 0);
+assert.equal(emptyProject.individualEfficiency.length, 0);
+
+assert.deepEqual(getDepartmentPerformancePresentation(''), {
+  individual: false, title: 'Hiệu quả phòng/ban', firstColumnLabel: 'PHÒNG/BAN', emptyMessage: 'Không có phòng/ban phù hợp.'
+});
+assert.deepEqual(getDepartmentPerformancePresentation('PTDA'), {
+  individual: true, title: 'Hiệu quả cá nhân', firstColumnLabel: 'CÁ NHÂN', emptyMessage: 'Không có cá nhân phù hợp.'
+});
+assert.equal(oneDepartmentOneProject.tasks.find((task) => task.id === 'hl-1')?.contextLabel, 'Phap ly');
+assert.equal(allDepartmentsAllProjects.tasks.some((task) => task.id === 'cat'), false);
+assert.equal(Object.prototype.hasOwnProperty.call(oneDepartmentOneProject.kpis, 'missingDates'), false);
+
+console.log('Department dashboard context filters and individual owner aggregation passed.');

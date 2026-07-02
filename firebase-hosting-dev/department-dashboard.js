@@ -48,6 +48,58 @@ function statusKey(status) {
   return 'other';
 }
 
+function ownerIdentity(owner) {
+  const raw = String(owner || '').trim();
+  if (!raw) return { key: 'UNASSIGNED', label: 'CHƯA PHÂN CÔNG', email: '', name: '' };
+  const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const email = emailMatch ? emailMatch[0].toLowerCase() : '';
+  const name = email ? raw.replace(new RegExp(`\\s*<${emailMatch[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>\\s*`, 'i'), '').trim() : '';
+  return {
+    key: email || `OWNER:${text(raw)}`,
+    label: raw,
+    email,
+    name
+  };
+}
+
+function buildIndividualPayloads(payloads, deptCode) {
+  const selectedDeptCode = getDeptCode(deptCode);
+  return (payloads || []).map((payload) => {
+    const data = [];
+    if (payload.requestedDeptCode && getDeptCode(payload.requestedDeptCode) !== selectedDeptCode) {
+      return { projectCode: payload.projectCode || '', projectName: payload.projectName || payload.projectCode || '', data };
+    }
+    (payload.departments || []).forEach((department) => {
+      (department.masters || []).forEach((master) => {
+        (master.details || []).forEach((detail, index) => {
+          data.push({
+            id: detail.detailTaskId || `${payload.projectCode || ''}:${selectedDeptCode}:${master.masterCode || ''}:${detail.rowIndex || index}`,
+            code: detail.detailTaskId || '',
+            text: detail.taskName || detail.detailTaskId || 'Công việc chưa đặt tên',
+            owner: detail.owner || '',
+            deptCode: selectedDeptCode,
+            status: detail.status || '',
+            progress: Number(detail.progress || 0) > 1 ? Number(detail.progress || 0) / 100 : Number(detail.progress || 0),
+            start_date: detail.planStart || '',
+            end_date: detail.planFinish || '',
+            actualStart: detail.actualStart || '',
+            actualFinish: detail.actualFinish || '',
+            hangMuc: master.contextName || master.taskName || '',
+            masterTaskCode: master.masterCode || '',
+            forceRealTask: true,
+            raw: detail
+          });
+        });
+      });
+    });
+    return {
+      projectCode: payload.projectCode || '',
+      projectName: payload.projectName || payload.projectCode || '',
+      data
+    };
+  });
+}
+
 function isCategory(task) {
   const raw = task.raw || {};
   if ([task.isCategoryRow, task.is_category, task.isGroup, raw.isCategoryRow, raw.is_category, raw.isGroup]
@@ -86,20 +138,44 @@ function enrichTask(task, payload, today, milestoneKeys) {
   const category = isCategory(task) || isExecutiveCategoryRow(task, item, task.raw || {});
   item.isCategoryRow = category;
   item.isCompleted = isExecutiveTaskCompleted(item);
-  item.isRealTask = !category && !!String(task.text || '').trim() && !!(startDate || endDate || actualStartDate || actualFinishDate || item.hasActionStatus);
+  item.isRealTask = !category && !!String(task.text || '').trim() && (!!task.forceRealTask || !!(startDate || endDate || actualStartDate || actualFinishDate || item.hasActionStatus));
   item.projectCode = payload.projectCode || '';
   item.projectName = payload.projectName || payload.projectCode || '';
-  item.deptCode = getDeptCode(task.owner);
+  item.deptCode = getDeptCode(task.deptCode || task.owner);
+  item.ownerIdentity = ownerIdentity(task.owner);
   item.contextLabel = getDepartmentTaskCategory(task);
   item.isMainMilestone = milestoneKeys.has(
     getMainMilestoneStableKey(task, payload.projectCode)
   );
   item.isOverdue = isExecutiveTaskOverdue(item, today);
   item.lateDays = item.isOverdue ? Math.round((today - endDate) / 86400000) : 0;
+  if (task.forceRealTask) {
+    if (item.isCompleted) item.normalizedStatus = 'completed';
+    else if (item.normalizedStatus === 'other') item.normalizedStatus = Number(task.progress || 0) > 0 ? 'in-progress' : 'not-started';
+  }
   return item;
 }
 
-export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue = new Date()) {
+function summarizeRows(rows) {
+  const done = rows.filter((task) => task.isCompleted).length;
+  return {
+    total: rows.length,
+    completed: done,
+    inProgress: rows.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress').length,
+    notStarted: rows.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started').length,
+    overdue: rows.filter((task) => task.isOverdue).length,
+    completionPercent: rows.length ? Math.round(done * 100 / rows.length) : 0
+  };
+}
+
+export function getDepartmentPerformancePresentation(deptCode) {
+  const individual = !!String(deptCode || '').trim();
+  return individual
+    ? { individual, title: 'Hiệu quả cá nhân', firstColumnLabel: 'CÁ NHÂN', emptyMessage: 'Không có cá nhân phù hợp.' }
+    : { individual, title: 'Hiệu quả phòng/ban', firstColumnLabel: 'PHÒNG/BAN', emptyMessage: 'Không có phòng/ban phù hợp.' };
+}
+
+export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue = new Date(), options = {}) {
   const today = date(todayValue);
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
@@ -111,9 +187,18 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
     ], payload.data || [], payload.projectCode).keys;
     (payload.data || []).forEach((task) => all.push(enrichTask(task, payload, today, milestoneKeys)));
   });
-  const real = all.filter((task) => task.isRealTask);
-  const owners = [...new Set(real.map((task) => String(task.owner || '').trim()).filter(Boolean))];
-  const departments = [...new Set(real.map((task) => task.deptCode))].sort().map((code) => ({ code, name: getDeptDisplayName(code, owners) }));
+  const baseReal = all.filter((task) => task.isRealTask);
+  const owners = [...new Set(baseReal.map((task) => String(task.owner || '').trim()).filter(Boolean))];
+  const departmentCodes = [...new Set(baseReal.map((task) => task.deptCode))];
+  if (filters.deptCode && !departmentCodes.includes(getDeptCode(filters.deptCode))) departmentCodes.push(getDeptCode(filters.deptCode));
+  const departments = departmentCodes.sort().map((code) => ({ code, name: getDeptDisplayName(code, owners) }));
+  const individualMode = !!filters.deptCode;
+  const individualPayloads = individualMode ? buildIndividualPayloads(options.individualPayloads || [], filters.deptCode) : [];
+  const individualAll = [];
+  individualPayloads.forEach((payload) => {
+    (payload.data || []).forEach((task) => individualAll.push(enrichTask(task, payload, today, new Set())));
+  });
+  const real = individualMode ? individualAll.filter((task) => task.isRealTask) : baseReal;
   const projectScoped = real.filter((task) => !filters.projectCode || task.projectCode === filters.projectCode);
   const filtered = real.filter((task) => (!filters.deptCode || task.deptCode === filters.deptCode) && (!filters.projectCode || task.projectCode === filters.projectCode));
   const completed = filtered.filter((task) => task.isCompleted);
@@ -130,29 +215,33 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
   })).sort((a, b) => (a.endDate || new Date(8640000000000000)) - (b.endDate || new Date(8640000000000000))).slice(0, 10);
   const projectSummary = (payloads || []).map((payload) => {
     const rows = filtered.filter((task) => task.projectCode === payload.projectCode);
-    const done = rows.filter((task) => task.isCompleted).length;
-    return { projectCode: payload.projectCode, projectName: payload.projectName || payload.projectCode, total: rows.length, completed: done,
-      inProgress: rows.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress').length,
-      notStarted: rows.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started').length,
-      overdue: rows.filter((task) => task.isOverdue).length,
+    const summary = summarizeRows(rows);
+    return { projectCode: payload.projectCode, projectName: payload.projectName || payload.projectCode, ...summary,
       upcoming: rows.filter((task) => !task.isCompleted && task.endDate && task.endDate >= today && task.endDate <= upcomingEnd).length,
-      completionPercent: rows.length ? Math.round(done * 100 / rows.length) : 0 };
+    };
   }).filter((row) => row.total > 0);
   const departmentEfficiency = departments.map((dept) => {
     const rows = projectScoped.filter((task) => task.deptCode === dept.code);
-    const done = rows.filter((task) => task.isCompleted).length;
     return {
       deptCode: dept.code,
       deptName: dept.name,
-      total: rows.length,
-      completed: done,
-      inProgress: rows.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress').length,
-      notStarted: rows.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started').length,
-      overdue: rows.filter((task) => task.isOverdue).length,
-      completionPercent: rows.length ? Math.round(done * 100 / rows.length) : 0
+      ...summarizeRows(rows)
     };
   }).filter((row) => row.total > 0).sort((a, b) => b.overdue - a.overdue || b.total - a.total || a.deptCode.localeCompare(b.deptCode));
-  return { departments, tasks: filtered, overdue: overdueAll.slice(0, 5), upcoming: upcomingAll.slice(0, 10), completedThisMonth, milestones, projectSummary, departmentEfficiency,
+  const individualMap = new Map();
+  filtered.forEach((task) => {
+    const identity = task.ownerIdentity || ownerIdentity(task.owner);
+    if (!individualMap.has(identity.key)) individualMap.set(identity.key, { identity, rows: [] });
+    individualMap.get(identity.key).rows.push(task);
+  });
+  const individualEfficiency = [...individualMap.values()].map(({ identity, rows }) => ({
+    ownerKey: identity.key,
+    ownerEmail: identity.email,
+    ownerName: identity.name,
+    ownerLabel: identity.label,
+    ...summarizeRows(rows)
+  })).sort((a, b) => b.overdue - a.overdue || b.total - a.total || a.ownerLabel.localeCompare(b.ownerLabel));
+  return { departments, tasks: filtered, overdue: overdueAll.slice(0, 5), upcoming: upcomingAll.slice(0, 10), completedThisMonth, milestones, projectSummary, departmentEfficiency, individualEfficiency,
     kpis: { total: filtered.length, completed: completed.length, inProgress: filtered.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress').length,
       notStarted: filtered.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started').length, overdue: overdueAll.length,
       upcoming: upcomingAll.length, milestones: milestones.length } };

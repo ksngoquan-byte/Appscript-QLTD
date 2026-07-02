@@ -25,7 +25,7 @@ import {
   migrateMainMilestoneKeys,
   toggleMainMilestoneTaskKey
 } from './main-milestone-logic.js';
-import { buildDepartmentDashboardModel } from './department-dashboard.js';
+import { buildDepartmentDashboardModel, getDepartmentPerformancePresentation } from './department-dashboard.js';
 import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E4_ACTUAL_DATE_LIFECYCLE';
 import { createRegistrationGate } from './registration-gate.js?v=BUG7_EMPLOYEE_REGISTRATION_1';
 
@@ -107,7 +107,9 @@ let qltdDashboardMode = 'project';
 let qltdDashboardContextFilters = { zone: '', loaiCongTrinh: '', congTrinh: '', hangMuc: '' };
 let qltdDepartmentDashboardDeptCode = '';
 let qltdDepartmentDashboardProjectCode = '';
+let qltdDepartmentDashboardRequestSeq = 0;
 const qltdDepartmentDashboardCache = new Map();
+const qltdDepartmentDashboardDetailCache = new Map();
 const qltdWeeklyDrafts = {};
 const qltdWeeklyTaskCache = new Map();
 const qltdWeeklyTaskInFlight = new Map();
@@ -6242,9 +6244,7 @@ function bindDashboardModeSwitch() {
 }
 
 async function getDepartmentDashboardPayloads(projectCode, forceRefresh) {
-  const projects = projectCode
-    ? qltdProjectRegistry.filter((project) => String(project.projectCode) === String(projectCode))
-    : qltdProjectRegistry;
+  const projects = qltdProjectRegistry;
   const warnings = [];
   const payloads = (await Promise.all(projects.map(async (project) => {
     const code = String(project.projectCode || '');
@@ -6262,24 +6262,49 @@ async function getDepartmentDashboardPayloads(projectCode, forceRefresh) {
   return { payloads, warnings };
 }
 
+async function getDepartmentDashboardDetailPayloads(projectCode, deptCode, forceRefresh) {
+  if (!deptCode) return { payloads: [], warnings: [] };
+  const projects = projectCode
+    ? qltdProjectRegistry.filter((project) => String(project.projectCode) === String(projectCode))
+    : qltdProjectRegistry;
+  const warnings = [];
+  const payloads = (await Promise.all(projects.map(async (project) => {
+    const code = String(project.projectCode || '');
+    const cacheKey = `${code}::${deptCode}`;
+    if (!forceRefresh && qltdDepartmentDashboardDetailCache.has(cacheKey)) return qltdDepartmentDashboardDetailCache.get(cacheKey);
+    try {
+      const payload = await fetchBackendJson('listDeptPlans', { projectCode: code, deptCode }, { auth: true });
+      if (!payload || payload.success === false) throw new Error(payload && (payload.message || payload.error) || 'INVALID_DEPT_PLAN_PAYLOAD');
+      const scopedPayload = { ...payload, requestedDeptCode: deptCode };
+      qltdDepartmentDashboardDetailCache.set(cacheKey, scopedPayload);
+      return scopedPayload;
+    } catch (error) {
+      warnings.push(`${code}: ${error.message || error}`);
+      return null;
+    }
+  }))).filter(Boolean);
+  return { payloads, warnings };
+}
+
 async function loadAndRenderDepartmentDashboard(forceRefresh = false) {
   const panel = document.getElementById('web07DashboardPanel');
   if (!panel) return;
+  const requestSeq = ++qltdDepartmentDashboardRequestSeq;
   qltdDashboardMode = 'department';
   panel.innerHTML = `<div class="exec-dashboard">${renderDashboardModeSwitch('department')}<section class="exec-section"><p class="exec-empty">Đang tổng hợp dữ liệu phòng/ban...</p></section></div>`;
   bindDashboardModeSwitch();
-  const result = await getDepartmentDashboardPayloads(qltdDepartmentDashboardProjectCode, forceRefresh);
-  renderDepartmentDashboard(result.payloads, result.warnings);
+  const [result, detailResult] = await Promise.all([
+    getDepartmentDashboardPayloads(qltdDepartmentDashboardProjectCode, forceRefresh),
+    getDepartmentDashboardDetailPayloads(qltdDepartmentDashboardProjectCode, qltdDepartmentDashboardDeptCode, forceRefresh)
+  ]);
+  if (requestSeq !== qltdDepartmentDashboardRequestSeq) return;
+  renderDepartmentDashboard(result.payloads, [...result.warnings, ...detailResult.warnings], detailResult.payloads);
 }
 
-function renderDepartmentDashboard(payloads, warnings = []) {
+function renderDepartmentDashboard(payloads, warnings = [], individualPayloads = []) {
   const panel = document.getElementById('web07DashboardPanel');
   if (!panel) return;
-  let model = buildDepartmentDashboardModel(payloads, { deptCode: qltdDepartmentDashboardDeptCode, projectCode: qltdDepartmentDashboardProjectCode });
-  if (qltdDepartmentDashboardDeptCode && !model.departments.some((dept) => dept.code === qltdDepartmentDashboardDeptCode)) {
-    qltdDepartmentDashboardDeptCode = '';
-    model = buildDepartmentDashboardModel(payloads, { deptCode: '', projectCode: qltdDepartmentDashboardProjectCode });
-  }
+  const model = buildDepartmentDashboardModel(payloads, { deptCode: qltdDepartmentDashboardDeptCode, projectCode: qltdDepartmentDashboardProjectCode }, new Date(), { individualPayloads });
   const deptLabel = model.departments.find((dept) => dept.code === qltdDepartmentDashboardDeptCode)?.name || 'Tất cả phòng/ban';
   panel.innerHTML = `<div class="exec-dashboard dept-dashboard">
     ${renderDashboardModeSwitch('department')}
@@ -6288,18 +6313,18 @@ function renderDepartmentDashboard(payloads, warnings = []) {
     <label>Dự án<select id="deptDashboardProjectFilter"><option value="">Tất cả dự án</option>${qltdProjectRegistry.map((project) => `<option value="${escapeHtml(project.projectCode)}" ${String(project.projectCode) === qltdDepartmentDashboardProjectCode ? 'selected' : ''}>${escapeHtml(project.projectCode)} - ${escapeHtml(project.projectName)}</option>`).join('')}</select></label></section>
     ${warnings.length ? `<div class="dept-dashboard-warning">Không tải được ${warnings.length} dự án: ${escapeHtml(warnings.join(' · '))}</div>` : ''}
     <section class="exec-kpi-grid dept-kpi-grid">
-      ${renderExecutiveKpiCard('Tổng việc được giao', model.kpis.total, 'Theo đơn vị chủ trì', 'info')}${renderExecutiveKpiCard('Hoàn thành', model.kpis.completed, 'Đã có kết quả thực tế', 'green')}
+      ${renderExecutiveKpiCard('Tổng việc được giao', model.kpis.total, qltdDepartmentDashboardDeptCode ? 'Theo người chủ trì' : 'Theo đơn vị chủ trì', 'info')}${renderExecutiveKpiCard('Hoàn thành', model.kpis.completed, 'Đã có kết quả thực tế', 'green')}
       ${renderExecutiveKpiCard('Đang thực hiện', model.kpis.inProgress, 'Chưa hoàn thành', 'blue')}${renderExecutiveKpiCard('Chưa bắt đầu', model.kpis.notStarted, 'Chưa hoàn thành', 'gray')}
       ${renderExecutiveKpiCard('Quá hạn', model.kpis.overdue, 'Không phụ thuộc trạng thái', 'red')}${renderExecutiveKpiCard('Đến hạn 14 ngày', model.kpis.upcoming, 'Không gồm việc quá hạn', 'blue')}
       ${renderExecutiveKpiCard('Mốc chính liên quan', model.kpis.milestones, 'Theo sao vàng global', 'info')}
     </section>
-    <section class="exec-grid">${renderDepartmentList('Top 5 quá hạn', model.overdue, 'overdue')}${renderDepartmentList('Đến hạn trong 14 ngày tới', model.upcoming, 'upcoming')}${renderDepartmentList('Kết quả tháng này', model.completedThisMonth, 'completed')}${renderDepartmentList('Mốc chính liên quan', model.milestones, 'milestone')}${!qltdDepartmentDashboardProjectCode ? renderDepartmentProjectSummary(model.projectSummary) : ''}${renderDepartmentEfficiency(model.departmentEfficiency)}</section>
+    <section class="exec-grid">${renderDepartmentList('Top 5 quá hạn', model.overdue, 'overdue')}${renderDepartmentList('Đến hạn trong 14 ngày tới', model.upcoming, 'upcoming')}${renderDepartmentList('Kết quả tháng này', model.completedThisMonth, 'completed')}${renderDepartmentList('Mốc chính liên quan', model.milestones, 'milestone')}${!qltdDepartmentDashboardProjectCode ? renderDepartmentProjectSummary(model.projectSummary) : ''}${renderDepartmentEfficiency(qltdDepartmentDashboardDeptCode ? model.individualEfficiency : model.departmentEfficiency, qltdDepartmentDashboardDeptCode)}</section>
   </div>`;
   bindDashboardModeSwitch();
   bindDashboardTaskLinks();
-  bindDepartmentEfficiencyRows(payloads, warnings);
+  bindDepartmentEfficiencyRows();
   document.getElementById('deptDashboardRefresh').onclick = () => loadAndRenderDepartmentDashboard(true);
-  document.getElementById('deptDashboardDeptFilter').onchange = (event) => { qltdDepartmentDashboardDeptCode = event.target.value; renderDepartmentDashboard(payloads, warnings); };
+  document.getElementById('deptDashboardDeptFilter').onchange = (event) => { qltdDepartmentDashboardDeptCode = event.target.value; loadAndRenderDepartmentDashboard(); };
   document.getElementById('deptDashboardProjectFilter').onchange = (event) => { qltdDepartmentDashboardProjectCode = event.target.value; loadAndRenderDepartmentDashboard(); };
 }
 
@@ -6344,9 +6369,10 @@ function renderDepartmentProjectSummary(rows) {
   return `<article class="exec-section dept-project-summary"><header><h3>Tổng hợp theo dự án</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-summary-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr><td class="exec-task is-text" title="${escapeHtml(row.projectName || row.projectCode || '')}">${escapeHtml(row.projectName)}</td><td class="is-number">${row.total}</td><td class="is-number">${row.completed}</td><td class="is-number">${row.inProgress}</td><td class="is-number">${row.notStarted}</td><td class="is-number">${row.overdue}</td><td class="is-number">${row.upcoming}</td><td class="is-status"><span class="exec-badge is-blue">${row.completionPercent}%</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="exec-empty">Không có dự án phù hợp.</p>'}</article>`;
 }
 
-function renderDepartmentEfficiency(rows = []) {
+function renderDepartmentEfficiency(rows = [], deptCode = '') {
+  const presentation = getDepartmentPerformancePresentation(deptCode);
   const columns = [
-    { label: 'Phòng/Ban', className: 'is-text' },
+    { label: presentation.firstColumnLabel, className: 'is-text' },
     { label: 'Tổng việc', className: 'is-number' },
     { label: 'Hoàn thành', className: 'is-number' },
     { label: 'Đang thực hiện', className: 'is-number' },
@@ -6357,9 +6383,11 @@ function renderDepartmentEfficiency(rows = []) {
   const body = rows.map((row) => {
     const overdueClass = row.overdue > 0 ? 'is-red' : 'is-green';
     const overdueText = `${row.overdue > 0 ? '⚠' : '✓'} ${row.overdue}`;
-    return `<tr class="dept-efficiency-row" data-dept-code="${escapeHtml(row.deptCode)}"><td class="exec-task is-text" title="${escapeHtml(row.deptName || row.deptCode)}">${escapeHtml(row.deptCode)} - ${escapeHtml(row.deptName || row.deptCode)}</td><td class="is-number">${row.total}</td><td class="is-number">${row.completed}</td><td class="is-number">${row.inProgress}</td><td class="is-number">${row.notStarted}</td><td class="is-status"><span class="exec-badge ${overdueClass}">${escapeHtml(overdueText)}</span></td><td class="is-progress">${renderDepartmentProgressBar(row.completionPercent)}</td></tr>`;
+    const label = presentation.individual ? row.ownerLabel : `${row.deptCode} - ${row.deptName || row.deptCode}`;
+    const rowAttribute = presentation.individual ? '' : ` data-dept-code="${escapeHtml(row.deptCode)}"`;
+    return `<tr class="dept-efficiency-row"${rowAttribute}><td class="exec-task is-text" title="${escapeHtml(label)}">${escapeHtml(label)}</td><td class="is-number">${row.total}</td><td class="is-number">${row.completed}</td><td class="is-number">${row.inProgress}</td><td class="is-number">${row.notStarted}</td><td class="is-status"><span class="exec-badge ${overdueClass}">${escapeHtml(overdueText)}</span></td><td class="is-progress">${renderDepartmentProgressBar(row.completionPercent)}</td></tr>`;
   }).join('');
-  return `<article class="exec-section dept-efficiency-summary"><header><h3>Hiệu quả phòng/ban</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-efficiency-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>` : '<p class="exec-empty">Không có phòng/ban phù hợp.</p>'}</article>`;
+  return `<article class="exec-section dept-efficiency-summary"><header><h3>${presentation.title}</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-efficiency-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>` : `<p class="exec-empty">${presentation.emptyMessage}</p>`}</article>`;
 }
 
 function renderDepartmentProgressBar(percent) {
@@ -6367,13 +6395,13 @@ function renderDepartmentProgressBar(percent) {
   return `<div class="dept-progress" aria-label="${safePercent}%"><span style="width: ${safePercent}%"></span><strong>${safePercent}%</strong></div>`;
 }
 
-function bindDepartmentEfficiencyRows(payloads, warnings) {
+function bindDepartmentEfficiencyRows() {
   document.querySelectorAll('.dept-efficiency-row[data-dept-code]').forEach((row) => {
     row.onclick = () => {
       qltdDepartmentDashboardDeptCode = row.getAttribute('data-dept-code') || '';
       const selector = document.getElementById('deptDashboardDeptFilter');
       if (selector) selector.value = qltdDepartmentDashboardDeptCode;
-      renderDepartmentDashboard(payloads, warnings);
+      loadAndRenderDepartmentDashboard();
     };
   });
 }
