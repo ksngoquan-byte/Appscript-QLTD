@@ -6263,21 +6263,17 @@ async function getDepartmentDashboardPayloads(projectCode, forceRefresh) {
 }
 
 async function getDepartmentDashboardDetailPayloads(projectCode, deptCode, forceRefresh) {
-  if (!deptCode) return { payloads: [], warnings: [] };
-  const projects = projectCode
-    ? qltdProjectRegistry.filter((project) => String(project.projectCode) === String(projectCode))
-    : qltdProjectRegistry;
+  const projects = qltdProjectRegistry;
   const warnings = [];
   const payloads = (await Promise.all(projects.map(async (project) => {
     const code = String(project.projectCode || '');
-    const cacheKey = `${code}::${deptCode}`;
+    const cacheKey = `${code}::ALL`;
     if (!forceRefresh && qltdDepartmentDashboardDetailCache.has(cacheKey)) return qltdDepartmentDashboardDetailCache.get(cacheKey);
     try {
-      const payload = await fetchBackendJson('listDeptPlans', { projectCode: code, deptCode }, { auth: true });
+      const payload = await fetchBackendJson('listDeptPlans', { projectCode: code }, { auth: true });
       if (!payload || payload.success === false) throw new Error(payload && (payload.message || payload.error) || 'INVALID_DEPT_PLAN_PAYLOAD');
-      const scopedPayload = { ...payload, requestedDeptCode: deptCode };
-      qltdDepartmentDashboardDetailCache.set(cacheKey, scopedPayload);
-      return scopedPayload;
+      qltdDepartmentDashboardDetailCache.set(cacheKey, payload);
+      return payload;
     } catch (error) {
       warnings.push(`${code}: ${error.message || error}`);
       return null;
@@ -6304,7 +6300,7 @@ async function loadAndRenderDepartmentDashboard(forceRefresh = false) {
 function renderDepartmentDashboard(payloads, warnings = [], individualPayloads = []) {
   const panel = document.getElementById('web07DashboardPanel');
   if (!panel) return;
-  const model = buildDepartmentDashboardModel(payloads, { deptCode: qltdDepartmentDashboardDeptCode, projectCode: qltdDepartmentDashboardProjectCode }, new Date(), { individualPayloads });
+  const model = buildDepartmentDashboardModel(payloads, { deptCode: qltdDepartmentDashboardDeptCode, projectCode: qltdDepartmentDashboardProjectCode }, new Date(), { detailPayloads: individualPayloads });
   const deptLabel = model.departments.find((dept) => dept.code === qltdDepartmentDashboardDeptCode)?.name || 'Tất cả phòng/ban';
   panel.innerHTML = `<div class="exec-dashboard dept-dashboard">
     ${renderDashboardModeSwitch('department')}
@@ -6407,7 +6403,7 @@ function bindDepartmentEfficiencyRows() {
 }
 
 function getDepartmentTaskLinkId(task) {
-  return task && (task.id || task.code || task.wbs || task.rawRowNumber || '');
+  return task && (task.dashboardLinkId || task.id || task.code || task.wbs || task.rawRowNumber || '');
 }
 
 function getDepartmentDueBadge(task) {

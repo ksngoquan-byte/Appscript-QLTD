@@ -62,22 +62,21 @@ function ownerIdentity(owner) {
   };
 }
 
-function buildIndividualPayloads(payloads, deptCode) {
-  const selectedDeptCode = getDeptCode(deptCode);
+function buildDetailPayloads(payloads, deptCode) {
+  const selectedDeptCode = deptCode ? getDeptCode(deptCode) : '';
   return (payloads || []).map((payload) => {
     const data = [];
-    if (payload.requestedDeptCode && getDeptCode(payload.requestedDeptCode) !== selectedDeptCode) {
-      return { projectCode: payload.projectCode || '', projectName: payload.projectName || payload.projectCode || '', data };
-    }
     (payload.departments || []).forEach((department) => {
+      const departmentCode = getDeptCode(department.deptCode || department.deptCodeRaw || department.projectUnitCode);
+      if (selectedDeptCode && departmentCode !== selectedDeptCode) return;
       (department.masters || []).forEach((master) => {
         (master.details || []).forEach((detail, index) => {
           data.push({
-            id: detail.detailTaskId || `${payload.projectCode || ''}:${selectedDeptCode}:${master.masterCode || ''}:${detail.rowIndex || index}`,
+            id: detail.detailTaskId || `${payload.projectCode || ''}:${departmentCode}:${master.masterCode || ''}:${detail.rowIndex || index}`,
             code: detail.detailTaskId || '',
             text: detail.taskName || detail.detailTaskId || 'Công việc chưa đặt tên',
             owner: detail.owner || '',
-            deptCode: selectedDeptCode,
+            deptCode: departmentCode,
             status: detail.status || '',
             progress: Number(detail.progress || 0) > 1 ? Number(detail.progress || 0) / 100 : Number(detail.progress || 0),
             start_date: detail.planStart || '',
@@ -188,17 +187,43 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
     (payload.data || []).forEach((task) => all.push(enrichTask(task, payload, today, milestoneKeys)));
   });
   const baseReal = all.filter((task) => task.isRealTask);
-  const owners = [...new Set(baseReal.map((task) => String(task.owner || '').trim()).filter(Boolean))];
-  const departmentCodes = [...new Set(baseReal.map((task) => task.deptCode))];
-  if (filters.deptCode && !departmentCodes.includes(getDeptCode(filters.deptCode))) departmentCodes.push(getDeptCode(filters.deptCode));
-  const departments = departmentCodes.sort().map((code) => ({ code, name: getDeptDisplayName(code, owners) }));
-  const individualMode = !!filters.deptCode;
-  const individualPayloads = individualMode ? buildIndividualPayloads(options.individualPayloads || [], filters.deptCode) : [];
-  const individualAll = [];
-  individualPayloads.forEach((payload) => {
-    (payload.data || []).forEach((task) => individualAll.push(enrichTask(task, payload, today, new Set())));
+  const detailSourceProvided = Array.isArray(options.detailPayloads);
+  const detailPayloads = detailSourceProvided ? buildDetailPayloads(options.detailPayloads, filters.deptCode) : [];
+  const detailAll = [];
+  detailPayloads.forEach((payload) => {
+    (payload.data || []).forEach((task) => detailAll.push(enrichTask(task, payload, today, new Set())));
   });
-  const real = individualMode ? individualAll.filter((task) => task.isRealTask) : baseReal;
+  const baseTaskByMaster = new Map();
+  baseReal.forEach((task) => {
+    [task.masterTaskCode, task.code, task.id].forEach((value) => {
+      const key = `${task.projectCode}:${String(value || '').trim().toUpperCase()}`;
+      if (value && !baseTaskByMaster.has(key)) baseTaskByMaster.set(key, task);
+    });
+  });
+  detailAll.forEach((task) => {
+    const baseTask = baseTaskByMaster.get(`${task.projectCode}:${String(task.masterTaskCode || '').trim().toUpperCase()}`);
+    if (!baseTask) return;
+    task.dashboardLinkId = baseTask.id || '';
+    task.isMainMilestone = !!baseTask.isMainMilestone;
+  });
+  const real = detailSourceProvided ? detailAll.filter((task) => task.isRealTask) : baseReal;
+  const departmentSource = detailSourceProvided ? options.detailPayloads : payloads;
+  const detailDepartments = [];
+  if (detailSourceProvided) {
+    (departmentSource || []).forEach((payload) => (payload.departments || []).forEach((department) => {
+      detailDepartments.push({
+        code: getDeptCode(department.deptCode || department.deptCodeRaw || department.projectUnitCode),
+        name: department.deptName || department.deptCode || department.projectUnitCode || ''
+      });
+    }));
+  }
+  const owners = [...new Set(baseReal.map((task) => String(task.owner || '').trim()).filter(Boolean))];
+  const departmentCodes = [...new Set((detailSourceProvided ? detailDepartments.map((department) => department.code) : baseReal.map((task) => task.deptCode)).filter(Boolean))];
+  if (filters.deptCode && !departmentCodes.includes(getDeptCode(filters.deptCode))) departmentCodes.push(getDeptCode(filters.deptCode));
+  const departments = departmentCodes.sort().map((code) => ({
+    code,
+    name: detailDepartments.find((department) => department.code === code)?.name || getDeptDisplayName(code, owners)
+  }));
   const projectScoped = real.filter((task) => !filters.projectCode || task.projectCode === filters.projectCode);
   const filtered = real.filter((task) => (!filters.deptCode || task.deptCode === filters.deptCode) && (!filters.projectCode || task.projectCode === filters.projectCode));
   const completed = filtered.filter((task) => task.isCompleted);
@@ -213,7 +238,8 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
     remainingDays: task.endDate && task.endDate >= today ? Math.round((task.endDate - today) / 86400000) : null,
     lateDays: !task.isCompleted && task.endDate && task.endDate < today ? Math.round((today - task.endDate) / 86400000) : task.lateDays
   })).sort((a, b) => (a.endDate || new Date(8640000000000000)) - (b.endDate || new Date(8640000000000000))).slice(0, 10);
-  const projectSummary = (payloads || []).map((payload) => {
+  const projectSummarySource = detailSourceProvided ? options.detailPayloads : payloads;
+  const projectSummary = (projectSummarySource || []).map((payload) => {
     const rows = filtered.filter((task) => task.projectCode === payload.projectCode);
     const summary = summarizeRows(rows);
     return { projectCode: payload.projectCode, projectName: payload.projectName || payload.projectCode, ...summary,
