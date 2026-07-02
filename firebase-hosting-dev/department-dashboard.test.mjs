@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildDepartmentDashboardModel, getDepartmentOwnerPresentation, getDepartmentPerformancePresentation, getDepartmentTaskCategory, getDeptCode } from './department-dashboard.js';
+import { buildDepartmentDashboardModel, getDepartmentOwnerPresentation, getDepartmentPerformancePresentation, getDepartmentTaskCategory, getDeptCode, getProjectDeptKey } from './department-dashboard.js';
 
 const today = new Date(2026, 5, 18);
 const payloads = [
@@ -30,7 +30,15 @@ const payloads = [
 
 assert.equal(getDeptCode('Phong Phat trien du an'), 'PTDA');
 assert.equal(getDeptCode('Phong Quan ly du an'), 'QLDA');
-assert.equal(getDeptCode('Thiet ke'), 'TK');
+assert.equal(getDeptCode('Thiet ke'), 'THIETKE');
+assert.equal(getDeptCode('THIETKE'), 'THIETKE');
+assert.equal(getDeptCode('TK'), 'TK');
+assert.equal(getDeptCode('KINHDOANH'), 'KINHDOANH');
+assert.equal(getDeptCode('KD'), 'KD');
+for (const code of ['THIETKE', 'TK', 'KINHDOANH', 'KD', 'BQLDA', 'QLDA', 'TIEUCHUAN', 'KEHOACH', 'PTDA', 'GPMB', 'DAUTHAU', 'KETOAN', 'PHAPCHE', 'TAICHINH', 'MKT', 'VANHANH']) {
+  assert.equal(getDeptCode(code), code);
+}
+assert.equal(getProjectDeptKey(' 37-5.hl ', 'Thiet ke'), '37-5.HL::THIETKE');
 assert.equal(getDepartmentTaskCategory(payloads[0].data[0]), 'Phap ly');
 assert.equal(getDepartmentTaskCategory(payloads[0].data[1]), '');
 
@@ -94,16 +102,16 @@ assert.equal(allDepartmentsOneProject.departmentEfficiency.find((row) => row.dep
 // C. Một phòng/ban + tất cả dự án: group chủ trì ổn định theo email.
 const oneDepartmentAllProjects = buildDepartmentDashboardModel(payloads, { deptCode: 'PTDA' }, today, { detailPayloads: individualPayloads });
 assert.equal(oneDepartmentAllProjects.kpis.total, 5);
-assert.equal(oneDepartmentAllProjects.individualEfficiency.reduce((sum, row) => sum + row.total, 0), oneDepartmentAllProjects.kpis.total);
+assert.equal(oneDepartmentAllProjects.individualEfficiency.reduce((sum, row) => sum + row.total, 0), 4);
 assert.equal(oneDepartmentAllProjects.individualEfficiency.find((row) => row.ownerEmail === 'alice@example.com')?.total, 3);
 assert.equal(oneDepartmentAllProjects.individualEfficiency.find((row) => row.ownerEmail === 'former@example.com')?.ownerLabel, 'Cuu Nhan Su <former@example.com>');
-assert.equal(oneDepartmentAllProjects.individualEfficiency.find((row) => row.ownerKey === 'UNASSIGNED')?.ownerLabel, 'CHƯA PHÂN CÔNG');
+assert.equal(oneDepartmentAllProjects.individualEfficiency.some((row) => row.ownerKey === 'UNASSIGNED'), false);
 assert.equal(oneDepartmentAllProjects.kpis.total, allDepartmentsAllProjects.departmentEfficiency.find((row) => row.deptCode === 'PTDA')?.total);
 
 // D. Một phòng/ban + một dự án: chỉ lấy PB_DETAIL của HL.
 const oneDepartmentOneProject = buildDepartmentDashboardModel(payloads, { deptCode: 'PTDA', projectCode: 'HL' }, today, { detailPayloads: individualPayloads });
 assert.equal(oneDepartmentOneProject.kpis.total, 4);
-assert.equal(oneDepartmentOneProject.individualEfficiency.reduce((sum, row) => sum + row.total, 0), 4);
+assert.equal(oneDepartmentOneProject.individualEfficiency.reduce((sum, row) => sum + row.total, 0), 3);
 assert.equal(oneDepartmentOneProject.individualEfficiency.find((row) => row.ownerEmail === 'alice@example.com')?.total, 2);
 assert.equal(oneDepartmentOneProject.kpis.completed, 1);
 assert.equal(oneDepartmentOneProject.kpis.inProgress, 1);
@@ -112,9 +120,9 @@ assert.equal(oneDepartmentOneProject.individualEfficiency.find((row) => row.owne
 assert.equal(oneDepartmentOneProject.kpis.total, allDepartmentsOneProject.departmentEfficiency.find((row) => row.deptCode === 'PTDA')?.total);
 
 // Phòng/ban hoặc dự án không có công việc phải giữ filter và trả tập rỗng an toàn.
-const emptyDepartment = buildDepartmentDashboardModel(payloads, { deptCode: 'TK' }, today, { detailPayloads: individualPayloads });
+const emptyDepartment = buildDepartmentDashboardModel(payloads, { deptCode: 'THIETKE' }, today, { detailPayloads: individualPayloads });
 assert.equal(emptyDepartment.kpis.total, 0);
-assert.equal(emptyDepartment.departments.some((dept) => dept.code === 'TK'), true);
+assert.equal(emptyDepartment.departments.some((dept) => dept.code === 'THIETKE'), true);
 const emptyProject = buildDepartmentDashboardModel(payloads, { deptCode: 'PTDA', projectCode: 'EMPTY' }, today, { detailPayloads: individualPayloads });
 assert.equal(emptyProject.kpis.total, 0);
 assert.equal(emptyProject.individualEfficiency.length, 0);
@@ -195,5 +203,125 @@ const hungLocDepartment = buildDepartmentDashboardModel(mixedMasterPayloads, { p
 assert.equal(hungLocDepartment.kpis.total, 1);
 assert.equal(hungLocDepartment.individualEfficiency.length, 0);
 assert.deepEqual(hungLocDepartment.masterFallbackProjects, ['37-5.HL']);
+assert.equal(hungLocDepartment.individualEmptyMessage, 'Phòng/ban chưa có công việc chi tiết theo cá nhân.');
+
+// Fallback phải theo project + dept: 2 phòng có detail, 3 phòng chỉ có Master.
+const cocLeuMasterPayloads = [{
+  projectCode: 'COC-LEU',
+  projectName: 'Cốc Lếu',
+  data: [
+    { id: 'cl-kd', text: 'Master KD', owner: 'Phòng Kinh doanh', status: 'Đang thực hiện', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'cl-kh', text: 'Master KH', owner: 'Phòng Kế hoạch', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'cl-ptda', text: 'Master PTDA', owner: 'PTDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'cl-gpmb', text: 'Master GPMB', owner: 'GPMB', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'cl-tk', text: 'Master thiết kế', owner: 'Phòng Thiết kế', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'cl-common', text: 'Mục tiêu chung', owner: '', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }
+  ]
+}];
+const cocLeuDetailPayloads = [{
+  projectCode: 'coc-leu',
+  projectName: 'Cốc Lếu',
+  departments: [
+    { deptCode: 'KINHDOANH', deptName: 'Phòng Kinh doanh', masters: [{ masterCode: 'cl-kd', details: [{ detailTaskId: 'cl-kd-1', taskName: 'Chi tiết KD', owner: 'KD User <kd@example.com>', status: 'Đang thực hiện', planStart: '2026-06-01', planFinish: '2026-06-30' }] }] },
+    { deptCode: 'KEHOACH', deptName: 'Phòng Kế hoạch', masters: [{ masterCode: 'cl-kh', details: [{ detailTaskId: 'cl-kh-1', taskName: 'Chi tiết KH', owner: 'KH User <kh@example.com>', status: 'Hoàn thành', planStart: '2026-06-01', planFinish: '2026-06-20', actualFinish: '2026-06-20' }] }] },
+    { deptCode: 'PTDA', deptName: 'Phát triển dự án', masters: [] },
+    { deptCode: 'GPMB', deptName: 'Giải phóng mặt bằng', masters: [] },
+    { deptCode: 'THIETKE', deptName: 'Phòng Thiết kế', projectUnitCode: 'TK', masters: [] }
+  ]
+}];
+const cocLeu = buildDepartmentDashboardModel(cocLeuMasterPayloads, { projectCode: 'COC-LEU' }, today, { detailPayloads: cocLeuDetailPayloads });
+assert.deepEqual(cocLeu.departmentEfficiency.map((row) => row.deptCode).sort(), ['GPMB', 'KEHOACH', 'KINHDOANH', 'PTDA', 'THIETKE']);
+assert.equal(cocLeu.departmentEfficiency.length, 5);
+assert.equal(cocLeu.tasks.some((task) => task.id === 'cl-kd'), false);
+assert.equal(cocLeu.tasks.some((task) => task.id === 'cl-kh'), false);
+assert.equal(cocLeu.tasks.some((task) => task.id === 'cl-ptda'), true);
+assert.equal(cocLeu.tasks.some((task) => task.id === 'cl-gpmb'), true);
+assert.equal(cocLeu.tasks.some((task) => task.id === 'cl-tk' && task.deptCode === 'THIETKE'), true);
+assert.equal(cocLeu.tasks.some((task) => task.id === 'cl-common' && task.deptCode === 'UNASSIGNED'), true);
+assert.equal(cocLeu.departmentEfficiency.some((row) => row.deptCode === 'UNASSIGNED'), false);
+assert.equal(cocLeu.kpis.total, 6);
+
+// Full detail, partial detail và chưa có detail không được mất phòng hoặc đếm trùng.
+const threeProjectMasters = [
+  { projectCode: 'FULL', data: [
+    { id: 'full-a', text: 'Full A master', deptCode: 'PTDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'full-b', text: 'Full B master', deptCode: 'GPMB', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }
+  ] },
+  { projectCode: 'PARTIAL', data: [
+    { id: 'partial-a', text: 'Partial A master', deptCode: 'PTDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'partial-b', text: 'Partial B master', deptCode: 'GPMB', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }
+  ] },
+  { projectCode: 'NONE', data: [
+    { id: 'none-a', text: 'None A master', deptCode: 'PTDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'none-b', text: 'None B master', deptCode: 'GPMB', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }
+  ] }
+];
+const makeDetail = (id, owner) => ({ detailTaskId: id, taskName: id, owner, status: 'Đang thực hiện', planStart: '2026-06-01', planFinish: '2026-06-30' });
+const threeProjectDetails = [
+  { projectCode: 'FULL', departments: [
+    { deptCode: 'PTDA', masters: [{ masterCode: 'full-a', details: [makeDetail('full-a-detail', 'A <a@example.com>')] }] },
+    { deptCode: 'GPMB', masters: [{ masterCode: 'full-b', details: [makeDetail('full-b-detail', 'B <b@example.com>')] }] }
+  ] },
+  { projectCode: 'PARTIAL', departments: [
+    { deptCode: 'PTDA', masters: [{ masterCode: 'partial-a', details: [makeDetail('partial-a-detail', 'C <c@example.com>')] }] },
+    { deptCode: 'GPMB', masters: [] }
+  ] },
+  { projectCode: 'NONE', departments: [{ deptCode: 'PTDA', masters: [] }, { deptCode: 'GPMB', masters: [] }] }
+];
+const threeProjectModel = buildDepartmentDashboardModel(threeProjectMasters, {}, today, { detailPayloads: threeProjectDetails });
+assert.equal(threeProjectModel.kpis.total, 6);
+assert.equal(threeProjectModel.tasks.filter((task) => task.dashboardSource === 'detail').length, 3);
+assert.equal(threeProjectModel.tasks.filter((task) => task.dashboardSource === 'master').length, 3);
+assert.equal(threeProjectModel.tasks.some((task) => task.id === 'partial-b'), true);
+assert.equal(threeProjectModel.tasks.some((task) => task.id === 'partial-a'), false);
+
+// Mã chuẩn từ Project_Depts thắng alias suy luận; BQLDA và QLDA vẫn là hai đơn vị.
+const aliasModel = buildDepartmentDashboardModel([{
+  projectCode: 'ALIAS',
+  data: [
+    { id: 'alias-tk', text: 'Thiết kế', owner: 'Phòng Thiết kế', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'alias-kd', text: 'Kinh doanh', owner: 'Phòng Kinh doanh', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'alias-bqlda', text: 'Ban QLDA', owner: 'Ban QLDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'alias-qlda', text: 'QLDA', deptCode: 'QLDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }
+  ]
+}], {}, today, { detailPayloads: [{
+  projectCode: 'ALIAS',
+  departments: [
+    { deptCode: 'THIETKE', projectUnitCode: 'TK', deptName: 'Phòng Thiết kế', masters: [] },
+    { deptCode: 'KINHDOANH', projectUnitCode: 'KD', deptName: 'Phòng Kinh doanh', masters: [] },
+    { deptCode: 'BQLDA', deptName: 'Ban QLDA', masters: [] },
+    { deptCode: 'QLDA', deptName: 'Quản lý dự án', masters: [] }
+  ]
+}] });
+assert.deepEqual(aliasModel.departmentEfficiency.map((row) => row.deptCode).sort(), ['BQLDA', 'KINHDOANH', 'QLDA', 'THIETKE']);
+assert.equal(aliasModel.tasks.find((task) => task.id === 'alias-tk')?.deptCode, 'THIETKE');
+assert.equal(aliasModel.tasks.find((task) => task.id === 'alias-kd')?.deptCode, 'KINHDOANH');
+assert.equal(aliasModel.tasks.find((task) => task.id === 'alias-bqlda')?.deptCode, 'BQLDA');
+
+// Owner rỗng/placeholder vẫn tính KPI phòng nhưng tuyệt đối không tạo cá nhân giả.
+const unassignedOwnerModel = buildDepartmentDashboardModel([], { deptCode: 'KEHOACH', projectCode: 'OWNER' }, today, { detailPayloads: [{
+  projectCode: 'OWNER',
+  departments: [{ deptCode: 'KEHOACH', masters: [{ masterCode: 'M1', details: [
+    makeDetail('owner-real', 'Real Person <real@example.com>'),
+    makeDetail('owner-empty', '   '),
+    makeDetail('owner-placeholder', 'CHƯA PHÂN CÔNG'),
+    { ...makeDetail('owner-fields', ''), ownerEmail: 'fields@example.com', ownerName: 'Fields Person' }
+  ] }] }]
+}] });
+assert.equal(unassignedOwnerModel.kpis.total, 4);
+assert.equal(unassignedOwnerModel.individualEfficiency.length, 2);
+assert.equal(unassignedOwnerModel.individualEfficiency.reduce((sum, row) => sum + row.total, 0), 2);
+assert.equal(unassignedOwnerModel.individualEfficiency.some((row) => row.ownerKey === 'UNASSIGNED'), false);
+
+const onlyUnassignedOwners = buildDepartmentDashboardModel([], { deptCode: 'KEHOACH', projectCode: 'EMPTY-OWNERS' }, today, { detailPayloads: [{
+  projectCode: 'EMPTY-OWNERS',
+  departments: [{ deptCode: 'KEHOACH', masters: [{ masterCode: 'M1', details: [
+    makeDetail('empty-owner', ''),
+    makeDetail('placeholder-owner', 'CHƯA PHÂN CÔNG')
+  ] }] }]
+}] });
+assert.equal(onlyUnassignedOwners.kpis.total, 2);
+assert.equal(onlyUnassignedOwners.individualEfficiency.length, 0);
+assert.equal(onlyUnassignedOwners.individualEmptyMessage, 'Chưa có công việc được phân công cho cá nhân.');
 
 console.log('Department dashboard context filters and individual owner aggregation passed.');

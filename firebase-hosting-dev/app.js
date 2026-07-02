@@ -25,7 +25,7 @@ import {
   migrateMainMilestoneKeys,
   toggleMainMilestoneTaskKey
 } from './main-milestone-logic.js';
-import { buildDepartmentDashboardModel, getDepartmentOwnerPresentation, getDepartmentPerformancePresentation } from './department-dashboard.js?v=PB_DASHBOARD_FINAL_FIXES_1';
+import { buildDepartmentDashboardModel, getDepartmentOwnerPresentation, getDepartmentPerformancePresentation } from './department-dashboard.js?v=PB_DASHBOARD_DEPT_MAPPING_1';
 import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E4_ACTUAL_DATE_LIFECYCLE';
 import { createRegistrationGate } from './registration-gate.js?v=BUG7_EMPLOYEE_REGISTRATION_1';
 
@@ -6315,7 +6315,7 @@ function renderDepartmentDashboard(payloads, warnings = [], individualPayloads =
       ${renderExecutiveKpiCard('Quá hạn', model.kpis.overdue, 'Không phụ thuộc trạng thái', 'red')}${renderExecutiveKpiCard('Đến hạn 14 ngày', model.kpis.upcoming, 'Không gồm việc quá hạn', 'blue')}
       ${renderExecutiveKpiCard('Mốc chính liên quan', model.kpis.milestones, 'Theo sao vàng global', 'info')}
     </section>
-    <section class="exec-grid">${renderDepartmentList('Top 5 quá hạn', model.overdue, 'overdue')}${renderDepartmentList('Đến hạn trong 14 ngày tới', model.upcoming, 'upcoming')}${renderDepartmentList('Kết quả tháng này', model.completedThisMonth, 'completed')}${renderDepartmentList('Mốc chính liên quan', model.milestones, 'milestone')}${!qltdDepartmentDashboardProjectCode ? renderDepartmentProjectSummary(model.projectSummary) : ''}${renderDepartmentEfficiency(qltdDepartmentDashboardDeptCode ? model.individualEfficiency : model.departmentEfficiency, qltdDepartmentDashboardDeptCode)}</section>
+    <section class="exec-grid">${renderDepartmentList('Top 5 quá hạn', model.overdue, 'overdue')}${renderDepartmentList('Đến hạn trong 14 ngày tới', model.upcoming, 'upcoming')}${renderDepartmentList('Kết quả tháng này', model.completedThisMonth, 'completed')}${renderDepartmentList('Mốc chính liên quan', model.milestones, 'milestone')}${!qltdDepartmentDashboardProjectCode ? renderDepartmentProjectSummary(model.projectSummary) : ''}${renderDepartmentEfficiency(qltdDepartmentDashboardDeptCode ? model.individualEfficiency : model.departmentEfficiency, qltdDepartmentDashboardDeptCode, model.individualEmptyMessage)}</section>
   </div>`;
   bindDashboardModeSwitch();
   bindDashboardTaskLinks();
@@ -6367,8 +6367,9 @@ function renderDepartmentProjectSummary(rows) {
   return `<article class="exec-section dept-project-summary"><header><h3>Tổng hợp theo dự án</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-summary-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr><td class="exec-task is-text" title="${escapeHtml(row.projectName || row.projectCode || '')}">${escapeHtml(row.projectName)}</td><td class="is-number">${row.total}</td><td class="is-number">${row.completed}</td><td class="is-number">${row.inProgress}</td><td class="is-number">${row.notStarted}</td><td class="is-number">${row.overdue}</td><td class="is-number">${row.upcoming}</td><td class="is-status"><span class="exec-badge is-blue">${row.completionPercent}%</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="exec-empty">Không có dự án phù hợp.</p>'}</article>`;
 }
 
-function renderDepartmentEfficiency(rows = [], deptCode = '') {
+function renderDepartmentEfficiency(rows = [], deptCode = '', individualEmptyMessage = '') {
   const presentation = getDepartmentPerformancePresentation(deptCode);
+  const emptyMessage = presentation.individual && individualEmptyMessage ? individualEmptyMessage : presentation.emptyMessage;
   const columns = [
     { label: presentation.firstColumnLabel, className: 'is-text' },
     { label: 'Tổng việc', className: 'is-number' },
@@ -6385,7 +6386,7 @@ function renderDepartmentEfficiency(rows = [], deptCode = '') {
     const rowAttribute = presentation.individual ? '' : ` data-dept-code="${escapeHtml(row.deptCode)}"`;
     return `<tr class="dept-efficiency-row"${rowAttribute}><td class="exec-task is-text" title="${escapeHtml(label)}">${escapeHtml(label)}</td><td class="is-number">${row.total}</td><td class="is-number">${row.completed}</td><td class="is-number">${row.inProgress}</td><td class="is-number">${row.notStarted}</td><td class="is-status"><span class="exec-badge ${overdueClass}">${escapeHtml(overdueText)}</span></td><td class="is-progress">${renderDepartmentProgressBar(row.completionPercent)}</td></tr>`;
   }).join('');
-  return `<article class="exec-section dept-efficiency-summary"><header><h3>${presentation.title}</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-efficiency-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>` : `<p class="exec-empty">${presentation.emptyMessage}</p>`}</article>`;
+  return `<article class="exec-section dept-efficiency-summary"><header><h3>${presentation.title}</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-efficiency-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>` : `<p class="exec-empty">${emptyMessage}</p>`}</article>`;
 }
 
 function renderDepartmentProgressBar(percent) {

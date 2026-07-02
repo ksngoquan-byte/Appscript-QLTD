@@ -32,16 +32,93 @@ export function getDeptCode(owner) {
   if (compact === 'ptda' || value.includes('phat trien du an')) return 'PTDA';
   if (compact === 'gpmb' || value.includes('giai phong mat bang')) return 'GPMB';
   if (compact === 'qlda' || value.includes('quan ly du an')) return 'QLDA';
-  if (compact === 'tk' || value.includes('thiet ke')) return 'TK';
-  if (compact === 'kd' || value.includes('kinh doanh')) return 'KD';
-  const words = value.split(/\s+/).filter(Boolean);
-  return (words.length > 1 ? words.map((word) => word[0]).join('') : compact).toUpperCase();
+  if (compact === 'tk') return 'TK';
+  if (value.includes('thiet ke')) return 'THIETKE';
+  if (compact === 'kd') return 'KD';
+  if (value.includes('kinh doanh')) return 'KINHDOANH';
+  return compact.toUpperCase();
 }
 
 export function getDeptDisplayName(code, owners = []) {
-  const preferred = { PTDA: 'Phát triển dự án', GPMB: 'Giải phóng mặt bằng', QLDA: 'Quản lý dự án', TK: 'Thiết kế', KD: 'Kinh doanh', UNASSIGNED: 'Chưa phân công' };
+  const preferred = {
+    PTDA: 'Phát triển dự án', GPMB: 'Giải phóng mặt bằng',
+    BQLDA: 'Ban quản lý dự án', QLDA: 'Quản lý dự án',
+    THIETKE: 'Thiết kế', TK: 'Thiết kế',
+    KINHDOANH: 'Kinh doanh', KD: 'Kinh doanh',
+    TIEUCHUAN: 'Tiêu chuẩn', KEHOACH: 'Kế hoạch', DAUTHAU: 'Đấu thầu',
+    KETOAN: 'Kế toán', PHAPCHE: 'Pháp chế', TAICHINH: 'Tài chính',
+    MKT: 'Marketing - Truyền thông', VANHANH: 'Vận hành',
+    UNASSIGNED: 'Chưa phân công'
+  };
   if (preferred[code]) return preferred[code];
   return owners.find((owner) => getDeptCode(owner) === code) || code;
+}
+
+function firstDepartmentCode(source) {
+  const raw = source && source.raw || {};
+  return [
+    source && source.deptCode,
+    source && source.deptCodeRaw,
+    source && source.projectUnitCode,
+    source && source.MasterDeptCode,
+    source && source.masterDeptCode,
+    raw.deptCode,
+    raw.deptCodeRaw,
+    raw.projectUnitCode,
+    raw.MasterDeptCode,
+    raw.masterDeptCode
+  ].find((value) => String(value || '').trim());
+}
+
+function addUniqueRegistryValue(map, key, code) {
+  if (!key) return;
+  if (!map.has(key)) map.set(key, code);
+  else if (map.get(key) !== code) map.set(key, '');
+}
+
+function buildProjectDepartmentRegistries(payloads) {
+  const registries = new Map();
+  (payloads || []).forEach((payload) => {
+    const projectCode = normalizeProjectCode(payload.projectCode);
+    if (!registries.has(projectCode)) {
+      registries.set(projectCode, { canonicalCodes: new Set(), aliases: new Map(), names: new Map() });
+    }
+    const registry = registries.get(projectCode);
+    (payload.departments || []).forEach((department) => {
+      const code = getDeptCode(firstDepartmentCode(department));
+      if (code === 'UNASSIGNED') return;
+      registry.canonicalCodes.add(code);
+      [
+        department.deptCode,
+        department.deptCodeRaw,
+        department.projectUnitCode,
+        department.MasterDeptCode,
+        department.masterDeptCode
+      ].filter((value) => String(value || '').trim())
+        .forEach((value) => addUniqueRegistryValue(registry.aliases, getDeptCode(value), code));
+      addUniqueRegistryValue(registry.names, normalizeDeptName(department.deptName), code);
+    });
+  });
+  return registries;
+}
+
+function resolveDepartmentCode(source, registry, fallbackValue) {
+  const explicitValue = firstDepartmentCode(source);
+  if (explicitValue) {
+    const explicitCode = getDeptCode(explicitValue);
+    if (!registry || registry.canonicalCodes.has(explicitCode)) return explicitCode;
+    return registry.aliases.get(explicitCode) || explicitCode;
+  }
+  const nameKey = normalizeDeptName(fallbackValue);
+  if (registry) {
+    const registryCode = registry.names.get(nameKey) || registry.aliases.get(getDeptCode(fallbackValue));
+    if (registryCode) return registryCode;
+  }
+  return getDeptCode(fallbackValue);
+}
+
+export function getProjectDeptKey(projectCode, deptCode) {
+  return `${normalizeProjectCode(projectCode)}::${getDeptCode(deptCode)}`;
 }
 
 function statusKey(status) {
@@ -52,18 +129,34 @@ function statusKey(status) {
   return 'other';
 }
 
-function ownerIdentity(owner) {
+function isUnassignedOwnerValue(value) {
+  const compact = text(value).replace(/[^a-z0-9]/g, '');
+  return !compact || ['unassigned', 'chuaphancong', 'chuagiao', 'notassigned'].includes(compact);
+}
+
+function ownerIdentity(owner, ownerEmail, ownerName) {
   const raw = String(owner || '').trim();
-  if (!raw) return { key: 'UNASSIGNED', label: 'CHƯA PHÂN CÔNG', email: '', name: '' };
   const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-  const email = emailMatch ? emailMatch[0].toLowerCase() : '';
-  const name = email ? raw.replace(new RegExp(`\\s*<${emailMatch[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>\\s*`, 'i'), '').trim() : '';
+  const explicitEmail = String(ownerEmail || '').trim().match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const email = String(explicitEmail ? explicitEmail[0] : emailMatch ? emailMatch[0] : '').toLowerCase();
+  const parsedName = emailMatch
+    ? raw.replace(new RegExp(`\\s*<?${emailMatch[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>?\\s*`, 'i'), '').trim()
+    : raw;
+  const name = String(ownerName || parsedName || '').trim();
+  const label = raw || name || email;
+  if ((!email && !name) || isUnassignedOwnerValue(label) || (name && isUnassignedOwnerValue(name))) {
+    return { key: 'UNASSIGNED', label: 'CHƯA PHÂN CÔNG', email: '', name: '' };
+  }
   return {
-    key: email || `OWNER:${text(raw)}`,
-    label: raw,
+    key: email || `OWNER:${text(name)}`,
+    label,
     email,
     name
   };
+}
+
+function isValidOwnerIdentity(identity) {
+  return !!identity && identity.key !== 'UNASSIGNED' && !!(identity.email || identity.name);
 }
 
 export function getDepartmentOwnerPresentation(owner) {
@@ -77,12 +170,13 @@ export function getDepartmentOwnerPresentation(owner) {
   };
 }
 
-function buildDetailPayloads(payloads, deptCode) {
+function buildDetailPayloads(payloads, deptCode, registries = buildProjectDepartmentRegistries(payloads)) {
   const selectedDeptCode = deptCode ? getDeptCode(deptCode) : '';
   return (payloads || []).map((payload) => {
     const data = [];
+    const registry = registries.get(normalizeProjectCode(payload.projectCode));
     (payload.departments || []).forEach((department) => {
-      const departmentCode = getDeptCode(department.deptCode || department.deptCodeRaw || department.projectUnitCode);
+      const departmentCode = resolveDepartmentCode(department, registry, department.deptName);
       if (selectedDeptCode && departmentCode !== selectedDeptCode) return;
       (department.masters || []).forEach((master) => {
         (master.details || []).forEach((detail, index) => {
@@ -91,6 +185,8 @@ function buildDetailPayloads(payloads, deptCode) {
             code: detail.detailTaskId || '',
             text: detail.taskName || detail.detailTaskId || 'Công việc chưa đặt tên',
             owner: detail.owner || '',
+            ownerEmail: detail.ownerEmail || detail.assigneeEmail || '',
+            ownerName: detail.ownerName || detail.assigneeName || '',
             deptCode: departmentCode,
             status: detail.status || '',
             progress: Number(detail.progress || 0) > 1 ? Number(detail.progress || 0) / 100 : Number(detail.progress || 0),
@@ -139,7 +235,7 @@ export function getDepartmentTaskCategory(task) {
   return value ? String(value).trim() : '';
 }
 
-function enrichTask(task, payload, today, milestoneKeys) {
+function enrichTask(task, payload, today, milestoneKeys, departmentRegistry) {
   const startDate = date(task.start_date || task.planned_start || task.baselineStart || task.planStart);
   const endDate = getExecutiveTaskDueDate(task);
   const actualStartDate = date(task.actualStart);
@@ -155,8 +251,8 @@ function enrichTask(task, payload, today, milestoneKeys) {
   item.isRealTask = !category && !!String(task.text || '').trim() && (!!task.forceRealTask || !!(startDate || endDate || actualStartDate || actualFinishDate || item.hasActionStatus));
   item.projectCode = payload.projectCode || '';
   item.projectName = payload.projectName || payload.projectCode || '';
-  item.deptCode = getDeptCode(task.deptCode || task.owner);
-  item.ownerIdentity = ownerIdentity(task.owner);
+  item.deptCode = resolveDepartmentCode(task, departmentRegistry, task.deptName || task.owner);
+  item.ownerIdentity = ownerIdentity(task.owner, task.ownerEmail, task.ownerName);
   item.contextLabel = getDepartmentTaskCategory(task);
   item.isMainMilestone = milestoneKeys.has(
     getMainMilestoneStableKey(task, payload.projectCode)
@@ -194,20 +290,23 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
   const upcomingEnd = new Date(today); upcomingEnd.setDate(upcomingEnd.getDate() + 14);
+  const detailSourceProvided = Array.isArray(options.detailPayloads);
+  const departmentRegistries = buildProjectDepartmentRegistries(detailSourceProvided ? options.detailPayloads : []);
   const all = [];
   (payloads || []).forEach((payload) => {
+    const departmentRegistry = departmentRegistries.get(normalizeProjectCode(payload.projectCode));
     const milestoneKeys = migrateMainMilestoneKeys([
       ...(payload.mainMilestoneIds || []), ...(payload.mainMilestoneCodes || [])
     ], payload.data || [], payload.projectCode).keys;
-    (payload.data || []).forEach((task) => all.push(enrichTask(task, payload, today, milestoneKeys)));
+    (payload.data || []).forEach((task) => all.push(enrichTask(task, payload, today, milestoneKeys, departmentRegistry)));
   });
   const baseReal = all.filter((task) => task.isRealTask);
-  const detailSourceProvided = Array.isArray(options.detailPayloads);
-  const detailPayloads = detailSourceProvided ? buildDetailPayloads(options.detailPayloads) : [];
+  const detailPayloads = detailSourceProvided ? buildDetailPayloads(options.detailPayloads, '', departmentRegistries) : [];
   const detailAll = [];
   detailPayloads.forEach((payload) => {
+    const departmentRegistry = departmentRegistries.get(normalizeProjectCode(payload.projectCode));
     (payload.data || []).forEach((task) => {
-      const enriched = enrichTask(task, payload, today, new Set());
+      const enriched = enrichTask(task, payload, today, new Set(), departmentRegistry);
       enriched.dashboardSource = 'detail';
       detailAll.push(enriched);
     });
@@ -227,28 +326,30 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
     task.isMainMilestone = !!baseTask.isMainMilestone;
   });
   const detailReal = detailAll.filter((task) => task.isRealTask);
-  const detailProjectCodes = new Set(detailReal.map((task) => normalizeProjectCode(task.projectCode)).filter(Boolean));
+  const detailProjectDeptKeys = new Set(detailReal
+    .map((task) => getProjectDeptKey(task.projectCode, task.deptCode)));
   const masterFallbackTasks = detailSourceProvided
-    ? baseReal.filter((task) => !detailProjectCodes.has(normalizeProjectCode(task.projectCode)))
+    ? baseReal.filter((task) => !detailProjectDeptKeys.has(getProjectDeptKey(task.projectCode, task.deptCode)))
     : [];
   const real = detailSourceProvided ? [...detailReal, ...masterFallbackTasks] : baseReal;
   const departmentSource = detailSourceProvided ? options.detailPayloads : payloads;
   const detailDepartments = [];
   if (detailSourceProvided) {
     (departmentSource || []).forEach((payload) => (payload.departments || []).forEach((department) => {
+      const registry = departmentRegistries.get(normalizeProjectCode(payload.projectCode));
       detailDepartments.push({
-        code: getDeptCode(department.deptCode || department.deptCodeRaw || department.projectUnitCode),
-        name: department.deptName || department.deptCode || department.projectUnitCode || ''
+        code: resolveDepartmentCode(department, registry, department.deptName),
+        name: department.deptName || firstDepartmentCode(department) || ''
       });
     }));
   }
   const owners = [...new Set(baseReal.map((task) => String(task.owner || '').trim()).filter(Boolean))];
   const departmentCodes = [...new Set((detailSourceProvided
     ? [...detailDepartments.map((department) => department.code), ...masterFallbackTasks.map((task) => task.deptCode)]
-    : baseReal.map((task) => task.deptCode)).filter(Boolean))];
+    : baseReal.map((task) => task.deptCode)).filter((code) => code && code !== 'UNASSIGNED'))];
   const selectedDeptCode = filters.deptCode ? getDeptCode(filters.deptCode) : '';
   const selectedProjectCode = normalizeProjectCode(filters.projectCode);
-  if (selectedDeptCode && !departmentCodes.includes(selectedDeptCode)) departmentCodes.push(selectedDeptCode);
+  if (selectedDeptCode && selectedDeptCode !== 'UNASSIGNED' && !departmentCodes.includes(selectedDeptCode)) departmentCodes.push(selectedDeptCode);
   const departments = departmentCodes.sort().map((code) => ({
     code,
     name: detailDepartments.find((department) => department.code === code)?.name || getDeptDisplayName(code, owners)
@@ -283,9 +384,13 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
       ...summarizeRows(rows)
     };
   }).filter((row) => row.total > 0).sort((a, b) => b.overdue - a.overdue || b.total - a.total || a.deptCode.localeCompare(b.deptCode));
+  const individualDetailRows = detailReal.filter((task) =>
+    (!selectedDeptCode || task.deptCode === selectedDeptCode) &&
+    (!selectedProjectCode || normalizeProjectCode(task.projectCode) === selectedProjectCode));
   const individualMap = new Map();
-  filtered.filter((task) => !detailSourceProvided || task.dashboardSource === 'detail').forEach((task) => {
+  individualDetailRows.forEach((task) => {
     const identity = task.ownerIdentity || ownerIdentity(task.owner);
+    if (!isValidOwnerIdentity(identity)) return;
     if (!individualMap.has(identity.key)) individualMap.set(identity.key, { identity, rows: [] });
     individualMap.get(identity.key).rows.push(task);
   });
@@ -297,10 +402,16 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
     ...summarizeRows(rows)
   })).sort((a, b) => b.overdue - a.overdue || b.total - a.total || a.ownerLabel.localeCompare(b.ownerLabel));
   const masterFallbackProjects = [...new Set(masterFallbackTasks
-    .filter((task) => !selectedProjectCode || normalizeProjectCode(task.projectCode) === selectedProjectCode)
+    .filter((task) =>
+      (!selectedDeptCode || task.deptCode === selectedDeptCode) &&
+      (!selectedProjectCode || normalizeProjectCode(task.projectCode) === selectedProjectCode))
     .map((task) => task.projectCode)
     .filter(Boolean))];
+  const individualEmptyMessage = individualDetailRows.length
+    ? 'Chưa có công việc được phân công cho cá nhân.'
+    : 'Phòng/ban chưa có công việc chi tiết theo cá nhân.';
   return { departments, tasks: filtered, overdue: overdueAll.slice(0, 5), upcoming: upcomingAll.slice(0, 10), completedThisMonth, milestones, projectSummary, departmentEfficiency, individualEfficiency, masterFallbackProjects,
+    individualEmptyMessage,
     kpis: { total: filtered.length, completed: completed.length, inProgress: filtered.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress').length,
       notStarted: filtered.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started').length, overdue: overdueAll.length,
       upcoming: upcomingAll.length, milestones: milestones.length } };
