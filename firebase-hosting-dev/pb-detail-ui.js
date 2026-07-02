@@ -49,7 +49,7 @@ function qltdPbDetailNormalize(value) {
 
 function qltdPbDetailCanWrite(roleText) {
   const role = qltdPbDetailNormalize(roleText).replace(/[^a-z0-9]/g, '');
-  return ['admin', 'pmo', 'editor', 'reporter'].includes(role);
+  return ['admin', 'pmo', 'editor'].includes(role);
 }
 
 function qltdPbDetailGetContext() {

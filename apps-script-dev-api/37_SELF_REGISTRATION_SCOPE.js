@@ -2,8 +2,8 @@ const QLTD_FIREBASE_WEB_API_KEY_PROPERTY = 'QLTD_FIREBASE_WEB_API_KEY';
 const QLTD_DEPT_SCOPE_ACTION_RULES = {
   work_assigntask: ['ADMIN', 'PMO', 'EDITOR'],
   work_updatetask: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
-  work_createdetailtask: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
-  work_updatedetailtask: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
+  work_createdetailtask: ['ADMIN', 'PMO', 'EDITOR'],
+  work_updatedetailtask: ['ADMIN', 'PMO', 'EDITOR'],
   weekly_taskupdates_save: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
   weekly_masterapproval_review: ['ADMIN', 'PMO', 'EDITOR'],
   weekly_pbdetailapproval_review: ['EDITOR'],
@@ -50,11 +50,15 @@ function qltdFirebaseResolveIdentity_(payload, tokenRequired) {
     const data = JSON.parse(response.getContentText() || '{}');
     const firebaseUser = data && data.users && data.users[0];
     const verifiedEmail = qltdUsersNormalizeEmail_(firebaseUser && firebaseUser.email);
+    const localId = String(firebaseUser && firebaseUser.localId || '').trim();
     const firebaseError = String(data && data.error && data.error.message || '').trim().toUpperCase();
 
-    if (statusCode < 200 || statusCode >= 300 || !verifiedEmail) {
+    if (statusCode < 200 || statusCode >= 300 || !verifiedEmail || !localId) {
       const errorCode = firebaseError === 'TOKEN_EXPIRED' ? 'ID_TOKEN_EXPIRED' : 'ID_TOKEN_INVALID';
       return qltdUsersBuildAuthError_(errorCode, 'Phien dang nhap Google khong hop le hoac da het han.');
+    }
+    if (firebaseUser.emailVerified !== true) {
+      return qltdUsersBuildAuthError_('EMAIL_NOT_VERIFIED', 'Email Google chua duoc xac minh.');
     }
     if (requestedEmail && requestedEmail !== verifiedEmail) {
       return qltdUsersBuildAuthError_('EMAIL_MISMATCH', 'Email khai bao khong khop tai khoan Google dang dang nhap.');
@@ -64,7 +68,7 @@ function qltdFirebaseResolveIdentity_(payload, tokenRequired) {
       success: true,
       email: verifiedEmail,
       displayName: String(firebaseUser.displayName || '').trim(),
-      localId: String(firebaseUser.localId || '').trim(),
+      localId: localId,
       authMode: 'FIREBASE_ID_TOKEN'
     };
   } catch (error) {
@@ -103,9 +107,10 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
 
   const role = qltdUsersNormalizeRole_(user.role);
   if (allowedRoles.indexOf(role) === -1) {
+    const isPbDetailWrite = action === 'work_createdetailtask' || action === 'work_updatedetailtask';
     return {
       allowed: false,
-      response: qltdUsersBuildAuthError_('ROLE_SCOPE_DENIED', 'Vai tro hien tai khong duoc phep thuc hien thao tac nay.', {
+      response: qltdUsersBuildAuthError_(isPbDetailWrite ? 'ACCESS_DENIED' : 'ROLE_SCOPE_DENIED', 'Vai tro hien tai khong duoc phep thuc hien thao tac nay.', {
         action: action,
         role: role
       })
@@ -146,9 +151,10 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
     targetRoutingDept !== qltdDeptScopeNormalizeCode_(projectDept.deptCode) &&
     targetRoutingDept !== qltdDeptScopeNormalizeCode_(projectDept.projectUnitCode)
   ) {
+    const isPbDetailWrite = action === 'work_createdetailtask' || action === 'work_updatedetailtask';
     return {
       allowed: false,
-      response: qltdUsersBuildAuthError_('DEPT_SCOPE_DENIED', 'Ban chi duoc lap va cap nhat du lieu thuoc phong/ban cua minh.', {
+      response: qltdUsersBuildAuthError_(isPbDetailWrite ? 'ACCESS_DENIED' : 'DEPT_SCOPE_DENIED', 'Ban chi duoc lap va cap nhat du lieu thuoc phong/ban cua minh.', {
         action: action,
         userDeptCode: user.deptCode,
         actorMasterDeptCode: actorMasterDeptCode,

@@ -77,12 +77,15 @@ assert.match(extractFunction(usersSource, 'qltdUsersRegister_'), /if \(existing\
 assert.match(scopeSource, /function qltdFirebaseResolveIdentity_/);
 assert.match(scopeSource, /function qltdDeptScopeAuthorizeWrite_/);
 assert.match(apiSource, /qltdDeptScopeAuthorizeWrite_\(payload, action\)/);
+assert.match(extractFunction(apiSource, 'qltdDevApiHandlePost_'), /action === 'profile'[\s\S]*action === 'bootstrap'[\s\S]*action === 'user_lookupemployees'/);
+assert.match(extractFunction(apiSource, 'qltdDevApiProfile_'), /empCode:\s*user\.empCode \|\| ''/);
+assert.doesNotMatch(apiSource, /user_getregistrationoptions/);
 assert.match(apiSource, /weekly_masterapprovals_get:\s*true/);
 assert.match(apiSource, /weekly_pbdetailapprovals_get:\s*true/);
 assert.match(apiSource, /notifications_list:\s*true/);
 assert.match(scopeSource, /weekly_pbdetailapproval_review:\s*\['EDITOR'\]/);
 
-let identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: 'UID-1' }] } };
+let identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: 'UID-1', emailVerified: true }] } };
 const identityContext = vm.createContext({
   qltdUsersNormalizeEmail_: (value) => String(value || '').trim().toLowerCase(),
   qltdUsersBuildAuthError_: (code, message, extra = {}) => ({ success: false, message: code, errorMessage: message, ...extra }),
@@ -98,11 +101,16 @@ vm.runInContext(extractFunction(scopeSource, 'qltdFirebaseResolveIdentity_'), id
 assert.equal(identityContext.qltdFirebaseResolveIdentity_({ email: 'admin@example.com' }, true).message, 'ID_TOKEN_REQUIRED');
 identityResponse = { statusCode: 400, payload: { error: { message: 'INVALID_ID_TOKEN' } } };
 assert.equal(identityContext.qltdFirebaseResolveIdentity_({ email: 'admin@example.com', idToken: 'invalid' }, true).message, 'ID_TOKEN_INVALID');
-identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: 'UID-1' }] } };
+identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: '', emailVerified: true }] } };
+assert.equal(identityContext.qltdFirebaseResolveIdentity_({ email: 'admin@example.com', idToken: 'valid' }, true).message, 'ID_TOKEN_INVALID');
+identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: 'UID-1', emailVerified: false }] } };
+assert.equal(identityContext.qltdFirebaseResolveIdentity_({ email: 'admin@example.com', idToken: 'valid' }, true).message, 'EMAIL_NOT_VERIFIED');
+identityResponse = { statusCode: 200, payload: { users: [{ email: 'admin@example.com', displayName: 'Admin', localId: 'UID-1', emailVerified: true }] } };
 assert.equal(identityContext.qltdFirebaseResolveIdentity_({ email: 'other@example.com', idToken: 'valid' }, true).message, 'EMAIL_MISMATCH');
 const verifiedIdentity = identityContext.qltdFirebaseResolveIdentity_({ email: 'admin@example.com', idToken: 'valid' }, true);
 assert.equal(verifiedIdentity.success, true);
 assert.equal(verifiedIdentity.email, 'admin@example.com');
+assert.equal(verifiedIdentity.localId, 'UID-1');
 
 let routeIdentity = { success: false, message: 'ID_TOKEN_REQUIRED' };
 let approvalParams = null;

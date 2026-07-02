@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const apiSource = fs.readFileSync(new URL('../apps-script-dev-api/28_DEV_API.js', import.meta.url), 'utf8');
+const scopeSource = fs.readFileSync(new URL('../apps-script-dev-api/37_SELF_REGISTRATION_SCOPE.js', import.meta.url), 'utf8');
 const planSource = fs.readFileSync(new URL('../apps-script-dev-api/32_DEPT_PLAN_SERVICE.js', import.meta.url), 'utf8');
 const permissionSource = fs.readFileSync(new URL('../apps-script-dev-api/61_Work_Permission_Helper.js', import.meta.url), 'utf8');
 const workTaskSource = fs.readFileSync(new URL('../apps-script-dev-api/62_Work_Task_Service.js', import.meta.url), 'utf8');
@@ -10,6 +11,7 @@ const weeklyReportSource = fs.readFileSync(new URL('../apps-script-dev-api/63_We
 const detailTaskSource = fs.readFileSync(new URL('../apps-script-dev-api/64_PB_Detail_Task_Service.js', import.meta.url), 'utf8');
 const weeklySource = fs.readFileSync(new URL('../apps-script-dev-api/66_Weekly_Task_Update_Service.js', import.meta.url), 'utf8');
 const appSource = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+const pbDetailUiSource = fs.readFileSync(new URL('./pb-detail-ui.js', import.meta.url), 'utf8');
 const stylesSource = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
 function extractFunction(source, name) {
@@ -51,6 +53,103 @@ assert.equal(permissionContext.qltdWorkCanReadDept_({ role: 'PMO', deptCode: 'X'
 assert.equal(permissionContext.qltdWorkCanReadDept_({ role: 'EDITOR', deptCode: 'A', email: 'a@example.com' }, 'A', deptA), true);
 assert.equal(permissionContext.qltdWorkCanReadDept_({ role: 'REPORTER', deptCode: 'A', email: 'scope@example.com' }, 'B', deptB), true);
 assert.equal(permissionContext.qltdWorkCanReadDept_({ role: 'VIEWER', deptCode: 'A', email: 'a@example.com' }, 'C', deptC), false);
+
+const actionRulesSource = scopeSource.match(/const QLTD_DEPT_SCOPE_ACTION_RULES = \{[\s\S]*?\n\};/)?.[0] || '';
+assert.match(actionRulesSource, /work_createdetailtask:\s*\['ADMIN', 'PMO', 'EDITOR'\]/);
+assert.match(actionRulesSource, /work_updatedetailtask:\s*\['ADMIN', 'PMO', 'EDITOR'\]/);
+assert.doesNotMatch(actionRulesSource.match(/work_(?:create|update)detailtask:[^\n]+/g)?.join('\n') || '', /REPORTER/);
+
+let scopedUser = { email: 'editor@example.com', role: 'EDITOR', status: 'ACTIVE', deptCode: 'D1' };
+const scopeContext = vm.createContext({
+  qltdFirebaseResolveIdentity_: () => ({ success: true, email: scopedUser.email, localId: 'UID-EDITOR' }),
+  qltdUsersGetByEmail_: () => ({ ...scopedUser }),
+  qltdUsersBuildAuthError_: (code, message, extra = {}) => ({ success: false, errorCode: code, message, ...extra }),
+  qltdUsersNormalizeRole_: (value) => String(value || '').trim().toUpperCase(),
+  qltdMasterDeptCanonicalCode_: (value) => String(value || '').trim().toUpperCase(),
+  qltdDeptScopeFindPayloadDept_: (payload) => String(payload?.deptCode || '').trim().toUpperCase(),
+  qltdDeptScopeResolveProjectDeptForActor_: () => ({ success: true, dept: { deptCode: 'D1', deptName: 'Dept 1', projectUnitCode: 'UNIT_D1' } }),
+  qltdDeptScopeNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
+  qltdDeptScopeReadRawPayloadDept_: (payload) => String(payload?.deptCode || ''),
+  qltdDeptScopeForcePayloadDept_: (payload, deptCode, deptName) => {
+    payload.deptCode = deptCode;
+    payload.deptName = deptName;
+    if (payload.detailTask) {
+      payload.detailTask.deptCode = deptCode;
+      payload.detailTask.deptName = deptName;
+    }
+  }
+});
+vm.runInContext(`${actionRulesSource}\n${extractFunction(scopeSource, 'qltdDeptScopeAuthorizeWrite_')}`, scopeContext);
+
+for (const action of ['work_createdetailtask', 'work_updatedetailtask']) {
+  scopedUser = { email: 'reporter@example.com', role: 'REPORTER', status: 'ACTIVE', deptCode: 'D1' };
+  const reporterPayload = { action, idToken: 'valid', email: 'spoofed@example.com', actorEmail: 'spoofed@example.com', role: 'EDITOR', deptCode: 'D1' };
+  const reporterResult = scopeContext.qltdDeptScopeAuthorizeWrite_(reporterPayload, action);
+  assert.equal(reporterResult.allowed, false);
+  assert.equal(reporterResult.response.errorCode, 'ACCESS_DENIED');
+
+  scopedUser = { email: 'editor@example.com', role: 'EDITOR', status: 'ACTIVE', deptCode: 'D1' };
+  const editorPayload = { action, idToken: 'valid', email: 'spoofed@example.com', actorEmail: 'spoofed@example.com', role: 'REPORTER', deptCode: 'D1', detailTask: { deptCode: 'D2' } };
+  const editorResult = scopeContext.qltdDeptScopeAuthorizeWrite_(editorPayload, action);
+  assert.equal(editorResult.allowed, true);
+  assert.equal(editorPayload.email, 'editor@example.com');
+  assert.equal(editorPayload.actorEmail, 'editor@example.com');
+  assert.equal(editorPayload.deptCode, 'D1');
+  assert.equal(editorPayload.detailTask.deptCode, 'D1');
+
+  const otherDeptPayload = { action, idToken: 'valid', deptCode: 'D2' };
+  const otherDeptResult = scopeContext.qltdDeptScopeAuthorizeWrite_(otherDeptPayload, action);
+  assert.equal(otherDeptResult.allowed, false);
+  assert.equal(otherDeptResult.response.errorCode, 'ACCESS_DENIED');
+}
+
+const innerWriteContext = vm.createContext({
+  QLTD_PB_DETAIL_TASK_SOURCE: 'pb_detail_tasks_v1',
+  QLTD_WORK_WRITE_LOCK_TIMEOUT_MS: 1000,
+  currentUser: { role: 'EDITOR', deptCode: 'D1' },
+  qltdWorkAuthUser_: (_email, _action, _source, _meta) => ({ user: innerWriteContext.currentUser, error: null }),
+  qltdPbDetailResolveContext_: () => ({ deptCode: 'D1', dept: { masterDeptCode: 'D1' }, meta: {}, warnings: [], error: null }),
+  qltdWorkCanManageDept_: (user, deptCode) => ['ADMIN', 'PMO'].includes(user.role) || (user.role === 'EDITOR' && user.deptCode === deptCode),
+  qltdWorkError_: (_source, _action, code) => ({ success: false, errors: [{ code }] }),
+  qltdPbDetailBuildSheetContext_: () => ({ warnings: [], error: null }),
+  qltdBudgetSafeErrorMessage_: (error) => String(error?.message || error),
+  LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) }
+});
+vm.runInContext(extractFunction(detailTaskSource, 'qltdPbDetailWriteWithLock_'), innerWriteContext);
+assert.equal(innerWriteContext.qltdPbDetailWriteWithLock_('work_createDetailTask', { email: 'editor@example.com' }, () => ({ success: true })).success, true);
+innerWriteContext.currentUser = { role: 'REPORTER', deptCode: 'D1' };
+assert.equal(innerWriteContext.qltdPbDetailWriteWithLock_('work_createDetailTask', { email: 'reporter@example.com' }, () => ({ success: true })).errors[0].code, 'ACCESS_DENIED');
+innerWriteContext.currentUser = { role: 'EDITOR', deptCode: 'D2' };
+assert.equal(innerWriteContext.qltdPbDetailWriteWithLock_('work_updateDetailTask', { email: 'other@example.com' }, () => ({ success: true })).errors[0].code, 'ACCESS_DENIED');
+
+const pbRoleContext = vm.createContext({});
+vm.runInContext(`${extractFunction(pbDetailUiSource, 'qltdPbDetailNormalize')}\n${extractFunction(pbDetailUiSource, 'qltdPbDetailCanWrite')}`, pbRoleContext);
+for (const role of ['ADMIN', 'PMO', 'EDITOR']) assert.equal(pbRoleContext.qltdPbDetailCanWrite(role), true);
+for (const role of ['REPORTER', 'VIEWER', '']) assert.equal(pbRoleContext.qltdPbDetailCanWrite(role), false);
+
+const pbPanel = { innerHTML: '' };
+let pbCanWrite = false;
+const pbRenderContext = vm.createContext({
+  qltdPbDetailState: { masterTask: null, detailTasks: [{ detailTaskId: 'DT-1', taskName: 'Task' }], listExpanded: false, loading: false, message: '', messageType: 'info' },
+  qltdPbDetailEnsurePanel: () => pbPanel,
+  qltdPbDetailGetContext: () => ({ canWrite: pbCanWrite, deptCode: 'D1', masterWbs: 'I.1', masterTaskName: 'Master' }),
+  qltdPbDetailTodayIso: () => '2026-07-02',
+  qltdPbDetailBuildListView: (tasks) => ({ visible: tasks, total: tasks.length, remaining: 0 }),
+  qltdPbDetailIsOverdue: () => false,
+  qltdPbDetailEscapeHtml: (value) => String(value ?? ''),
+  qltdPbDetailFormatTableDate: (value) => String(value || ''),
+  qltdPbDetailGetStatusClass: () => '',
+  qltdPbDetailFormatNumber: (value) => String(value || ''),
+  qltdPbDetailRenderForm: () => ''
+});
+vm.runInContext(extractFunction(pbDetailUiSource, 'qltdPbDetailRender'), pbRenderContext);
+pbRenderContext.qltdPbDetailRender();
+assert.doesNotMatch(pbPanel.innerHTML, /data-pb-detail-action="(?:add|edit)"/);
+assert.match(pbPanel.innerHTML, /pb-detail-readonly-note/);
+pbCanWrite = true;
+pbRenderContext.qltdPbDetailRender();
+assert.match(pbPanel.innerHTML, /data-pb-detail-action="add"/);
+assert.match(pbPanel.innerHTML, /data-pb-detail-action="edit"/);
 
 let spreadsheetOpenCount = 0;
 const mappedDepts = [deptA, deptB, deptC].map((dept, index) => ({

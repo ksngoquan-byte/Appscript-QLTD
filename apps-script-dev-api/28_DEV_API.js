@@ -32,10 +32,6 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiProfile_(params);
   }
 
-  if (action === 'user_getregistrationoptions') {
-    return qltdDevApiJson_(qltdUsersGetRegistrationOptions_(params));
-  }
-
   if (action === 'bootstrap') {
     return qltdDevApiJson_(qltdDevApiBootstrap_(params));
   }
@@ -248,6 +244,18 @@ function qltdDevApiHandlePost_(e) {
   const payload = parseResult.payload;
   const action = String(payload.action || '').trim().toLowerCase();
 
+  if (action === 'profile') {
+    return qltdDevApiProfile_(payload);
+  }
+
+  if (action === 'bootstrap') {
+    return qltdDevApiJson_(qltdDevApiBootstrap_(payload));
+  }
+
+  if (action === 'user_lookupemployees') {
+    return qltdDevApiJson_(qltdUsersLookupEmployees_(payload));
+  }
+
   if (action === 'user_register') {
     return qltdDevApiJson_(qltdUsersRegister_(payload));
   }
@@ -401,6 +409,7 @@ function qltdDevApiProfile_(params) {
     status: user.status,
     deptCode: user.deptCode,
     deptName: user.deptName,
+    empCode: user.empCode || '',
     permissions: qltdPermissionsForRole_(user.role),
     apiStatus: 'CONNECTED',
     source: QLTD_DEV_API_SOURCE
