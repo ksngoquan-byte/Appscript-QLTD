@@ -25,7 +25,7 @@ import {
   migrateMainMilestoneKeys,
   toggleMainMilestoneTaskKey
 } from './main-milestone-logic.js';
-import { buildDepartmentDashboardModel, getDepartmentPerformancePresentation } from './department-dashboard.js';
+import { buildDepartmentDashboardModel, getDepartmentOwnerPresentation, getDepartmentPerformancePresentation } from './department-dashboard.js?v=PB_DASHBOARD_FINAL_FIXES_1';
 import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E4_ACTUAL_DATE_LIFECYCLE';
 import { createRegistrationGate } from './registration-gate.js?v=BUG7_EMPLOYEE_REGISTRATION_1';
 
@@ -6201,7 +6201,7 @@ function renderDashboardFromGanttData(payload) {
         ${renderExecutiveKpiCard('Chưa bắt đầu', model.kpis.notStarted, `${model.notStartedPercent}% tổng số`, 'gray')}
         ${renderExecutiveKpiCard('Quá hạn', model.kpis.overdue, `${model.overduePercent}% tổng số`, 'red')}
         ${renderExecutiveKpiCard('Mốc lớn đang thực hiện', model.kpis.activeMilestones, model.usedMilestoneFallback ? 'WBS cấp I/II/III' : 'Mốc lớn hệ thống', 'blue')}
-        ${renderExecutiveKpiCard('Chưa mapping Hạng mục', model.kpis.unmappedContext, 'Cần rà soát context', model.kpis.unmappedContext ? 'red' : 'green')}
+        ${model.kpis.unmappedContext > 0 ? renderExecutiveKpiCard('Chưa xác định Hạng mục', model.kpis.unmappedContext, 'Công việc chưa được gắn Hạng mục', 'red') : ''}
       </section>
 
       ${renderExecutiveAlerts(model.alerts)}
@@ -6308,6 +6308,7 @@ function renderDepartmentDashboard(payloads, warnings = [], individualPayloads =
     <section class="dept-dashboard-filters"><label>Phòng/Ban<select id="deptDashboardDeptFilter"><option value="">Tất cả phòng/ban</option>${model.departments.map((dept) => `<option value="${escapeHtml(dept.code)}" ${dept.code === qltdDepartmentDashboardDeptCode ? 'selected' : ''}>${escapeHtml(dept.code)} - ${escapeHtml(dept.name)}</option>`).join('')}</select></label>
     <label>Dự án<select id="deptDashboardProjectFilter"><option value="">Tất cả dự án</option>${qltdProjectRegistry.map((project) => `<option value="${escapeHtml(project.projectCode)}" ${String(project.projectCode) === qltdDepartmentDashboardProjectCode ? 'selected' : ''}>${escapeHtml(project.projectCode)} - ${escapeHtml(project.projectName)}</option>`).join('')}</select></label></section>
     ${warnings.length ? `<div class="dept-dashboard-warning">Không tải được ${warnings.length} dự án: ${escapeHtml(warnings.join(' · '))}</div>` : ''}
+    ${qltdDepartmentDashboardDeptCode && model.masterFallbackProjects.length ? `<div class="dept-dashboard-warning">Dự án chưa có công việc chi tiết theo cá nhân; số liệu hiện tại được tổng hợp theo phòng/ban từ kế hoạch Master.</div>` : ''}
     <section class="exec-kpi-grid dept-kpi-grid">
       ${renderExecutiveKpiCard('Tổng việc được giao', model.kpis.total, qltdDepartmentDashboardDeptCode ? 'Theo người chủ trì' : 'Theo đơn vị chủ trì', 'info')}${renderExecutiveKpiCard('Hoàn thành', model.kpis.completed, 'Đã có kết quả thực tế', 'green')}
       ${renderExecutiveKpiCard('Đang thực hiện', model.kpis.inProgress, 'Chưa hoàn thành', 'blue')}${renderExecutiveKpiCard('Chưa bắt đầu', model.kpis.notStarted, 'Chưa hoàn thành', 'gray')}
@@ -6346,7 +6347,8 @@ function renderDepartmentList(title, rows, type) {
     const finish = completed ? task.actualFinishDate : task.endDate;
     const dueBadge = getDepartmentDueBadge(task);
     const categoryLabel = task.contextLabel || '—';
-    return `<tr class="web07-alert-row" data-project-code="${escapeHtml(task.projectCode || '')}" data-task-id="${escapeHtml(getDepartmentTaskLinkId(task))}"><td class="is-text" title="${escapeHtml(task.projectName || task.projectCode || '')}">${escapeHtml(task.projectName || task.projectCode)}</td><td class="exec-context is-text" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(categoryLabel)}</td><td class="exec-task is-text" title="${escapeHtml(task.text || '')}">${escapeHtml(task.text)}</td><td class="is-text" title="${escapeHtml(task.owner || 'Chưa rõ')}">${escapeHtml(task.owner || 'Chưa rõ')}</td><td class="is-date">${escapeHtml(finish ? formatIsoDateVi(toIsoDateLocal(finish)) : '')}</td>${completed ? '' : `<td class="is-status"><span class="exec-badge ${dueBadge.className}">${escapeHtml(dueBadge.text)}</span></td>`}</tr>`;
+    const owner = getDepartmentOwnerPresentation(task.owner);
+    return `<tr class="web07-alert-row" data-project-code="${escapeHtml(task.projectCode || '')}" data-task-id="${escapeHtml(getDepartmentTaskLinkId(task))}"><td class="is-text" title="${escapeHtml(task.projectName || task.projectCode || '')}">${escapeHtml(task.projectName || task.projectCode)}</td><td class="exec-context is-text" title="${escapeHtml(task.contextLabel || '')}">${escapeHtml(categoryLabel)}</td><td class="exec-task is-text" title="${escapeHtml(task.text || '')}">${escapeHtml(task.text)}</td><td class="dept-owner-cell is-text" title="${escapeHtml(owner.title)}">${escapeHtml(owner.display)}</td><td class="is-date">${escapeHtml(finish ? formatIsoDateVi(toIsoDateLocal(finish)) : '')}</td>${completed ? '' : `<td class="is-status"><span class="exec-badge ${dueBadge.className}">${escapeHtml(dueBadge.text)}</span></td>`}</tr>`;
   }).join('');
   return `<article class="exec-section ${type === 'overdue' ? 'is-red' : completed ? 'is-green' : 'is-blue'}"><header><h3>${escapeHtml(title)}</h3><span>${rows.length}</span></header>${rows.length ? `<div class="exec-table-wrap"><table class="exec-table dept-table"><thead><tr>${columns.map((column) => `<th class="${column.className}">${column.label}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>` : '<p class="exec-empty">Không có dữ liệu phù hợp.</p>'}</article>`;
 }
@@ -6475,7 +6477,7 @@ function buildExecutiveDashboardModel(payload, contextFilters = {}) {
       tone: 'red',
       taskId: unmappedContext[0].id,
       title: 'Chưa xác định Hạng mục',
-      text: `${unmappedContext.length} công việc cần rà soát mapping context`
+      text: `${unmappedContext.length} công việc chưa được gắn Hạng mục`
     }] : []),
     ...severeOverdue.map((task) => ({
       tone: 'red',
@@ -9898,6 +9900,12 @@ if (els.notificationBellButton) els.notificationBellButton.addEventListener('cli
 if (els.notificationCloseButton) els.notificationCloseButton.addEventListener('click', () => setNotificationPanelOpen(false));
 if (els.notificationBackdrop) els.notificationBackdrop.addEventListener('click', () => setNotificationPanelOpen(false));
 if (els.notificationReloadButton) els.notificationReloadButton.addEventListener('click', () => loadNotifications());
+if (els.userAvatar) {
+  els.userAvatar.addEventListener('load', () => {
+    if (els.userAvatar.getAttribute('src')) els.userAvatar.classList.remove('empty');
+  });
+  els.userAvatar.addEventListener('error', () => els.userAvatar.classList.add('empty'));
+}
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && qltdNotificationState.open) setNotificationPanelOpen(false);
 });

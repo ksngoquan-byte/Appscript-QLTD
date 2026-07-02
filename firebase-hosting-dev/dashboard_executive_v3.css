@@ -443,7 +443,21 @@ body.qltd-dashboard-mode #web07DashboardPanel.web07-panel {
 
 .dept-table th:nth-child(4),
 .dept-table td:nth-child(4) {
-  width: 120px;
+  width: 150px;
+}
+
+.dept-table th:nth-child(2),
+.dept-table td:nth-child(2),
+.dept-table th:nth-child(3),
+.dept-table td:nth-child(3),
+.dept-owner-cell {
+  min-width: 0;
+}
+
+.dept-owner-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dept-summary-table th.is-number,

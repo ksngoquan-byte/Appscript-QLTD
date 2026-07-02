@@ -17,6 +17,10 @@ function date(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function normalizeProjectCode(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
 export function normalizeDeptName(owner) {
   return text(owner).replace(/\b(phong|ban|bo phan|department|dept)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 }
@@ -59,6 +63,17 @@ function ownerIdentity(owner) {
     label: raw,
     email,
     name
+  };
+}
+
+export function getDepartmentOwnerPresentation(owner) {
+  const identity = ownerIdentity(owner);
+  const display = identity.name || identity.email || (identity.key === 'UNASSIGNED' ? 'Chưa rõ' : String(owner || '').trim()) || 'Chưa rõ';
+  return {
+    display,
+    title: identity.email || String(owner || '').trim() || 'Chưa rõ',
+    email: identity.email,
+    name: identity.name
   };
 }
 
@@ -188,25 +203,35 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
   });
   const baseReal = all.filter((task) => task.isRealTask);
   const detailSourceProvided = Array.isArray(options.detailPayloads);
-  const detailPayloads = detailSourceProvided ? buildDetailPayloads(options.detailPayloads, filters.deptCode) : [];
+  const detailPayloads = detailSourceProvided ? buildDetailPayloads(options.detailPayloads) : [];
   const detailAll = [];
   detailPayloads.forEach((payload) => {
-    (payload.data || []).forEach((task) => detailAll.push(enrichTask(task, payload, today, new Set())));
+    (payload.data || []).forEach((task) => {
+      const enriched = enrichTask(task, payload, today, new Set());
+      enriched.dashboardSource = 'detail';
+      detailAll.push(enriched);
+    });
   });
+  baseReal.forEach((task) => { task.dashboardSource = 'master'; });
   const baseTaskByMaster = new Map();
   baseReal.forEach((task) => {
     [task.masterTaskCode, task.code, task.id].forEach((value) => {
-      const key = `${task.projectCode}:${String(value || '').trim().toUpperCase()}`;
+      const key = `${normalizeProjectCode(task.projectCode)}:${String(value || '').trim().toUpperCase()}`;
       if (value && !baseTaskByMaster.has(key)) baseTaskByMaster.set(key, task);
     });
   });
   detailAll.forEach((task) => {
-    const baseTask = baseTaskByMaster.get(`${task.projectCode}:${String(task.masterTaskCode || '').trim().toUpperCase()}`);
+    const baseTask = baseTaskByMaster.get(`${normalizeProjectCode(task.projectCode)}:${String(task.masterTaskCode || '').trim().toUpperCase()}`);
     if (!baseTask) return;
     task.dashboardLinkId = baseTask.id || '';
     task.isMainMilestone = !!baseTask.isMainMilestone;
   });
-  const real = detailSourceProvided ? detailAll.filter((task) => task.isRealTask) : baseReal;
+  const detailReal = detailAll.filter((task) => task.isRealTask);
+  const detailProjectCodes = new Set(detailReal.map((task) => normalizeProjectCode(task.projectCode)).filter(Boolean));
+  const masterFallbackTasks = detailSourceProvided
+    ? baseReal.filter((task) => !detailProjectCodes.has(normalizeProjectCode(task.projectCode)))
+    : [];
+  const real = detailSourceProvided ? [...detailReal, ...masterFallbackTasks] : baseReal;
   const departmentSource = detailSourceProvided ? options.detailPayloads : payloads;
   const detailDepartments = [];
   if (detailSourceProvided) {
@@ -218,14 +243,18 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
     }));
   }
   const owners = [...new Set(baseReal.map((task) => String(task.owner || '').trim()).filter(Boolean))];
-  const departmentCodes = [...new Set((detailSourceProvided ? detailDepartments.map((department) => department.code) : baseReal.map((task) => task.deptCode)).filter(Boolean))];
-  if (filters.deptCode && !departmentCodes.includes(getDeptCode(filters.deptCode))) departmentCodes.push(getDeptCode(filters.deptCode));
+  const departmentCodes = [...new Set((detailSourceProvided
+    ? [...detailDepartments.map((department) => department.code), ...masterFallbackTasks.map((task) => task.deptCode)]
+    : baseReal.map((task) => task.deptCode)).filter(Boolean))];
+  const selectedDeptCode = filters.deptCode ? getDeptCode(filters.deptCode) : '';
+  const selectedProjectCode = normalizeProjectCode(filters.projectCode);
+  if (selectedDeptCode && !departmentCodes.includes(selectedDeptCode)) departmentCodes.push(selectedDeptCode);
   const departments = departmentCodes.sort().map((code) => ({
     code,
     name: detailDepartments.find((department) => department.code === code)?.name || getDeptDisplayName(code, owners)
   }));
-  const projectScoped = real.filter((task) => !filters.projectCode || task.projectCode === filters.projectCode);
-  const filtered = real.filter((task) => (!filters.deptCode || task.deptCode === filters.deptCode) && (!filters.projectCode || task.projectCode === filters.projectCode));
+  const projectScoped = real.filter((task) => !selectedProjectCode || normalizeProjectCode(task.projectCode) === selectedProjectCode);
+  const filtered = real.filter((task) => (!selectedDeptCode || task.deptCode === selectedDeptCode) && (!selectedProjectCode || normalizeProjectCode(task.projectCode) === selectedProjectCode));
   const completed = filtered.filter((task) => task.isCompleted);
   const open = filtered.filter((task) => !task.isCompleted);
   const overdueAll = open.filter((task) => task.isOverdue).sort((a, b) => b.lateDays - a.lateDays);
@@ -238,9 +267,9 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
     remainingDays: task.endDate && task.endDate >= today ? Math.round((task.endDate - today) / 86400000) : null,
     lateDays: !task.isCompleted && task.endDate && task.endDate < today ? Math.round((today - task.endDate) / 86400000) : task.lateDays
   })).sort((a, b) => (a.endDate || new Date(8640000000000000)) - (b.endDate || new Date(8640000000000000))).slice(0, 10);
-  const projectSummarySource = detailSourceProvided ? options.detailPayloads : payloads;
+  const projectSummarySource = payloads;
   const projectSummary = (projectSummarySource || []).map((payload) => {
-    const rows = filtered.filter((task) => task.projectCode === payload.projectCode);
+    const rows = filtered.filter((task) => normalizeProjectCode(task.projectCode) === normalizeProjectCode(payload.projectCode));
     const summary = summarizeRows(rows);
     return { projectCode: payload.projectCode, projectName: payload.projectName || payload.projectCode, ...summary,
       upcoming: rows.filter((task) => !task.isCompleted && task.endDate && task.endDate >= today && task.endDate <= upcomingEnd).length,
@@ -255,7 +284,7 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
     };
   }).filter((row) => row.total > 0).sort((a, b) => b.overdue - a.overdue || b.total - a.total || a.deptCode.localeCompare(b.deptCode));
   const individualMap = new Map();
-  filtered.forEach((task) => {
+  filtered.filter((task) => !detailSourceProvided || task.dashboardSource === 'detail').forEach((task) => {
     const identity = task.ownerIdentity || ownerIdentity(task.owner);
     if (!individualMap.has(identity.key)) individualMap.set(identity.key, { identity, rows: [] });
     individualMap.get(identity.key).rows.push(task);
@@ -267,7 +296,11 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
     ownerLabel: identity.label,
     ...summarizeRows(rows)
   })).sort((a, b) => b.overdue - a.overdue || b.total - a.total || a.ownerLabel.localeCompare(b.ownerLabel));
-  return { departments, tasks: filtered, overdue: overdueAll.slice(0, 5), upcoming: upcomingAll.slice(0, 10), completedThisMonth, milestones, projectSummary, departmentEfficiency, individualEfficiency,
+  const masterFallbackProjects = [...new Set(masterFallbackTasks
+    .filter((task) => !selectedProjectCode || normalizeProjectCode(task.projectCode) === selectedProjectCode)
+    .map((task) => task.projectCode)
+    .filter(Boolean))];
+  return { departments, tasks: filtered, overdue: overdueAll.slice(0, 5), upcoming: upcomingAll.slice(0, 10), completedThisMonth, milestones, projectSummary, departmentEfficiency, individualEfficiency, masterFallbackProjects,
     kpis: { total: filtered.length, completed: completed.length, inProgress: filtered.filter((task) => !task.isCompleted && task.normalizedStatus === 'in-progress').length,
       notStarted: filtered.filter((task) => !task.isCompleted && task.normalizedStatus === 'not-started').length, overdue: overdueAll.length,
       upcoming: upcomingAll.length, milestones: milestones.length } };

@@ -11,9 +11,9 @@
     <link rel="preconnect" href="https://cdn.dhtmlx.com">
     <link rel="dns-prefetch" href="https://firebase.googleapis.com">
     <link rel="stylesheet" href="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.css">
-    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./styles.css?v=PB_DASHBOARD_FINAL_FIXES_1">
     <link rel="stylesheet" href="./dashboard_executive_v1.css">
-    <link rel="stylesheet" href="./dashboard_executive_v3.css">
+    <link rel="stylesheet" href="./dashboard_executive_v3.css?v=PB_DASHBOARD_FINAL_FIXES_1">
     <link rel="stylesheet" href="./help-documents.css?v=HELP_AUDIENCE_PDF_2">
     <link rel="stylesheet" href="./ui-polish.css?v=UI_KPI_ICON_1">
     <style>
@@ -340,21 +340,30 @@
               <h1>Nền tảng quản trị dự án tổng thể</h1>
             </div>
           </div>
-          <div class="profile">
-            <button id="notificationBellButton" class="icon-button notification-bell-button" type="button" title="Bạn có 0 thông báo chưa đọc" aria-label="Mở thông báo" aria-expanded="false" aria-controls="notificationPanel">
+          <div class="profile header-user-toolbar" aria-label="Tài khoản người dùng">
+            <button id="notificationBellButton" class="icon-button notification-bell-button header-notification-button" type="button" title="Bạn có 0 thông báo chưa đọc" aria-label="Mở thông báo" aria-expanded="false" aria-controls="notificationPanel">
               <svg class="notification-bell-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>
               </svg>
               <span id="notificationBadge" class="notification-badge hidden" aria-hidden="true"></span>
             </button>
-            <img id="userAvatar" alt="" class="avatar">
-            <div>
-              <strong id="userName">Người dùng</strong>
-              <span id="userEmail">email@example.com</span>
+            <span class="header-user-avatar" aria-hidden="true">
+              <img id="userAvatar" alt="" class="avatar header-user-avatar-image empty">
+              <span class="header-user-avatar-fallback">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 8a7 7 0 0 0-14 0"/>
+                </svg>
+              </span>
+            </span>
+            <div class="header-user-meta">
+              <strong id="userName" class="header-user-name">Người dùng</strong>
+              <span id="userEmail" class="header-user-email">email@example.com</span>
             </div>
-            <span id="userRole" class="role-chip">Role</span>
-            <button id="signOutButton" class="icon-button" type="button" title="Đăng xuất" aria-label="Đăng xuất">
-              <span aria-hidden="true">⎋</span>
+            <span id="userRole" class="role-chip header-role-badge">Role</span>
+            <button id="signOutButton" class="icon-button header-logout-button" type="button" title="Đăng xuất" aria-label="Đăng xuất">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/>
+              </svg>
             </button>
           </div>
         </header>
@@ -428,7 +437,7 @@
       window.__QLTD_GANTT_PATCH_ROUND__ = 'GANTT_REQUEST_RACE_HOTFIX_3';
     </script>
     <script type="module" src="./api-read-cache.js?v=PERF_API_CACHE_2"></script>
-    <script type="module" src="./app.js?v=GANTT_REQUEST_RACE_HOTFIX_3_BUG7_AUTH_1"></script>
+    <script type="module" src="./app.js?v=GANTT_REQUEST_RACE_HOTFIX_3_BUG7_AUTH_1_PB_DASHBOARD_FINAL_FIXES_1"></script>
     <script type="module" src="./pb-detail-ui.js?v=PERF_LAZY_GANTT_1"></script>
     <script type="module" src="./help-documents.js?v=HELP_AUDIENCE_PDF_3"></script>
     <script src="./ui-polish.js?v=UI_KPI_ICON_1" defer></script>

@@ -37,7 +37,9 @@ assert.doesNotMatch(filterSource, /parent:\s*'0'/);
 assert.match(app, /data-dashboard-context-filter/);
 assert.match(app, /isNormalizedCountedTask/);
 assert.match(app, /renderDeptObjectiveContext/);
-assert.match(app, /Chưa mapping Hạng mục/);
+assert.match(app, /Chưa xác định Hạng mục/);
+assert.match(app, /Công việc chưa được gắn Hạng mục/);
+assert.doesNotMatch(app, /Chưa mapping Hạng mục|Cần rà soát context/);
 assert.doesNotMatch(app, /HANG_MUC_NOT_RESOLVED/);
 
 console.log('Gantt context tree/filter/dashboard/PB UI: PASS');
