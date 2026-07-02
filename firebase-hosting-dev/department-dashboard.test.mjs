@@ -294,6 +294,53 @@ assert.equal(threeProjectModel.tasks.filter((task) => task.dashboardSource === '
 assert.equal(threeProjectModel.tasks.some((task) => task.id === 'partial-b'), true);
 assert.equal(threeProjectModel.tasks.some((task) => task.id === 'partial-a'), false);
 
+// Danh tính phòng là global; Project_Depts chỉ cung cấp quan hệ và tên theo ngữ cảnh dự án.
+const globalDepartmentMasters = [
+  { projectCode: 'COC-LEU-GLOBAL', projectName: 'Cốc Lếu', data: [
+    { id: 'global-cl-ptda', code: 'GLOBAL-CL-PTDA', text: 'PTDA Cốc Lếu', deptCode: 'PTDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'global-cl-tk', code: 'GLOBAL-CL-TK', text: 'Thiết kế Cốc Lếu', deptCode: 'TK', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }
+  ] },
+  { projectCode: 'C1-HUNG-LOC', projectName: 'C1 Hưng Lộc', data: [
+    { id: 'global-c1-ptda', code: 'GLOBAL-C1-PTDA', text: 'PTDA C1 Hưng Lộc', deptCode: 'PTDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' },
+    { id: 'global-c1-tk', code: 'GLOBAL-C1-TK', text: 'Thiết kế C1 Hưng Lộc', deptCode: 'THIETKE', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }
+  ] },
+  { projectCode: 'TT-HUNG-LOC', projectName: 'Thấp tầng Hưng Lộc', data: [
+    { id: 'global-tt-ptda', code: 'GLOBAL-TT-PTDA', text: 'PTDA Thấp tầng Hưng Lộc', deptCode: 'PTDA', status: 'Chưa bắt đầu', start_date: '2026-06-01', end_date: '2026-06-30' }
+  ] }
+];
+const globalDepartmentDetails = [
+  { projectCode: 'COC-LEU-GLOBAL', departments: [
+    { deptCode: 'PTDA', deptName: 'PTDA Cốc Lếu', masters: [{ masterCode: 'GLOBAL-CL-PTDA', details: [makeDetail('global-cl-ptda-detail', 'CL User <cl@example.com>')] }] },
+    { deptCode: 'THIETKE', deptName: 'Thiết kế Cốc Lếu', masters: [] }
+  ] },
+  { projectCode: 'C1-HUNG-LOC', departments: [
+    { deptCode: 'PTDA', deptName: 'PTDA C1 Hưng Lộc', masters: [] },
+    { deptCode: 'TK', deptName: 'Thiết kế C1 Hưng Lộc', masters: [{ masterCode: 'GLOBAL-C1-TK', details: [makeDetail('global-c1-tk-detail', 'TK User <tk@example.com>')] }] }
+  ] },
+  { projectCode: 'TT-HUNG-LOC', departments: [
+    { deptCode: 'PTDA', deptName: 'PTDA Thấp tầng Hưng Lộc', masters: [{ masterCode: 'GLOBAL-TT-PTDA', details: [makeDetail('global-tt-ptda-detail', 'TT User <tt@example.com>')] }] }
+  ] }
+];
+const globalDepartmentModel = buildDepartmentDashboardModel(globalDepartmentMasters, {}, today, { detailPayloads: globalDepartmentDetails });
+assert.equal(globalDepartmentModel.departments.filter((dept) => dept.code === 'PTDA').length, 1);
+assert.equal(globalDepartmentModel.departments.find((dept) => dept.code === 'PTDA')?.name, 'Phát triển dự án');
+assert.equal(globalDepartmentModel.departmentEfficiency.filter((row) => row.deptCode === 'PTDA').length, 1);
+assert.equal(globalDepartmentModel.departmentEfficiency.find((row) => row.deptCode === 'PTDA')?.total, 3);
+assert.equal(globalDepartmentModel.departments.filter((dept) => dept.code === 'THIETKE').length, 1);
+assert.equal(globalDepartmentModel.departments.find((dept) => dept.code === 'THIETKE')?.name, 'Thiết kế');
+assert.equal(globalDepartmentModel.departmentEfficiency.find((row) => row.deptCode === 'THIETKE')?.total, 2);
+assert.equal(globalDepartmentModel.departments.some((dept) => /Cốc Lếu|Hưng Lộc/.test(dept.name)), false);
+assert.notEqual(getProjectDeptKey('COC-LEU-GLOBAL', 'PTDA'), getProjectDeptKey('C1-HUNG-LOC', 'PTDA'));
+
+const globalPtdaFilter = buildDepartmentDashboardModel(globalDepartmentMasters, { deptCode: 'PTDA' }, today, { detailPayloads: globalDepartmentDetails });
+assert.equal(globalPtdaFilter.kpis.total, 3);
+assert.equal(globalPtdaFilter.individualEfficiency.length, 2);
+const cocLeuPtdaFilter = buildDepartmentDashboardModel(globalDepartmentMasters, { deptCode: 'PTDA', projectCode: 'COC-LEU-GLOBAL' }, today, { detailPayloads: globalDepartmentDetails });
+assert.equal(cocLeuPtdaFilter.kpis.total, 1);
+assert.equal(cocLeuPtdaFilter.departments.find((dept) => dept.code === 'PTDA')?.name, 'Phát triển dự án');
+assert.equal(cocLeuPtdaFilter.individualEfficiency.length, 1);
+assert.equal(buildDepartmentDashboardModel(globalDepartmentMasters, { projectCode: 'COC-LEU-GLOBAL' }, today, { detailPayloads: globalDepartmentDetails }).departmentEfficiency.find((row) => row.deptCode === 'PTDA')?.total, 1);
+
 // Mọi alias phải quy về canonical duy nhất; BQLDA và QLDA là cùng một đơn vị.
 const aliasModel = buildDepartmentDashboardModel([{
   projectCode: 'ALIAS',
@@ -339,7 +386,7 @@ assert.equal(bqldaCanonicalModel.kpis.total, 1);
 assert.equal(bqldaCanonicalModel.tasks[0]?.id, 'db-detail');
 assert.equal(bqldaCanonicalModel.tasks[0]?.deptCode, 'BQLDA');
 assert.deepEqual(bqldaCanonicalModel.departmentEfficiency.map((row) => row.deptCode), ['BQLDA']);
-assert.equal(bqldaCanonicalModel.departmentEfficiency[0]?.deptName, 'Ban Quản lý dự án Điện Biên');
+assert.equal(bqldaCanonicalModel.departmentEfficiency[0]?.deptName, 'Ban Quản lý dự án');
 assert.equal(bqldaCanonicalModel.tasks.some((task) => task.id === 'db-master'), false);
 
 // Thứ tự nguồn mã và hậu tố ProjectUnitCode phải canonicalize trước khi tạo key.

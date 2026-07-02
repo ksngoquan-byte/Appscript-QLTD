@@ -25,7 +25,7 @@ import {
   migrateMainMilestoneKeys,
   toggleMainMilestoneTaskKey
 } from './main-milestone-logic.js';
-import { buildDepartmentDashboardModel, getDepartmentOwnerPresentation, getDepartmentPerformancePresentation } from './department-dashboard.js?v=PB_DASHBOARD_DEPT_MAPPING_2';
+import { buildDepartmentDashboardModel, getDepartmentOwnerPresentation, getDepartmentPerformancePresentation } from './department-dashboard.js?v=PB_DASHBOARD_DEPT_MAPPING_3';
 import { getMonthWeekPeriods } from './weekly-periods.js?v=STEP_3B2E4_ACTUAL_DATE_LIFECYCLE';
 import { createRegistrationGate } from './registration-gate.js?v=BUG7_EMPLOYEE_REGISTRATION_1';
 

@@ -90,7 +90,7 @@ export function getDeptCode(value) {
   return DEPARTMENT_ALIAS_TO_CANONICAL[normalizedName] || compact;
 }
 
-export function getDeptDisplayName(code, owners = []) {
+export function getDeptDisplayName(code) {
   const canonicalCode = getDeptCode(code);
   const preferred = {
     PTDA: 'Phát triển dự án', GPMB: 'Giải phóng mặt bằng',
@@ -105,7 +105,7 @@ export function getDeptDisplayName(code, owners = []) {
     UNASSIGNED: 'Chưa phân công'
   };
   if (preferred[canonicalCode]) return preferred[canonicalCode];
-  return owners.find((owner) => getDeptCode(owner) === canonicalCode) || canonicalCode;
+  return canonicalCode;
 }
 
 function firstDepartmentCode(source) {
@@ -397,7 +397,6 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
       });
     }));
   }
-  const owners = [...new Set(baseReal.map((task) => String(task.owner || '').trim()).filter(Boolean))];
   const departmentCodes = [...new Set((detailSourceProvided
     ? [...detailDepartments.map((department) => department.code), ...masterFallbackTasks.map((task) => task.deptCode)]
     : baseReal.map((task) => task.deptCode)).filter((code) => code && code !== 'UNASSIGNED'))];
@@ -406,7 +405,7 @@ export function buildDepartmentDashboardModel(payloads, filters = {}, todayValue
   if (selectedDeptCode && selectedDeptCode !== 'UNASSIGNED' && !departmentCodes.includes(selectedDeptCode)) departmentCodes.push(selectedDeptCode);
   const departments = departmentCodes.sort().map((code) => ({
     code,
-    name: detailDepartments.find((department) => department.code === code)?.name || getDeptDisplayName(code, owners)
+    name: getDeptDisplayName(code)
   }));
   const projectScoped = real.filter((task) => !selectedProjectCode || normalizeProjectCode(task.projectCode) === selectedProjectCode);
   const filtered = real.filter((task) => (!selectedDeptCode || task.deptCode === selectedDeptCode) && (!selectedProjectCode || normalizeProjectCode(task.projectCode) === selectedProjectCode));
