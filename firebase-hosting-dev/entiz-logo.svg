@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="607" height="317" viewBox="0 0 607 317" role="img" aria-label="Entiz - Think Beyond">
+  <defs>
+    <clipPath id="entizCircleClip">
+      <circle cx="142" cy="166" r="92"/>
+    </clipPath>
+  </defs>
+  <g fill="none" stroke="#1f2937" stroke-width="8" stroke-linecap="round" clip-path="url(#entizCircleClip)" opacity=".78">
+    <path d="M30 91H254"/>
+    <path d="M24 109H260"/>
+    <path d="M20 127H264"/>
+    <path d="M18 145H266"/>
+    <path d="M17 163H267"/>
+    <path d="M18 181H266"/>
+    <path d="M20 199H264"/>
+    <path d="M24 217H260"/>
+    <path d="M30 235H254"/>
+  </g>
+  <text x="111" y="192" fill="#111827" font-family="Arial, Helvetica, sans-serif" font-size="128" font-weight="600" letter-spacing="-8">Entiz</text>
+  <text x="274" y="238" fill="#374151" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="500" letter-spacing="2">Think Beyond</text>
+</svg>

@@ -1,0 +1,430 @@
+const QLTD_BUDGET_SOURCE = 'budget_readonly_v1';
+const QLTD_BUDGET_DRY_RUN_SOURCE = 'budget_dryrun_v1';
+const QLTD_BUDGET_ITEMS_SOURCE = 'budget_items_v1';
+const QLTD_BUDGET_SCHEMA_SOURCE = 'budget_schema_v1';
+const QLTD_BUDGET_WRITE_SOURCE = 'budget_write_v1';
+const QLTD_BUDGET_REBUILD_SOURCE = 'budget_rebuild_v1';
+const QLTD_BUDGET_ALLOCATION_SOURCE = 'budget_allocation_v1';
+const QLTD_BUDGET_WRITE_ENABLED = true;
+const QLTD_BUDGET_WRITE_ADMIN_ONLY = true;
+const QLTD_BUDGET_WRITE_CONFIRM_TOKEN = 'YES_WRITE_BUDGET';
+const QLTD_BUDGET_WRITE_PB_HISTORY_IF_EXISTS = false;
+const QLTD_BUDGET_WRITE_LOCK_TIMEOUT_MS = 10000;
+const QLTD_BUDGET_WRITE_CENTRAL_ONLY_SOURCE = 'CENTRAL_ONLY';
+const QLTD_BUDGET_REBUILD_CONFIRM_TOKEN = 'YES_REBUILD_BUDGET';
+
+const QLTD_BUDGET_TYPE = {
+  TASK_LINKED: 'TASK_LINKED',
+  DEPT_STANDALONE: 'DEPT_STANDALONE'
+};
+
+const QLTD_BUDGET_PERIOD_SHEET_LABEL = {
+  MONTH: 'Tháng',
+  WEEK: 'Tuần'
+};
+
+const QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL = {
+  DRAFT: 'Nháp',
+  SUBMITTED: 'Đã gửi',
+  CONFIRMED: 'Đã xác nhận',
+  CANCELLED: 'Hủy'
+};
+
+function qltdBudgetGetPeriodSheetLabel_(periodType) {
+  const normalized = String(periodType || '').trim().toUpperCase();
+  if (Object.prototype.hasOwnProperty.call(QLTD_BUDGET_PERIOD_SHEET_LABEL, normalized)) {
+    return QLTD_BUDGET_PERIOD_SHEET_LABEL[normalized];
+  }
+  const error = new Error('Loại kỳ chưa được hỗ trợ bởi CENTRAL_NS_Raw.');
+  error.code = 'PERIOD_TYPE_SHEET_VALUE_UNSUPPORTED';
+  error.details = {
+    periodType: normalized,
+    attemptedSheetValue: normalized,
+    allowedValues: Object.keys(QLTD_BUDGET_PERIOD_SHEET_LABEL).map(function(key) {
+      return QLTD_BUDGET_PERIOD_SHEET_LABEL[key];
+    }),
+    targetHeader: 'Loại kỳ'
+  };
+  throw error;
+}
+
+function qltdBudgetGetConfirmStatusSheetLabel_(status) {
+  const normalized = String(status || '').trim().toUpperCase();
+  if (Object.prototype.hasOwnProperty.call(QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL, normalized)) {
+    return QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL[normalized];
+  }
+  const error = new Error('Trạng thái xác nhận chưa được hỗ trợ bởi CENTRAL_NS_Raw.');
+  error.code = 'CONFIRM_STATUS_SHEET_VALUE_UNSUPPORTED';
+  error.details = {
+    status: normalized,
+    attemptedSheetValue: normalized,
+    allowedValues: Object.keys(QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL).map(function(key) {
+      return QLTD_BUDGET_CONFIRM_STATUS_SHEET_LABEL[key];
+    }),
+    targetHeader: 'Trạng thái xác nhận'
+  };
+  throw error;
+}
+
+const QLTD_BUDGET_SHEET = {
+  PROJECTS: 'Projects',
+  PROJECT_DEPTS: 'Project_Depts',
+  USERS: 'Users',
+  CENTRAL_RAW: 'CENTRAL_NS_Raw',
+  CENTRAL_ITEMS: 'CENTRAL_NS_Items',
+  CENTRAL_ALLOCATIONS: 'CENTRAL_NS_Allocations',
+  CENTRAL_DASHBOARD: 'CENTRAL_NS_Dashboard',
+  CENTRAL_SUMMARY: 'CENTRAL_NS_Tong_hop',
+  SYS_SYNC_LOG: 'SYS_Sync_Log'
+};
+
+const QLTD_BUDGET_PROJECT_HEADERS = [
+  'ProjectCode',
+  'ProjectName',
+  'MasterSpreadsheetId',
+  'DeptSpreadsheetId',
+  'DefaultTaskSheet',
+  'DefaultDeptSheet',
+  'Status',
+  'SortOrder',
+  'Note'
+];
+
+const QLTD_BUDGET_PROJECT_DEPT_HEADERS = [
+  'ProjectCode',
+  'DeptCode',
+  'ProjectUnitCode',
+  'DeptName',
+  'Status',
+  'SortOrder',
+  'Note',
+  'MasterDeptCode'
+];
+
+const QLTD_BUDGET_DEPT_TASK_REQUIRED_HEADERS = [
+  'STT',
+  'Noi dung cong viec',
+  'Ke hoach ngan sach',
+  'Ngan sach thuc te',
+  'Ghi chu cap nhat',
+  'Ma cong viec Master',
+  'Loai dong'
+];
+
+const QLTD_BUDGET_CENTRAL_RAW_HEADERS = [
+  'Report ID',
+  'Ma du an',
+  'Ten du an',
+  'Phong/Ban',
+  'Loai ky',
+  'Ma ky',
+  'Ma cong viec Master',
+  'WBS/STT',
+  'Noi dung cong viec',
+  'Ke hoach ngan sach ky',
+  'Gia tri thuc hien ky nay',
+  'Trang thai xac nhan',
+  'Can cu',
+  'Vuong mac/Ghi chu',
+  'Nguoi gui',
+  'Thoi diem gui',
+  'Nguon file PB',
+  'Sync status',
+  'Sync at',
+  'Sync error',
+  'Ma khoan ngan sach',
+  'Ten khoan ngan sach',
+  'Loai ngan sach',
+  'Nhom ngan sach',
+  'Giai doan ngan sach',
+  'Yeu cau ma cong viec Master',
+  'Ma phan bo',
+  'Ma cong viec chi tiet PB',
+  'Huong dong tien',
+  'Loai ban ghi',
+  'Ma ky cha',
+  'Gia tri thuc thu/chi ky nay',
+  'Nguoi xac nhan',
+  'Thoi diem xac nhan'
+];
+
+const QLTD_BUDGET_CENTRAL_RAW_TWO_LAYER_HEADERS = [
+  'Ma khoan ngan sach',
+  'Ten khoan ngan sach',
+  'Loai ngan sach',
+  'Nhom ngan sach',
+  'Giai doan ngan sach',
+  'Yeu cau ma cong viec Master'
+];
+
+const QLTD_BUDGET_CENTRAL_DASHBOARD_TWO_LAYER_HEADERS = [
+  'Ma phong/ban',
+  'Phong/Ban',
+  'Loai ngan sach',
+  'Nhom ngan sach',
+  'Ma khoan ngan sach'
+];
+
+const QLTD_BUDGET_CENTRAL_SUMMARY_HEADERS = [
+  'Ma du an', 'Ten du an', 'Loai ky', 'Ma ky', 'Ma cong viec Master', 'WBS',
+  'Cong viec', 'Phong/Ban', 'Ngan sach tong the', 'Ke hoach ky', 'Thuc hien ky',
+  'Thuc hien luy ke', 'Con lai', 'Ty le su dung', 'Canh bao', 'Cap nhat cuoi',
+  'Ma khoan ngan sach', 'Ten khoan ngan sach', 'Loai ngan sach', 'Nhom ngan sach',
+  'Giai doan ngan sach', 'Yeu cau ma cong viec Master', 'Ma phan bo',
+  'Ma cong viec chi tiet PB', 'Huong dong tien', 'Thuc thu/chi ky',
+  'Thuc thu/chi luy ke', 'Chua thu/chua chi'
+];
+
+const QLTD_BUDGET_CENTRAL_DASHBOARD_HEADERS = [
+  'Nhom chi tieu', 'Chi tieu', 'Ma du an', 'Ten du an', 'Loai ky', 'Ma ky',
+  'Gia tri', 'Don vi', 'Cap nhat cuoi', 'Ghi chu', 'Ma phong/ban', 'Phong/Ban',
+  'Loai ngan sach', 'Nhom ngan sach', 'Ma khoan ngan sach', 'Huong dong tien',
+  'Ma phan bo', 'Ma cong viec Master', 'Ma cong viec chi tiet PB'
+];
+
+const QLTD_BUDGET_ITEMS_HEADERS = [
+  'Ma khoan ngan sach',
+  'Ma du an',
+  'Ten du an',
+  'Ma phong/ban',
+  'Ten phong/ban',
+  'Ten khoan ngan sach',
+  'Loai ngan sach',
+  'Ma cong viec Master',
+  'Nhom ngan sach',
+  'Giai doan ngan sach',
+  'Ngan sach duoc duyet',
+  'Trang thai',
+  'Ghi chu',
+  'Ma phan bo',
+  'Ma cong viec chi tiet PB',
+  'Huong dong tien'
+];
+
+const QLTD_BUDGET_ALLOCATIONS_HEADERS = [
+  'Ma phan bo',
+  'Ma du an',
+  'Loai nguon ngan sach',
+  'Ma nguon ngan sach',
+  'Ma phong/ban',
+  'Ten phong/ban',
+  'Huong dong tien',
+  'Gia tri giao',
+  'Trang thai',
+  'Ghi chu'
+];
+
+const QLTD_BUDGET_SHEET_SCHEMAS = {
+  CENTRAL_NS_Raw: {
+    sheetName: 'CENTRAL_NS_Raw',
+    headerRow: 4,
+    title: 'DU LIEU BAO CAO NGAN SACH RAW TRUNG TAM',
+    description: 'Du lieu bao cao ngan sach raw trung tam.',
+    requiredHeaders: QLTD_BUDGET_CENTRAL_RAW_HEADERS
+  },
+  CENTRAL_NS_Tong_hop: {
+    sheetName: 'CENTRAL_NS_Tong_hop',
+    headerRow: 4,
+    title: 'TONG HOP NGAN SACH TRUNG TAM',
+    description: 'Du lieu tong hop ngan sach trung tam.',
+    requiredHeaders: QLTD_BUDGET_CENTRAL_SUMMARY_HEADERS
+  },
+  CENTRAL_NS_Dashboard: {
+    sheetName: 'CENTRAL_NS_Dashboard',
+    headerRow: 4,
+    title: 'DASHBOARD NGAN SACH TRUNG TAM',
+    description: 'Du lieu dashboard ngan sach trung tam.',
+    requiredHeaders: QLTD_BUDGET_CENTRAL_DASHBOARD_HEADERS
+  },
+  SYS_Sync_Log: {
+    sheetName: 'SYS_Sync_Log',
+    headerRow: 4,
+    title: 'NHAT KY DONG BO HE THONG',
+    description: 'Nhat ky dong bo he thong.',
+    requiredHeaders: []
+  },
+  CENTRAL_NS_Items: {
+    sheetName: 'CENTRAL_NS_Items',
+    headerRow: 4,
+    title: 'DANH MUC KHOAN NGAN SACH',
+    description: 'Danh muc khoan ngan sach dung cho ngan sach gan tien do va ngan sach doc lap phong/ban.',
+    requiredHeaders: QLTD_BUDGET_ITEMS_HEADERS
+  },
+  CENTRAL_NS_Allocations: {
+    sheetName: 'CENTRAL_NS_Allocations',
+    headerRow: 4,
+    title: 'PHAN BO NGAN SACH TRUNG TAM',
+    description: 'Danh sach phan bo nguon ngan sach Master ve phong/ban.',
+    requiredHeaders: QLTD_BUDGET_ALLOCATIONS_HEADERS
+  }
+};
+
+function qltdBudgetResponse_(success, action, data, warnings, errors, meta) {
+  return {
+    success: !!success,
+    apiStatus: success ? 'OK' : 'ERROR',
+    source: QLTD_BUDGET_SOURCE,
+    data: success ? (data || {}) : (data === undefined ? null : data),
+    warnings: warnings || [],
+    errors: errors || [],
+    meta: Object.assign({
+      action: action || '',
+      generatedAt: qltdBudgetNowIso_()
+    }, meta || {})
+  };
+}
+
+function qltdBudgetOk_(action, data, warnings, meta) {
+  return qltdBudgetResponse_(true, action, data || {}, warnings || [], [], meta || {});
+}
+
+function qltdBudgetError_(action, code, message, meta, warnings) {
+  return qltdBudgetResponse_(false, action, null, warnings || [], [{
+    code: code,
+    message: message || code
+  }], meta || {});
+}
+
+function qltdBudgetWarning_(code, message, extra) {
+  return Object.assign({
+    code: code,
+    message: message || code
+  }, extra || {});
+}
+
+function qltdBudgetNowIso_() {
+  return new Date().toISOString();
+}
+
+function qltdBudgetNormalizeKey_(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function qltdBudgetNormalizeCode_(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function qltdBudgetNormalizeStatus_(value) {
+  return String(value || 'ACTIVE').trim().toUpperCase();
+}
+
+function qltdBudgetBuildHeaderMap_(headerRowValues) {
+  const map = {};
+  (headerRowValues || []).forEach(function(header, index) {
+    const raw = String(header || '').trim();
+    if (!raw || /^Unnamed\s*:/i.test(raw)) return;
+    const key = qltdBudgetNormalizeKey_(raw);
+    if (key && map[key] === undefined) {
+      map[key] = index;
+    }
+  });
+  return map;
+}
+
+function qltdBudgetFindHeaderIndex_(headerMap, headerName) {
+  const key = qltdBudgetNormalizeKey_(headerName);
+  return Object.prototype.hasOwnProperty.call(headerMap, key) ? headerMap[key] : -1;
+}
+
+function qltdBudgetGetCell_(row, headerMap, headerName, fallback) {
+  const index = qltdBudgetFindHeaderIndex_(headerMap, headerName);
+  if (index < 0) return fallback === undefined ? '' : fallback;
+  const value = row[index];
+  return value === undefined || value === null ? (fallback === undefined ? '' : fallback) : value;
+}
+
+function qltdBudgetReadSheetAsObjects_(sheet, headerRowIndex) {
+  const values = sheet.getDataRange().getValues();
+  const zeroIndex = Math.max(Number(headerRowIndex || 1) - 1, 0);
+  if (!values || values.length <= zeroIndex) {
+    return {
+      headers: [],
+      headerMap: {},
+      rows: []
+    };
+  }
+
+  const headers = values[zeroIndex].map(function(value) {
+    const header = String(value || '').trim();
+    return /^Unnamed\s*:/i.test(header) ? '' : header;
+  });
+  const headerMap = qltdBudgetBuildHeaderMap_(headers);
+  const rows = [];
+
+  for (let rowIndex = zeroIndex + 1; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex];
+    const hasValue = row.some(function(value) {
+      return String(value || '').trim() !== '';
+    });
+    if (!hasValue) continue;
+
+    const object = {
+      rowNumber: rowIndex + 1,
+      raw: row
+    };
+    headers.forEach(function(header, index) {
+      if (header) object[header] = row[index];
+    });
+    rows.push(object);
+  }
+
+  return {
+    headers: headers,
+    headerMap: headerMap,
+    rows: rows
+  };
+}
+
+function qltdBudgetGetReadonlySheet_(sheetName) {
+  const ss = getCurrentSpreadsheet_();
+  return ss.getSheetByName(sheetName);
+}
+
+function qltdBudgetGetSheetSchema_(sheetName) {
+  return QLTD_BUDGET_SHEET_SCHEMAS[sheetName] || {
+    sheetName: sheetName,
+    headerRow: 1,
+    title: '',
+    description: '',
+    requiredHeaders: []
+  };
+}
+
+function qltdBudgetReadRequiredCentralSheet_(sheetName, action) {
+  const sheet = qltdBudgetGetReadonlySheet_(sheetName);
+  if (!sheet) {
+    return {
+      sheet: null,
+      error: qltdBudgetError_(action, 'SHEET_NOT_FOUND', 'Khong tim thay sheet: ' + sheetName, {
+        sheetName: sheetName
+      })
+    };
+  }
+  return {
+    sheet: sheet,
+    error: null
+  };
+}
+
+function qltdBudgetFormatDate_(value) {
+  if (!value) return '';
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Asia/Ho_Chi_Minh', 'yyyy-MM-dd');
+  }
+  return String(value || '').trim();
+}
+
+function qltdBudgetToNumber_(value) {
+  if (typeof value === 'number') return isNaN(value) ? 0 : value;
+  const text = String(value || '').replace(/[,\s]/g, '').trim();
+  if (!text) return 0;
+  const number = Number(text);
+  return isNaN(number) ? 0 : number;
+}

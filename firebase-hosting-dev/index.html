@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b3ea8">
+    <title>Entiz Project 360</title>
+    <link rel="preload" as="image" href="/assets/entiz-logo.png" fetchpriority="high">
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://script.google.com">
+    <link rel="preconnect" href="https://cdn.dhtmlx.com">
+    <link rel="dns-prefetch" href="https://firebase.googleapis.com">
+    <link rel="stylesheet" href="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.css">
+    <link rel="stylesheet" href="./styles.css?v=PB_DASHBOARD_FINAL_FIXES_1">
+    <link rel="stylesheet" href="./dashboard_executive_v1.css">
+    <link rel="stylesheet" href="./dashboard_executive_v3.css?v=PB_DASHBOARD_FINAL_FIXES_1">
+    <link rel="stylesheet" href="./help-documents.css?v=HELP_AUDIENCE_PDF_2">
+    <link rel="stylesheet" href="./ui-polish.css?v=UI_KPI_ICON_1">
+    <style>
+      :root {
+        --entiz-blue: #0b3ea8;
+        --entiz-blue-dark: #082d7c;
+        --entiz-ink: #0f172a;
+        --entiz-muted: #64748b;
+      }
+
+      html, body { min-height: 100%; }
+
+      body {
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+        background: #5f8fe5;
+      }
+
+      .page {
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 14% 18%, rgba(255,255,255,.24), transparent 28%),
+          radial-gradient(circle at 82% 14%, rgba(255,255,255,.12), transparent 24%),
+          linear-gradient(135deg, #dfeafd 0%, #a8c6f9 38%, #78a2ed 68%, #4d7ed8 100%);
+      }
+
+      #loginView.auth-view {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1.18fr) minmax(380px, 430px);
+        align-items: center;
+        width: min(1380px, calc(100% - 72px));
+        min-height: 100vh;
+        margin: 0 auto;
+        padding: 56px 0;
+        gap: clamp(48px, 6vw, 88px);
+        overflow: hidden;
+        background: transparent;
+      }
+
+      #loginView.auth-view::before,
+      #loginView.auth-view::after {
+        content: "";
+        position: fixed;
+        left: -10%;
+        width: 120%;
+        border-radius: 50% 50% 0 0;
+        pointer-events: none;
+      }
+
+      #loginView.auth-view::before {
+        bottom: -15%;
+        height: 33vh;
+        background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.16));
+      }
+
+      #loginView.auth-view::after {
+        bottom: -24%;
+        height: 28vh;
+        background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.10));
+      }
+
+      #loginView .brand-panel {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        align-content: center;
+        gap: 28px;
+        min-height: auto;
+        padding: 0;
+        background: transparent;
+      }
+
+      .entiz-logo {
+        display: block;
+        width: clamp(230px, 22vw, 330px);
+        max-width: 100%;
+        height: auto;
+        object-fit: contain;
+        filter: drop-shadow(0 12px 28px rgba(8,45,124,.10));
+      }
+
+      .brand-copy { max-width: 760px; }
+
+      #loginView .brand-copy p {
+        margin: 0 0 12px;
+        color: rgba(255,255,255,.82);
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+      }
+
+      #loginView .brand-copy h1 {
+        margin: 0;
+        color: #fff;
+        font-family: Manrope, Inter, sans-serif;
+        font-size: clamp(44px, 4.6vw, 70px);
+        font-weight: 800;
+        line-height: 1.02;
+        letter-spacing: -.045em;
+        text-shadow: 0 10px 28px rgba(8,45,124,.14);
+      }
+
+      #loginView .brand-copy span {
+        display: block;
+        margin-top: 16px;
+        color: rgba(255,255,255,.94);
+        font-size: clamp(19px, 1.65vw, 26px);
+        font-weight: 500;
+        line-height: 1.45;
+      }
+
+      #loginView .login-card {
+        position: relative;
+        z-index: 1;
+        align-self: center;
+        width: 100%;
+        margin: 0;
+        gap: 26px;
+        padding: 38px 34px;
+        border: 1px solid rgba(255,255,255,.50);
+        border-radius: 24px;
+        background: rgba(255,255,255,.95);
+        box-shadow: 0 26px 70px rgba(15,23,42,.17);
+        backdrop-filter: blur(16px);
+      }
+
+      #loginView .login-heading {
+        display: grid;
+        gap: 10px;
+        text-align: center;
+      }
+
+      #loginView .login-heading p {
+        margin: 0;
+        color: var(--entiz-blue);
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: .02em;
+        text-transform: none;
+      }
+
+      #loginView .login-heading h2 {
+        margin: 0;
+        color: var(--entiz-ink);
+        font-family: Manrope, Inter, sans-serif;
+        font-size: clamp(30px, 2.6vw, 40px);
+        font-weight: 800;
+        line-height: 1.08;
+        letter-spacing: -.035em;
+      }
+
+      #loginView .login-heading span {
+        color: var(--entiz-muted);
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 1.65;
+      }
+
+      #loginView .google-button {
+        min-height: 56px;
+        border: 1px solid rgba(11,62,168,.18);
+        border-radius: 14px;
+        background: #fff;
+        color: var(--entiz-ink);
+        font-size: 16px;
+        font-weight: 700;
+        box-shadow: 0 8px 20px rgba(15,23,42,.07);
+        transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease;
+      }
+
+      #loginView .google-button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        border-color: #8bb5f4;
+        background: #f8fbff;
+        box-shadow: 0 12px 26px rgba(15,23,42,.10);
+      }
+
+      #loginView .google-button:active:not(:disabled) {
+        transform: translateY(0);
+      }
+
+      #loginView .google-button:focus-visible {
+        outline: 3px solid rgba(59,130,246,.32);
+        outline-offset: 3px;
+      }
+
+      #loginView .google-badge {
+        width: 26px;
+        height: 26px;
+        background: conic-gradient(from -45deg, #4285f4 0 25%, #34a853 0 50%, #fbbc05 0 75%, #ea4335 0);
+        color: #fff;
+        font-size: 0;
+      }
+
+      #loginView .google-badge::after {
+        content: "G";
+        font-size: 14px;
+        font-weight: 900;
+      }
+
+      #loginView .status-text {
+        margin: -4px 0 0;
+        color: #0f766e;
+        font-size: 13px;
+        font-weight: 600;
+        text-align: center;
+      }
+
+      .topbar-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+      .topbar-logo { width: 104px; height: auto; flex: 0 0 auto; }
+      .topbar-brand-copy { min-width: 0; }
+      .topbar-brand-copy p { color: var(--entiz-blue); }
+      .topbar-brand-copy h1 { color: #0f172a; }
+
+      @media (max-width: 1020px) {
+        #loginView.auth-view {
+          grid-template-columns: 1fr;
+          justify-items: center;
+          width: min(760px, calc(100% - 40px));
+          padding: 44px 0 56px;
+          gap: 34px;
+          text-align: center;
+        }
+
+        #loginView .brand-panel { justify-items: center; gap: 22px; }
+        .brand-copy { max-width: 100%; }
+        #loginView .brand-copy h1 { font-size: clamp(40px, 7vw, 58px); }
+        #loginView .brand-copy span { font-size: clamp(18px, 3.2vw, 24px); }
+        #loginView .login-card { width: min(480px, 100%); }
+      }
+
+      @media (max-width: 560px) {
+        #loginView.auth-view {
+          width: min(100% - 28px, 520px);
+          padding: 28px 0 38px;
+          gap: 26px;
+        }
+
+        .entiz-logo { width: min(220px, 68vw); }
+        #loginView .brand-copy p { font-size: 12px; }
+        #loginView .brand-copy h1 { font-size: 36px; }
+        #loginView .brand-copy span { font-size: 17px; }
+        #loginView .login-card { padding: 30px 22px; border-radius: 20px; }
+        #loginView .login-heading h2 { font-size: 30px; }
+        #loginView .login-heading span { font-size: 13px; }
+        #loginView .google-button { min-height: 54px; font-size: 15px; }
+        .topbar-logo { width: 88px; }
+      }
+
+      .registration-card { width: min(620px, 100%); }
+      .registration-form { display: grid; gap: 16px; margin-top: 22px; }
+      .registration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+      .registration-field { display: grid; gap: 7px; color: #17315f; font-weight: 700; font-size: 13px; }
+      .registration-field input,
+      .registration-field select {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid #cad6ea;
+        border-radius: 10px;
+        padding: 9px 11px;
+        background: #fff;
+        color: #172033;
+        font: inherit;
+        font-weight: 500;
+      }
+      .registration-field.is-full { grid-column: 1 / -1; }
+      .registration-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+      .registration-actions button { flex: 1 1 180px; }
+      @media (max-width: 560px) {
+        .registration-grid { grid-template-columns: 1fr; }
+        .registration-field.is-full { grid-column: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section id="loginView" class="auth-view">
+        <div class="brand-panel" aria-hidden="true">
+          <img class="entiz-logo" src="/assets/entiz-logo.png" alt="Entiz" width="607" height="317" loading="eager" fetchpriority="high" decoding="async">
+          <div class="brand-copy">
+            <p>Entiz</p>
+            <h1>Entiz Project 360</h1>
+            <span>Nền tảng quản trị dự án tổng thể</span>
+          </div>
+        </div>
+
+        <div class="login-card">
+          <div class="login-heading">
+            <p>Đăng nhập</p>
+            <h2>Entiz Project 360</h2>
+            <span>Công việc • Tiến độ • Ngân sách • Báo cáo • Dashboard</span>
+          </div>
+
+          <button id="signInButton" class="google-button" type="button">
+            <span class="google-badge" aria-hidden="true">G</span>
+            Đăng nhập bằng Google
+          </button>
+
+          <p id="loginStatus" class="status-text" role="status">Đang khởi tạo...</p>
+        </div>
+      </section>
+
+      <section id="deniedView" class="auth-view hidden">
+        <div class="login-card compact">
+          <div class="login-heading">
+            <p>Truy cập bị chặn</p>
+            <h2>Không có quyền truy cập</h2>
+            <span id="deniedEmail">Email chưa được cấp quyền.</span>
+          </div>
+          <div class="registration-actions">
+            <button id="retryProfileButton" class="google-button" type="button">Thử lại</button>
+            <button id="deniedSignOutButton" class="secondary-button" type="button">Đăng xuất</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="appShell" class="shell hidden" aria-label="Entiz Project 360">
+        <header class="topbar">
+          <div class="topbar-brand">
+            <img class="topbar-logo" src="/assets/entiz-logo.png" alt="Entiz" width="607" height="317" loading="eager" fetchpriority="high" decoding="async">
+            <div class="topbar-brand-copy">
+              <p>Entiz Project 360</p>
+              <h1>Nền tảng quản trị dự án tổng thể</h1>
+            </div>
+          </div>
+          <div class="profile header-user-toolbar" aria-label="Tài khoản người dùng">
+            <button id="notificationBellButton" class="icon-button notification-bell-button header-notification-button" type="button" title="Bạn có 0 thông báo chưa đọc" aria-label="Mở thông báo" aria-expanded="false" aria-controls="notificationPanel">
+              <svg class="notification-bell-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>
+              </svg>
+              <span id="notificationBadge" class="notification-badge hidden" aria-hidden="true"></span>
+            </button>
+            <span class="header-user-avatar" aria-hidden="true">
+              <img id="userAvatar" alt="" class="avatar header-user-avatar-image empty">
+              <span class="header-user-avatar-fallback">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 8a7 7 0 0 0-14 0"/>
+                </svg>
+              </span>
+            </span>
+            <div class="header-user-meta">
+              <strong id="userName" class="header-user-name">Người dùng</strong>
+              <span id="userEmail" class="header-user-email">email@example.com</span>
+            </div>
+            <span id="userRole" class="role-chip header-role-badge">Role</span>
+            <button id="signOutButton" class="icon-button header-logout-button" type="button" title="Đăng xuất" aria-label="Đăng xuất">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <div id="notificationBackdrop" class="notification-backdrop hidden" aria-hidden="true"></div>
+        <aside id="notificationPanel" class="notification-panel hidden" aria-labelledby="notificationPanelTitle" aria-hidden="true">
+          <div class="notification-panel-header">
+            <div>
+              <span class="notification-panel-eyebrow">TRUNG TÂM THÔNG BÁO</span>
+              <h2 id="notificationPanelTitle">Thông báo</h2>
+              <p>Theo dõi yêu cầu cần xử lý và các cập nhật mới.</p>
+            </div>
+            <button id="notificationCloseButton" class="icon-button notification-close-button" type="button" title="Đóng thông báo" aria-label="Đóng thông báo">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+            </button>
+          </div>
+          <div class="notification-panel-summary" aria-live="polite">
+            <div class="notification-summary-card is-unread">
+              <span class="notification-summary-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+              </span>
+              <span><small>Chưa đọc</small><strong id="notificationUnreadSummary">0</strong></span>
+            </div>
+            <div class="notification-summary-card is-action">
+              <span class="notification-summary-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 8v5m0 4h.01M10.3 3.9 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+              </span>
+              <span><small>Cần xử lý</small><strong id="notificationActionSummary">0</strong></span>
+            </div>
+          </div>
+          <div class="notification-panel-toolbar">
+            <p id="notificationPanelStatus" role="status"></p>
+            <button id="notificationReloadButton" class="notification-reload-button" type="button" aria-label="Tải lại thông báo">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+              <span>Tải lại</span>
+            </button>
+          </div>
+          <div id="notificationList" class="notification-list" aria-busy="false"></div>
+        </aside>
+
+        <nav class="tabs" aria-label="Điều hướng chính">
+          <button type="button" disabled>Dashboard</button>
+          <button type="button" disabled>Gantt</button>
+          <button type="button" disabled>Tra cứu</button>
+          <button type="button" disabled>Báo cập nhật</button>
+          <button type="button" disabled>Admin</button>
+        </nav>
+
+        <section class="content-grid">
+          <article class="summary-card">
+            <span>Trạng thái truy cập</span>
+            <strong id="accessStatus">Đã xác thực</strong>
+          </article>
+          <article class="summary-card">
+            <span>Vai trò</span>
+            <strong id="roleStatus">Admin</strong>
+          </article>
+          <article class="summary-card">
+            <span>Nguồn dữ liệu</span>
+            <strong id="apiStatus">Chưa kết nối API</strong>
+          </article>
+        </section>
+
+        <section class="placeholder-panel">
+          <h2>Entiz Project 360 đã sẵn sàng</h2>
+          <p>Hệ thống quản trị dự án, công việc, tiến độ, ngân sách và báo cáo điều hành.</p>
+        </section>
+      </section>
+    </main>
+    <script>
+      window.__QLTD_GANTT_PATCH_ROUND__ = 'GANTT_REQUEST_RACE_HOTFIX_3';
+    </script>
+    <script type="module" src="./api-read-cache.js?v=PERF_API_CACHE_2"></script>
+    <script type="module" src="./app.js?v=GANTT_REQUEST_RACE_HOTFIX_3_BUG7_AUTH_1_PB_DASHBOARD_FINAL_FIXES_1"></script>
+    <script type="module" src="./pb-detail-ui.js?v=PERF_LAZY_GANTT_1"></script>
+    <script type="module" src="./help-documents.js?v=HELP_AUDIENCE_PDF_3"></script>
+    <script src="./ui-polish.js?v=UI_KPI_ICON_1" defer></script>
+  </body>
+</html>

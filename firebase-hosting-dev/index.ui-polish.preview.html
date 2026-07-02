@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QLTD Entiz DEV</title>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://script.google.com">
+    <link rel="preconnect" href="https://cdn.dhtmlx.com">
+    <link rel="dns-prefetch" href="https://firebase.googleapis.com">
+    <link rel="stylesheet" href="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.css">
+    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./dashboard_executive_v1.css">
+    <link rel="stylesheet" href="./dashboard_executive_v3.css">
+    <link rel="stylesheet" href="./help-documents.css?v=HELP_AUDIENCE_PDF_2">
+    <link rel="stylesheet" href="./ui-polish.css?v=UI_KPI_ICON_1">
+  </head>
+  <body>
+    <main class="page">
+      <section id="loginView" class="auth-view">
+        <div class="brand-panel" aria-hidden="true">
+          <div class="brand-mark">QE</div>
+          <div>
+            <p>Entiz DEV</p>
+            <h1>QLTD Entiz</h1>
+            <span>Cổng quản lý tiến độ dự án</span>
+          </div>
+        </div>
+
+        <div class="login-card">
+          <div class="login-heading">
+            <p>Đăng nhập</p>
+            <h2>QLTD Entiz</h2>
+            <span>Cổng quản lý tiến độ dự án</span>
+          </div>
+
+          <button id="signInButton" class="google-button" type="button">
+            <span class="google-badge">G</span>
+            Đăng nhập bằng Google
+          </button>
+
+          <p id="loginStatus" class="status-text" role="status">Đang khởi tạo...</p>
+        </div>
+      </section>
+
+      <section id="deniedView" class="auth-view hidden">
+        <div class="login-card compact">
+          <div class="login-heading">
+            <p>Truy cập bị chặn</p>
+            <h2>Không có quyền truy cập</h2>
+            <span id="deniedEmail">Email chưa được cấp quyền.</span>
+          </div>
+          <button id="deniedSignOutButton" class="secondary-button" type="button">Đăng xuất</button>
+        </div>
+      </section>
+
+      <section id="appShell" class="shell hidden" aria-label="QLTD Entiz">
+        <header class="topbar">
+          <div>
+            <p>QLTD Entiz</p>
+            <h1>Cổng quản lý tiến độ dự án</h1>
+          </div>
+          <div class="profile">
+            <img id="userAvatar" alt="" class="avatar">
+            <div>
+              <strong id="userName">Người dùng</strong>
+              <span id="userEmail">email@example.com</span>
+            </div>
+            <span id="userRole" class="role-chip">Role</span>
+            <button id="signOutButton" class="icon-button" type="button" title="Đăng xuất" aria-label="Đăng xuất">
+              <span aria-hidden="true">⎋</span>
+            </button>
+          </div>
+        </header>
+
+        <nav class="tabs" aria-label="Điều hướng chính">
+          <button type="button" disabled>Dashboard</button>
+          <button type="button" disabled>Gantt</button>
+          <button type="button" disabled>Tra cứu</button>
+          <button type="button" disabled>Báo cập nhật</button>
+          <button type="button" disabled>Admin</button>
+        </nav>
+
+        <section class="content-grid">
+          <article class="summary-card">
+            <span>Trạng thái truy cập</span>
+            <strong id="accessStatus">Đã xác thực</strong>
+          </article>
+          <article class="summary-card">
+            <span>Vai trò</span>
+            <strong id="roleStatus">Admin</strong>
+          </article>
+          <article class="summary-card">
+            <span>Nguồn dữ liệu</span>
+            <strong id="apiStatus">Chưa kết nối API</strong>
+          </article>
+        </section>
+
+        <section class="placeholder-panel">
+          <h2>Login shell DEV đã sẵn sàng</h2>
+          <p>WEB-03 sẽ kết nối Apps Script API và kiểm tra quyền từ backend.</p>
+        </section>
+      </section>
+    </main>
+    <script>
+      window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND5_EXCEL_GANTT_EXPORT';
+    </script>
+    <script type="module" src="./api-read-cache.js?v=PERF_API_CACHE_2"></script>
+    <script type="module" src="./app.js?v=PERF_LAZY_GANTT_1"></script>
+    <script type="module" src="./pb-detail-ui.js?v=PERF_LAZY_GANTT_1"></script>
+    <script type="module" src="./help-documents.js?v=HELP_AUDIENCE_PDF_2"></script>
+    <script src="./ui-polish.js?v=UI_KPI_ICON_1" defer></script>
+  </body>
+</html>

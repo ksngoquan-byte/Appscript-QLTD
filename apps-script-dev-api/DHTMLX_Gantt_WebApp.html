@@ -1,0 +1,1921 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.css">
+    <style>
+      :root {
+        --bg: #eef2f6;
+        --panel: #ffffff;
+        --text: #172033;
+        --muted: #667085;
+        --border: #d8dde6;
+        --accent: #1668dc;
+        --qltd-link-y-shift: -1px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        color: var(--text);
+        background: var(--bg);
+        font-family: Inter, Roboto, "Segoe UI", Arial, sans-serif;
+        font-size: 13px;
+      }
+
+      .app {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100vh;
+        width: 100vw;
+        min-height: 0;
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-rows: auto auto;
+        gap: 8px;
+        padding: 9px 12px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .title-group {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .app-title {
+        font-size: 16px;
+        line-height: 1.2;
+        font-weight: 650;
+        color: var(--text);
+        white-space: nowrap;
+      }
+
+      .sheet-pill {
+        max-width: 280px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+
+      .meta {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        min-width: 0;
+        color: var(--muted);
+        white-space: nowrap;
+        font-size: 12px;
+      }
+
+      .meta strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .status-chips {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: #344054;
+        background: #f8fafc;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 8px;
+        flex-wrap: wrap;
+        min-width: 0;
+      }
+
+      .view-group {
+        display: flex;
+        align-items: center;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+        background: #fff;
+      }
+
+      button,
+      select,
+      input {
+        height: 32px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        font: inherit;
+        font-size: 12px;
+      }
+
+      button {
+        min-width: 40px;
+        padding: 0 10px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      .view-group button {
+        border: 0;
+        border-right: 1px solid var(--border);
+        border-radius: 0;
+      }
+
+      .view-group button:last-child {
+        border-right: 0;
+      }
+
+      button:hover,
+      select:hover,
+      input:hover {
+        border-color: var(--accent);
+      }
+
+      button.active {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      select,
+      input {
+        border-radius: 6px;
+        padding: 0 9px;
+      }
+
+      .control-label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      #searchInput {
+        width: 220px;
+      }
+
+      #statusFilter {
+        display: none;
+      }
+
+      #ownerFilter {
+        width: 150px;
+      }
+
+      #executionStatusFilter {
+        width: 148px;
+      }
+
+      #scheduleStatusFilter {
+        width: 176px;
+      }
+
+      #presentationFilter {
+        width: 136px;
+      }
+
+      #dateFormatSelect {
+        display: none;
+      }
+
+      .main-milestone-badge {
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .main-milestone-cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        color: #64748b;
+        font-size: 15px;
+        line-height: 1;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .main-milestone-cell.is-selected {
+        color: #d97706;
+      }
+
+      .gantt_row.main-milestone-row .gantt_cell,
+      .gantt_task_row.main-milestone-row {
+        background: #fff7ed !important;
+      }
+
+      .content {
+        min-height: 0;
+        height: auto;
+        padding: 10px 12px 12px;
+      }
+
+      .gantt-card {
+        position: relative;
+        height: 100%;
+        overflow: hidden;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+
+      #gantt_here {
+        width: 100%;
+        height: 100%;
+      }
+
+      #state {
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        display: none;
+        align-items: flex-start;
+        padding: 24px;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--muted);
+      }
+
+      #state.visible {
+        display: flex;
+      }
+
+      #state.error {
+        color: #b42318;
+      }
+
+      .task-done-on-time .gantt_task_progress { background: #16a34a; }
+      .task-done-late .gantt_task_progress { background: #16a34a; }
+      .task-done-late .gantt_task_content { border: 2px solid #f97316; }
+      .task-overdue .gantt_task_content { background: #dc2626; }
+      .task-in-progress-on-time .gantt_task_progress { background: #2563eb; }
+      .task-not-started-on-time .gantt_task_content { background: #64748b; }
+      .task-paused-on-time .gantt_task_content { background: #f59e0b; color: #172033; }
+      .task-paused-overdue .gantt_task_content { background: #c2410c; }
+      .task-unknown .gantt_task_content { background: #98a2b3; }
+      .task-summary .gantt_task_content { background: #475467; }
+      .task-done .gantt_task_progress { background: #16a34a; }
+      .task-doing .gantt_task_progress { background: #2563eb; }
+      .task-late .gantt_task_content { background: #dc2626; }
+      .task-future .gantt_task_content { background: #64748b; }
+
+      .gantt_grid_scale,
+      .gantt_task_scale {
+        font-size: 12px;
+        background: #f8fafc !important;
+        border-bottom: 1px solid #cbd5e1 !important;
+      }
+
+      .gantt_grid_data,
+      .gantt_task_row,
+      .gantt_side_content {
+        font-size: 12px;
+      }
+
+      .gantt_side_content {
+        font-size: 11px;
+        font-weight: 500;
+        color: #374151;
+      }
+
+      .gantt_task_content {
+        font-size: 0;
+        line-height: 18px !important;
+      }
+
+      .gantt_task_line {
+        border-radius: 3px !important;
+        height: 18px !important;
+        line-height: 18px !important;
+        box-sizing: border-box !important;
+      }
+
+      .gantt_task_cell {
+        border-right: 1px solid #d6dbe3 !important;
+      }
+
+      .gantt_scale_cell {
+        border-right: 1px solid #cbd5e1 !important;
+      }
+
+      .gantt_task_row,
+      .gantt_grid_data .gantt_row {
+        border-bottom: 1px solid #e5e7eb !important;
+      }
+
+      .gantt_grid_scale .gantt_grid_head_cell,
+      .gantt_grid_data .gantt_cell {
+        border-right: 1px solid #d9e1ea !important;
+        box-sizing: border-box !important;
+      }
+
+      .gantt_grid_scale .gantt_grid_head_cell:last-child,
+      .gantt_grid_data .gantt_row .gantt_cell:last-child {
+        border-right: 1px solid #d9e1ea !important;
+      }
+
+      .gantt_grid_scale,
+      .gantt_grid_data .gantt_row {
+        border-bottom: 1px solid #e5eaf0 !important;
+      }
+
+      .gantt_grid,
+      .gantt_grid_scale,
+      .gantt_grid_data {
+        background: #fff !important;
+      }
+
+      .gantt_grid {
+        border-right: 1px solid #cbd5e1 !important;
+      }
+
+      .gantt_task_link {
+        --dependency-link-color: #64748b;
+        opacity: 0.62 !important;
+      }
+
+      .gantt_task_link:hover,
+      .gantt_task_link.gantt_selected {
+        opacity: 0.92 !important;
+      }
+
+      .gantt_task_link.gantt-link-fs { --dependency-link-color: #64748b; }
+      .gantt_task_link.gantt-link-ss { --dependency-link-color: #2563eb; }
+      .gantt_task_link.gantt-link-ff { --dependency-link-color: #7c3aed; }
+      .gantt_task_link.gantt-link-unknown { --dependency-link-color: #ef4444; }
+
+      .gantt_task_link .gantt_line_wrapper {
+        background: transparent !important;
+      }
+
+      .gantt_task_link .gantt_line_wrapper div {
+        box-sizing: border-box;
+      }
+
+      .gantt_task_link .gantt_line_wrapper,
+      .gantt_task_link .gantt_link_arrow,
+      .gantt_line_wrapper,
+      .gantt_link_arrow {
+        transform: translateY(var(--qltd-link-y-shift)) !important;
+      }
+
+      .gantt_task_link.gantt-link-fs .gantt_line_wrapper div,
+      .gantt_task_link.gantt-link-ss .gantt_line_wrapper div,
+      .gantt_task_link.gantt-link-ff .gantt_line_wrapper div,
+      .gantt_task_link.gantt-link-unknown .gantt_line_wrapper div {
+        background-color: var(--dependency-link-color) !important;
+        border-color: var(--dependency-link-color) !important;
+      }
+
+      .gantt_task_link .gantt_link_arrow,
+      .gantt_task_link .gantt_link_arrow_right,
+      .gantt_task_link .gantt_link_arrow_left {
+        background-color: transparent !important;
+        border-color: transparent !important;
+      }
+
+      .gantt_task_link.gantt-link-fs .gantt_link_arrow,
+      .gantt_task_link.gantt-link-fs .gantt_link_arrow_right,
+      .gantt_task_link.gantt-link-fs .gantt_link_arrow_left,
+      .gantt_task_link.gantt-link-ss .gantt_link_arrow,
+      .gantt_task_link.gantt-link-ss .gantt_link_arrow_right,
+      .gantt_task_link.gantt-link-ss .gantt_link_arrow_left,
+      .gantt_task_link.gantt-link-ff .gantt_link_arrow,
+      .gantt_task_link.gantt-link-ff .gantt_link_arrow_right,
+      .gantt_task_link.gantt-link-ff .gantt_link_arrow_left,
+      .gantt_task_link.gantt-link-unknown .gantt_link_arrow,
+      .gantt_task_link.gantt-link-unknown .gantt_link_arrow_right,
+      .gantt_task_link.gantt-link-unknown .gantt_link_arrow_left {
+        border-left-color: var(--dependency-link-color) !important;
+        border-right-color: var(--dependency-link-color) !important;
+      }
+
+      .gantt_task_link.gantt-link-unknown .gantt_line_wrapper div {
+        border-style: dashed !important;
+      }
+
+      .gantt_link_control,
+      .gantt_link_point,
+      .gantt_link_handle,
+      .gantt_link_direction,
+      .gantt_link_drag_area {
+        display: none !important;
+        background: transparent !important;
+        border-color: transparent !important;
+      }
+
+      .link-legend {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: #475569;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .link-legend.is-muted {
+        opacity: 0.42;
+      }
+
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .legend-line {
+        display: inline-block;
+        width: 18px;
+        height: 2px;
+        border-radius: 2px;
+      }
+
+      .legend-line.fs { background: #64748b; }
+      .legend-line.ss { background: #2563eb; }
+      .legend-line.ff { background: #7c3aed; }
+
+      .grid-ellipsis {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .grid-muted {
+        color: var(--muted);
+      }
+
+      .detail {
+        min-width: 320px;
+        max-width: 480px;
+        padding: 10px;
+        line-height: 1.45;
+      }
+
+      .detail h4 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+
+      .detail p {
+        margin: 3px 0;
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: 132px minmax(0, 1fr);
+        gap: 5px 10px;
+        font-size: 12px;
+      }
+
+      .detail-label {
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      .detail-value {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .detail-wide {
+        grid-column: 1 / -1;
+        padding-top: 4px;
+      }
+
+      .pdf-header {
+        display: none;
+      }
+
+      .pdf-status {
+        min-width: 180px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .pdf-status.error {
+        color: #b42318;
+      }
+
+      body.pdf-capture-mode {
+        overflow: visible !important;
+        background: #fff !important;
+      }
+
+      body.pdf-capture-mode .toolbar,
+      body.pdf-capture-mode #state {
+        display: none !important;
+      }
+
+      body.pdf-capture-mode * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      body.pdf-capture-mode .app,
+      body.pdf-capture-mode .content {
+        display: block !important;
+        width: var(--pdf-gantt-width, auto) !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        background: #fff !important;
+      }
+
+      body.pdf-capture-mode .content {
+        padding: 0 !important;
+      }
+
+      body.pdf-capture-mode .gantt-card {
+        display: block !important;
+        width: var(--pdf-gantt-width, auto) !important;
+        min-width: var(--pdf-gantt-width, auto) !important;
+        height: auto !important;
+        min-height: var(--pdf-gantt-height, 1200px) !important;
+        overflow: visible !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+      }
+
+      body.pdf-capture-mode .pdf-header {
+        display: block !important;
+        padding: 10px 0 8px;
+        border-bottom: 1px solid #cbd5e1;
+        background: #fff;
+      }
+
+      body.pdf-capture-mode .pdf-header h1 {
+        margin: 0 0 4px;
+        color: #172033;
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+
+      body.pdf-capture-mode .pdf-meta {
+        color: #475569;
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      body.pdf-capture-mode #gantt_here {
+        display: block !important;
+        width: var(--pdf-gantt-width, auto) !important;
+        min-width: var(--pdf-gantt-width, auto) !important;
+        height: var(--pdf-gantt-height, 1200px) !important;
+        min-height: var(--pdf-gantt-height, 1200px) !important;
+        overflow: visible !important;
+      }
+
+      body.pdf-capture-mode .gantt_container,
+      body.pdf-capture-mode .gantt_layout,
+      body.pdf-capture-mode .gantt_grid,
+      body.pdf-capture-mode .gantt_task,
+      body.pdf-capture-mode .gantt_data_area,
+      body.pdf-capture-mode .gantt_task_bg {
+        overflow: visible !important;
+      }
+
+      body.pdf-capture-mode .gantt_grid_scale .gantt_grid_head_cell,
+      body.pdf-capture-mode .gantt_grid_data .gantt_cell,
+      body.pdf-capture-mode .gantt_task_cell,
+      body.pdf-capture-mode .gantt_scale_cell {
+        border-right: 1px solid #d8dee8 !important;
+      }
+
+      body.pdf-capture-mode .gantt_row,
+      body.pdf-capture-mode .gantt_task_row {
+        border-bottom: 1px solid #e5e7eb !important;
+      }
+
+      body.pdf-capture-mode .gantt_task_line,
+      body.pdf-capture-mode .gantt_bar_task,
+      body.pdf-capture-mode .gantt_task_progress,
+      body.pdf-capture-mode .gantt_task_content {
+        opacity: 1 !important;
+        visibility: visible !important;
+      }
+
+      body.pdf-capture-mode .gantt_task_link {
+        opacity: 0.75 !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="toolbar">
+        <div class="header-row">
+          <div class="title-group">
+            <span class="app-title" id="projectTitle">Bảng tiến độ dự án</span>
+            <span class="sheet-pill">Nguồn: <span id="sheetName">Tien_do_tong_hop</span></span>
+          </div>
+          <div class="meta">
+            <span>Cập nhật: <strong id="updatedAt">--</strong></span>
+            <span>Tổng: <strong id="taskCount">0</strong> công việc</span>
+            <span>Hiển thị: <strong id="visibleCount">0</strong></span>
+            <span>Link: <strong id="linkCount">0</strong></span>
+          </div>
+        </div>
+        <div class="header-row">
+          <div class="status-chips" aria-label="Schedule status summary">
+            <span class="chip">Quá hạn: <strong id="chipOverdue">0</strong></span>
+            <span class="chip">Đang làm: <strong id="chipDoing">0</strong></span>
+            <span class="chip">Hoàn thành: <strong id="chipDone">0</strong></span>
+            <span class="chip">Tạm dừng: <strong id="chipPaused">0</strong></span>
+            <span class="chip">Không xác định: <strong id="chipUnknown">0</strong></span>
+          </div>
+        </div>
+        <div class="controls">
+          <select id="dateFormatSelect" aria-label="Date format">
+            <option value="dd/MM">dd/MM</option>
+            <option value="dd/MM/yyyy" selected>dd/MM/yyyy</option>
+          </select>
+          <select id="statusFilter" aria-label="Filter progress status">
+            <option value="ALL">Tất cả tiến độ</option>
+            <option value="OVERDUE">Quá hạn</option>
+            <option value="IN_PROGRESS">Đang thực hiện</option>
+            <option value="DONE">Đã hoàn thành</option>
+            <option value="NOT_STARTED">Chưa thực hiện</option>
+            <option value="UNKNOWN">Không xác định</option>
+          </select>
+          <input id="searchInput" type="search" placeholder="Tìm kiếm">
+          <label class="control-label">Chủ trì
+            <select id="ownerFilter" aria-label="Filter owner">
+              <option value="">Tất cả</option>
+            </select>
+          </label>
+          <label class="control-label">Trạng thái
+            <select id="executionStatusFilter" aria-label="Filter execution status">
+              <option value="ALL">Tất cả</option>
+              <option value="NOT_STARTED">Chưa bắt đầu</option>
+              <option value="IN_PROGRESS">Đang làm</option>
+              <option value="DONE">Hoàn thành</option>
+              <option value="PAUSED">Tạm dừng</option>
+              <option value="UNKNOWN">Không xác định</option>
+            </select>
+          </label>
+          <label class="control-label">Tiến độ
+            <select id="scheduleStatusFilter" aria-label="Filter schedule status">
+              <option value="ALL">Tất cả</option>
+              <option value="OVERDUE">Quá hạn</option>
+              <option value="IN_PROGRESS_ON_TIME">Đang làm trong hạn</option>
+              <option value="NOT_STARTED_ON_TIME">Chưa bắt đầu trong hạn</option>
+              <option value="DONE_ON_TIME">Hoàn thành đúng hạn</option>
+              <option value="DONE_LATE">Hoàn thành trễ</option>
+              <option value="PAUSED_ON_TIME">Tạm dừng trong hạn</option>
+              <option value="PAUSED_OVERDUE">Tạm dừng quá hạn</option>
+              <option value="UNKNOWN">Không xác định</option>
+            </select>
+          </label>
+          <label class="control-label">Hiển thị để in
+            <select id="presentationFilter" aria-label="Presentation display filter">
+              <option value="all">Tất cả</option>
+              <option value="wbs-1-2">Cấp 1-2</option>
+              <option value="wbs-1-3">Cấp 1-3</option>
+              <option value="wbs-1-4">Cấp 1-4</option>
+              <option value="main-milestones">Chỉ mốc chính</option>
+            </select>
+          </label>
+          <button type="button" id="mainMilestoneModeButton" title="Bật chế độ tick các dòng quan trọng để xuất PDF.">Chọn mốc chính</button>
+          <button type="button" id="resetMainMilestonesButton" title="Xóa các mốc chính đang lưu trong trình duyệt.">Reset mốc</button>
+          <span id="mainMilestoneBadge" class="main-milestone-badge">Mốc chính: 0</span>
+          <button type="button" id="linksToggleButton" class="active">Mũi tên</button>
+          <div class="link-legend" id="linkLegend" aria-label="Dependency relation legend">
+            <span class="legend-item" title="Finish to Start"><i class="legend-line fs"></i>FS</span>
+            <span class="legend-item" title="Start to Start"><i class="legend-line ss"></i>SS</span>
+            <span class="legend-item" title="Finish to Finish"><i class="legend-line ff"></i>FF</span>
+          </div>
+          <button type="button" id="dateLabelsToggleButton" class="active">Ngày trên bar</button>
+          <button type="button" id="exportPdfButton" title="Tạo PDF từ ảnh chụp DHTMLX hiện tại.">Xuất PDF</button>
+          <span id="pdfStatus" class="pdf-status" aria-live="polite"></span>
+          <span class="control-label">Zoom</span>
+          <div class="view-group" aria-label="Zoom">
+            <button type="button" data-view="day">Day</button>
+            <button type="button" data-view="week" class="active">Week</button>
+            <button type="button" data-view="month">Month</button>
+            <button type="button" data-view="quarter">Quarter</button>
+            <button type="button" data-view="year">Year</button>
+          </div>
+          <button type="button" id="reloadButton">Tải lại</button>
+        </div>
+      </div>
+
+      <div class="content">
+        <div id="pdfHeader" class="pdf-header">
+          <h1 id="pdfTitle">Bảng tiến độ dự án</h1>
+          <div id="pdfMeta" class="pdf-meta">Nguồn: Tien_do_tong_hop | Ngày xuất: --</div>
+        </div>
+        <div class="gantt-card">
+          <div id="state" class="visible">Đang tải DHTMLX Gantt...</div>
+          <div id="gantt_here"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script>
+      window.__QLTD_GANTT_PATCH_ROUND__ = 'ROUND3_DEBUG_FIX_NO_SAMPLE_CODE';
+
+      let allData = { data: [], links: [] };
+      let currentView = 'week';
+      let showLinks = true;
+      let showDateLabels = true;
+      let currentProjectName = '';
+      let presentationFilterMode = 'all';
+      let isMainMilestoneSelectMode = false;
+      let mainMilestoneIds = new Set();
+      let visibleTaskIdsForPresentation = new Set();
+
+      const stateEl = document.getElementById('state');
+      const projectTitleEl = document.getElementById('projectTitle');
+      const sheetNameEl = document.getElementById('sheetName');
+      const updatedAtEl = document.getElementById('updatedAt');
+      const taskCountEl = document.getElementById('taskCount');
+      const linkCountEl = document.getElementById('linkCount');
+      const visibleCountEl = document.getElementById('visibleCount');
+      const chipOverdueEl = document.getElementById('chipOverdue');
+      const chipDoingEl = document.getElementById('chipDoing');
+      const chipDoneEl = document.getElementById('chipDone');
+      const chipPausedEl = document.getElementById('chipPaused');
+      const chipUnknownEl = document.getElementById('chipUnknown');
+      const dateFormatSelect = document.getElementById('dateFormatSelect');
+      const ownerFilter = document.getElementById('ownerFilter');
+      const statusFilter = document.getElementById('statusFilter');
+      const executionStatusFilter = document.getElementById('executionStatusFilter');
+      const scheduleStatusFilter = document.getElementById('scheduleStatusFilter');
+      const presentationFilter = document.getElementById('presentationFilter');
+      const searchInput = document.getElementById('searchInput');
+      const mainMilestoneModeButton = document.getElementById('mainMilestoneModeButton');
+      const resetMainMilestonesButton = document.getElementById('resetMainMilestonesButton');
+      const mainMilestoneBadge = document.getElementById('mainMilestoneBadge');
+      const linksToggleButton = document.getElementById('linksToggleButton');
+      const linkLegend = document.getElementById('linkLegend');
+      const dateLabelsToggleButton = document.getElementById('dateLabelsToggleButton');
+      const exportPdfButton = document.getElementById('exportPdfButton');
+      const pdfStatus = document.getElementById('pdfStatus');
+      const pdfHeader = document.getElementById('pdfHeader');
+      const pdfTitle = document.getElementById('pdfTitle');
+      const pdfMeta = document.getElementById('pdfMeta');
+      const reloadButton = document.getElementById('reloadButton');
+      const viewButtons = Array.from(document.querySelectorAll('[data-view]'));
+
+      statusFilter.style.display = 'none';
+
+      function initGantt() {
+        if (!window.gantt) {
+          showError('Không tải được DHTMLX Gantt từ CDN. Vui lòng kiểm tra mạng hoặc đổi nguồn CDN.');
+          return false;
+        }
+
+        gantt.plugins({ tooltip: true });
+        gantt.config.readonly = true;
+        gantt.config.drag_move = false;
+        gantt.config.drag_resize = false;
+        gantt.config.drag_progress = false;
+        gantt.config.drag_links = false;
+        gantt.config.details_on_dblclick = false;
+        gantt.config.open_tree_initially = true;
+        gantt.config.order_branch = false;
+        gantt.config.order_branch_free = false;
+        gantt.config.show_links = true;
+        gantt.config.grid_resize = true;
+        gantt.config.grid_width = 560;
+        gantt.config.row_height = 36;
+        gantt.config.bar_height = 18;
+        gantt.config.autofit = false;
+        gantt.config.date_format = '%Y-%m-%d';
+        gantt.config.xml_date = '%Y-%m-%d';
+        gantt.config.fit_tasks = true;
+
+        gantt.attachEvent('onBeforeTaskDrag', function() { return false; });
+        gantt.attachEvent('onBeforeLinkAdd', function() { return false; });
+        gantt.attachEvent('onBeforeLinkUpdate', function() { return false; });
+        gantt.attachEvent('onBeforeLightbox', function() { return false; });
+        gantt.attachEvent('onTaskDblClick', function() { return false; });
+        gantt.attachEvent('onLinkDblClick', function() { return false; });
+        gantt.attachEvent('onTaskClick', function(id, event) {
+          const target = event && event.target ? event.target : null;
+          if (target && target.closest && target.closest('.main-milestone-cell')) {
+            toggleMainMilestone(id);
+            return false;
+          }
+          return true;
+        });
+
+        gantt.templates.task_class = function(start, end, task) {
+          const classes = [];
+          if (isMainMilestoneTask(task.id)) classes.push('main-milestone-row');
+          if (task.scheduleStatus === 'DONE_ON_TIME') classes.push('task-done-on-time');
+          else if (task.scheduleStatus === 'DONE_LATE') classes.push('task-done-late');
+          else if (task.scheduleStatus === 'OVERDUE') classes.push('task-overdue');
+          else if (task.scheduleStatus === 'IN_PROGRESS_ON_TIME') classes.push('task-in-progress-on-time');
+          else if (task.scheduleStatus === 'NOT_STARTED_ON_TIME') classes.push('task-not-started-on-time');
+          else if (task.scheduleStatus === 'PAUSED_ON_TIME') classes.push('task-paused-on-time');
+          else if (task.scheduleStatus === 'PAUSED_OVERDUE') classes.push('task-paused-overdue');
+          else if (task.scheduleStatus === 'UNKNOWN') classes.push('task-unknown');
+          else if (task.progress >= 1) classes.push('task-done');
+          else if (task.progress > 0) classes.push('task-doing');
+          else if (String(task.parent || 0) === '0') classes.push('task-summary');
+          return classes.join(' ');
+        };
+
+        gantt.templates.task_text = function() {
+          return '';
+        };
+
+        gantt.templates.link_class = function(link) {
+          return 'gantt-link-' + normalizeRelationType(link).toLowerCase();
+        };
+
+        installQltdSideDateTemplates();
+
+        gantt.templates.tooltip_text = function(start, end, task) {
+          return [
+            '<div class="detail">',
+            '<h4>' + escapeHtml(task.text || '') + '</h4>',
+            '<div class="detail-grid">',
+            detailRow('WBS / ID', [task.wbs, task.id].filter(Boolean).join(' / ')),
+            detailRow('Chủ trì', task.owner),
+            detailRow('Bắt đầu hiện hành', formatDateDisplay(task.start_date)),
+            detailRow('Kết thúc hiện hành', formatDateDisplay(task.end_date)),
+            detailRow('Trạng thái thực hiện', task.executionStatusLabel || task.executionStatusRaw || task.statusRaw || task.status),
+            detailRow('Tình trạng tiến độ', task.scheduleStatusLabel || task.progressStatusLabel),
+            detailRow('Bắt đầu thực tế', formatDateDisplay(task.actualStart)),
+            detailRow('Hoàn thành thực tế', formatDateDisplay(task.actualFinish)),
+            detailRow('Ngày cập nhật', formatDateDisplay(task.updateDate)),
+            detailWide('Tiền nhiệm', task.predecessorSummary || task.predecessorRaw),
+            detailWide('Kế nhiệm', task.successorSummary),
+            detailWide('Ghi chú cập nhật', task.updateNote || task.note),
+            detailWide('Cảnh báo tiến độ', task.warning),
+            '</div>',
+            '</div>'
+          ].join('');
+        };
+
+        gantt.init('gantt_here');
+        installQltdSideDateTemplates();
+        return true;
+      }
+
+      function configureColumns() {
+        const columns = [
+          { name: 'wbs', label: 'WBS', width: 74, resize: true, template: function(task) {
+            return gridEllipsis(task.wbs);
+          }},
+          { name: 'text', label: 'Công việc', tree: true, width: 230, resize: true, template: function(task) {
+            return gridEllipsis(task.text);
+          }},
+          { name: 'owner', label: 'Chủ trì', width: 90, resize: true, template: function(task) {
+            return gridEllipsis(task.owner);
+          }},
+          { name: 'duration', label: 'Số ngày', width: 64, align: 'center', resize: true, template: function(task) {
+            return gridEllipsis(formatDuration(task.duration), 'grid-muted');
+          }},
+          { name: 'start_date', label: 'Bắt đầu', width: 66, align: 'center', resize: true, template: function(task) {
+            return gridEllipsis(formatGridDate(task.start_date), 'grid-muted');
+          }},
+          { name: 'end_date', label: 'Kết thúc', width: 66, align: 'center', resize: true, template: function(task) {
+            return gridEllipsis(formatGridDate(task.end_date), 'grid-muted');
+          }}
+        ];
+
+        if (isMainMilestoneSelectMode) {
+          columns.unshift({
+            name: 'mainMilestone',
+            label: 'Mốc',
+            width: 44,
+            align: 'center',
+            resize: false,
+            template: function(task) {
+              const selected = isMainMilestoneTask(task.id);
+              return '<span class="main-milestone-cell ' + (selected ? 'is-selected' : '') + '" title="' +
+                (selected ? 'Bỏ chọn mốc chính' : 'Chọn mốc chính') + '">' +
+                (selected ? '&#9733;' : '&#9734;') +
+                '</span>';
+            }
+          });
+        }
+
+        gantt.config.columns = columns;
+        gantt.config.grid_width = isMainMilestoneSelectMode ? 604 : 560;
+      }
+
+      function setScale(view) {
+        currentView = view;
+        syncViewButtons();
+
+        if (view === 'day') {
+          gantt.config.scale_height = 54;
+          gantt.config.scales = [
+            { unit: 'month', step: 1, format: '%m/%Y' },
+            { unit: 'day', step: 1, format: '%d/%m' }
+          ];
+        } else if (view === 'week') {
+          gantt.config.scale_height = 54;
+          gantt.config.scales = [
+            { unit: 'month', step: 1, format: '%m/%Y' },
+            { unit: 'week', step: 1, format: function(date) {
+              return formatWeekNumberOnly(date);
+            }}
+          ];
+        } else if (view === 'month') {
+          gantt.config.scale_height = 54;
+          gantt.config.scales = [
+            { unit: 'year', step: 1, format: '%Y' },
+            { unit: 'month', step: 1, format: '%m/%Y' }
+          ];
+        } else if (view === 'quarter') {
+          gantt.config.scale_height = 54;
+          gantt.config.scales = [
+            { unit: 'year', step: 1, format: '%Y' },
+            { unit: 'quarter', step: 1, format: function(date) {
+              return 'Q' + (Math.floor(date.getMonth() / 3) + 1);
+            }}
+          ];
+        } else {
+          gantt.config.scale_height = 54;
+          gantt.config.scales = [
+            { unit: 'year', step: 1, format: '%Y' }
+          ];
+        }
+
+        installQltdSideDateTemplates();
+        gantt.render();
+        setTimeout(function() {
+          gantt.setSizes();
+        }, 0);
+      }
+
+      function loadData() {
+        showState('Đang tải dữ liệu...');
+
+        google.script.run
+          .withSuccessHandler(function(payload) {
+            allData = payload || { data: [], links: [] };
+            const meta = allData.meta || {};
+            const projectName = meta.projectName || inferProjectName(meta.spreadsheetName || allData.sheetName || '');
+            currentProjectName = projectName || '';
+            mainMilestoneIds = loadMainMilestoneIds();
+            updateMainMilestoneUi();
+            projectTitleEl.textContent = projectName ?
+              'Bảng tiến độ dự án ' + projectName :
+              'Bảng tiến độ dự án';
+            sheetNameEl.textContent = meta.sheetName || allData.sheetName || '';
+            taskCountEl.textContent = allData.taskCount || 0;
+            linkCountEl.textContent = allData.linkCount || 0;
+            updatedAtEl.textContent = formatDateTimeDisplay(new Date());
+            updateStatusChips(allData.data || []);
+            fillOwnerFilter(allData.owners || []);
+            applyFilters();
+          })
+          .withFailureHandler(showError)
+          .dhtmlxGantt_getData({});
+      }
+
+      function fillOwnerFilter(owners) {
+        const current = ownerFilter.value;
+        ownerFilter.innerHTML = '<option value="">Tất cả</option>' +
+          owners.map(function(owner) {
+            return '<option value="' + escapeHtml(owner) + '">' + escapeHtml(owner) + '</option>';
+          }).join('');
+        ownerFilter.value = owners.indexOf(current) !== -1 ? current : '';
+      }
+
+      function getProjectStorageKey() {
+        const meta = (allData && allData.meta) || {};
+        const raw = meta.projectId || meta.spreadsheetId || meta.spreadsheetName || meta.projectName ||
+          currentProjectName || allData.sheetName || 'default';
+        return sanitizeFileName(String(raw || 'default')) || 'default';
+      }
+
+      function getMainMilestoneStorageKey() {
+        return 'dhtmlxGantt.mainMilestones.' + getProjectStorageKey();
+      }
+
+      function loadMainMilestoneIds() {
+        try {
+          const raw = localStorage.getItem(getMainMilestoneStorageKey());
+          const ids = raw ? JSON.parse(raw) : [];
+          return new Set(Array.isArray(ids) ? ids.map(function(id) { return String(id); }) : []);
+        } catch (error) {
+          console.warn('Cannot load main milestone ids', error);
+          return new Set();
+        }
+      }
+
+      function saveMainMilestoneIds() {
+        try {
+          localStorage.setItem(getMainMilestoneStorageKey(), JSON.stringify(Array.from(mainMilestoneIds)));
+        } catch (error) {
+          console.warn('Cannot save main milestone ids', error);
+        }
+      }
+
+      function isMainMilestoneTask(taskId) {
+        return mainMilestoneIds.has(String(taskId));
+      }
+
+      function updateMainMilestoneUi() {
+        const count = mainMilestoneIds.size;
+        mainMilestoneModeButton.classList.toggle('active', isMainMilestoneSelectMode);
+        mainMilestoneModeButton.textContent = 'Chọn mốc chính' + (count ? ' (' + count + ')' : '');
+        mainMilestoneBadge.textContent = 'Mốc chính: ' + count;
+      }
+
+      function toggleMainMilestone(taskId) {
+        const id = String(taskId);
+        if (mainMilestoneIds.has(id)) {
+          mainMilestoneIds.delete(id);
+        } else {
+          mainMilestoneIds.add(id);
+        }
+        saveMainMilestoneIds();
+        updateMainMilestoneUi();
+        applyFilters();
+      }
+
+      function clearMainMilestones() {
+        mainMilestoneIds = new Set();
+        saveMainMilestoneIds();
+        updateMainMilestoneUi();
+        applyFilters();
+      }
+
+      function getTaskWbsLevel(task) {
+        const candidates = [task && task.wbsLevel, task && task.wbs_level, task && task.level, task && task.WBS_LEVEL_SYS];
+        for (let i = 0; i < candidates.length; i++) {
+          const value = Number(candidates[i]);
+          if (Number.isFinite(value) && value > 0) return value;
+        }
+
+        const wbs = String((task && (task.wbs || task.code || task.text)) || '').trim();
+        if (!wbs) return 999;
+
+        if (/^[IVXLCDM]+(\.\d+)*$/i.test(wbs)) return wbs.split('.').length;
+        if (/^\d+(\.\d+)*$/.test(wbs)) return wbs.split('.').length;
+
+        const match = normalizeText(wbs).match(/cap\s*(\d+)/i);
+        return match ? Number(match[1]) : 999;
+      }
+
+      function shouldDisplayTaskByPresentation(task) {
+        if (presentationFilterMode === 'wbs-1-2') return getTaskWbsLevel(task) <= 2;
+        if (presentationFilterMode === 'wbs-1-3') return getTaskWbsLevel(task) <= 3;
+        if (presentationFilterMode === 'wbs-1-4') return getTaskWbsLevel(task) <= 4;
+        if (presentationFilterMode === 'main-milestones') return isMainMilestoneTask(task && task.id);
+        return true;
+      }
+
+      function getPresentationFilterLabel() {
+        const labels = {
+          all: 'Tất cả',
+          'wbs-1-2': 'Cấp 1-2',
+          'wbs-1-3': 'Cấp 1-3',
+          'wbs-1-4': 'Cấp 1-4',
+          'main-milestones': 'Chỉ mốc chính'
+        };
+        return labels[presentationFilterMode] || labels.all;
+      }
+
+      function applyFilters() {
+        if (!window.gantt) return;
+
+        const query = normalizeText(searchInput.value);
+        const owner = ownerFilter.value;
+        const executionStatus = executionStatusFilter.value || 'ALL';
+        const scheduleStatus = scheduleStatusFilter.value || 'ALL';
+        presentationFilterMode = presentationFilter.value || 'all';
+        const matched = (allData.data || []).filter(function(task) {
+          const matchName = !query || normalizeText(task.text).indexOf(query) !== -1;
+          const matchOwner = !owner || task.owner === owner;
+          const matchExecutionStatus = executionStatus === 'ALL' || task.executionStatusNorm === executionStatus;
+          const matchScheduleStatus = scheduleStatus === 'ALL' || task.scheduleStatus === scheduleStatus;
+          return matchName && matchOwner && matchExecutionStatus && matchScheduleStatus && shouldDisplayTaskByPresentation(task);
+        });
+        const taskById = {};
+        const visible = {};
+
+        (allData.data || []).forEach(function(task) {
+          taskById[String(task.id)] = task;
+        });
+        matched.forEach(function(task) {
+          if (presentationFilterMode === 'main-milestones') {
+            visible[String(task.id)] = true;
+          } else {
+            markTaskAndParentsVisible(task, taskById, visible);
+          }
+        });
+
+        const tasks = (allData.data || []).filter(function(task) {
+          return visible[String(task.id)];
+        });
+        visibleTaskIdsForPresentation = new Set(tasks.map(function(task) {
+          return String(task.id);
+        }));
+        const visibleLinks = (allData.links || []).filter(function(link) {
+          return visibleTaskIdsForPresentation.has(String(link.source)) && visibleTaskIdsForPresentation.has(String(link.target));
+        });
+        const links = showLinks ? visibleLinks : [];
+        const dependencySummaries = buildDependencySummaries(tasks, visibleLinks);
+        const normalizedTasks = tasks.map(function(task) {
+          return normalizeTaskForGantt(task, dependencySummaries, visibleTaskIdsForPresentation);
+        });
+        const normalizedLinks = links.map(normalizeLinkForGantt);
+
+        visibleCountEl.textContent = tasks.length;
+        linkCountEl.textContent = normalizedLinks.length;
+
+        if (presentationFilterMode === 'main-milestones' && !mainMilestoneIds.size) {
+          showState('Chưa có mốc chính nào được chọn. Hãy bật “Chọn mốc chính” và tick các dòng cần trình bày.');
+        } else {
+          hideState();
+        }
+        gantt.clearAll();
+        gantt.parse({
+          data: normalizedTasks,
+          links: normalizedLinks
+        });
+      }
+
+      function normalizeTaskForGantt(task, dependencySummaries, visibleTaskIds) {
+        const summaries = dependencySummaries && dependencySummaries[String(task.id)] ?
+          dependencySummaries[String(task.id)] :
+          { predecessors: '', successors: '' };
+        const parentId = task.parent || 0;
+        const parent = parentId && String(parentId) !== '0' && visibleTaskIds && visibleTaskIds.has(String(parentId)) ?
+          parentId :
+          0;
+
+        return {
+          id: String(task.id),
+          text: String(task.text || ''),
+          start_date: task.start_date,
+          end_date: task.end_date,
+          duration: Number(task.duration || 1),
+          progress: Number(task.progress || 0),
+          parent: parent,
+          open: true,
+          wbs: task.wbs || '',
+          owner: task.owner || '',
+          predecessorRaw: task.predecessorRaw || '',
+          note: task.note || '',
+          status: task.status || '',
+          taskCode: task.taskCode || '',
+          statusRaw: task.statusRaw || '',
+          executionStatusRaw: task.executionStatusRaw || task.statusRaw || '',
+          executionStatusNorm: task.executionStatusNorm || 'UNKNOWN',
+          executionStatusLabel: task.executionStatusLabel || '',
+          actualStart: task.actualStart || '',
+          actualFinish: task.actualFinish || '',
+          updateNote: task.updateNote || '',
+          updateDate: task.updateDate || '',
+          warning: task.warning || '',
+          predecessorSummary: summaries.predecessors || '',
+          successorSummary: summaries.successors || '',
+          scheduleStatus: task.scheduleStatus || task.progressStatus || 'UNKNOWN',
+          scheduleStatusLabel: task.scheduleStatusLabel || task.progressStatusLabel || '',
+          progressStatus: task.progressStatus || 'UNKNOWN',
+          progressStatusLabel: task.progressStatusLabel || '',
+          isDone: Boolean(task.isDone),
+          isDoneLate: Boolean(task.isDoneLate),
+          isOverdue: Boolean(task.isOverdue),
+          isPaused: Boolean(task.isPaused),
+          isPausedOverdue: Boolean(task.isPausedOverdue),
+          isInProgressOnTime: Boolean(task.isInProgressOnTime),
+          isNotStartedOnTime: Boolean(task.isNotStartedOnTime),
+          isUnknown: Boolean(task.isUnknown),
+          isInProgressByDate: Boolean(task.isInProgressByDate),
+          isFuture: Boolean(task.isFuture)
+        };
+      }
+
+      function markTaskAndParentsVisible(task, taskById, visible) {
+        let current = task;
+        const guard = {};
+
+        while (current && !guard[String(current.id)]) {
+          const id = String(current.id);
+          visible[id] = true;
+          guard[id] = true;
+
+          if (!current.parent || String(current.parent) === '0') return;
+          current = taskById[String(current.parent)];
+        }
+      }
+
+      function normalizeLinkForGantt(link) {
+        const relationType = normalizeRelationType(link);
+        const normalized = {
+          id: String(link.id),
+          source: String(link.source),
+          target: String(link.target),
+          type: String(link.type || relationTypeToDhtmlxType(relationType)),
+          relationType: relationType
+        };
+
+        if (link.lag !== undefined && link.lag !== null && link.lag !== '') {
+          normalized.lag = Number(link.lag);
+          normalized.lagLabel = formatLag(link.lag);
+        }
+
+        return normalized;
+      }
+
+      function buildDependencySummaries(tasks, links) {
+        const taskLabelById = {};
+        const summaries = {};
+
+        (tasks || []).forEach(function(task) {
+          const id = String(task.id);
+          taskLabelById[id] = task.wbs || task.taskCode || id;
+          summaries[id] = { predecessors: [], successors: [] };
+        });
+
+        (links || []).forEach(function(link) {
+          const source = String(link.source);
+          const target = String(link.target);
+          const relationType = normalizeRelationType(link);
+          const relationLabel = formatRelationType(relationType);
+          const lagLabel = formatLag(link.lag);
+          const sourceLabel = taskLabelById[source] || source;
+          const targetLabel = taskLabelById[target] || target;
+          const sourceText = sourceLabel + ' ' + relationLabel + (lagLabel ? ' ' + lagLabel : '');
+          const targetText = targetLabel + ' ' + relationLabel + (lagLabel ? ' ' + lagLabel : '');
+
+          if (!summaries[target]) summaries[target] = { predecessors: [], successors: [] };
+          if (!summaries[source]) summaries[source] = { predecessors: [], successors: [] };
+
+          summaries[target].predecessors.push(sourceText);
+          summaries[source].successors.push(targetText);
+        });
+
+        Object.keys(summaries).forEach(function(id) {
+          summaries[id] = {
+            predecessors: summaries[id].predecessors.length ? summaries[id].predecessors.join(', ') : '',
+            successors: summaries[id].successors.length ? summaries[id].successors.join(', ') : '',
+          };
+        });
+
+        return summaries;
+      }
+
+      function normalizeRelationType(link) {
+        const raw = String((link && (link.relationType || link.type)) || '').trim().toUpperCase();
+
+        if (raw === 'FS' || raw === '0' || raw === 'FINISH_TO_START') return 'FS';
+        if (raw === 'SS' || raw === '1' || raw === 'START_TO_START') return 'SS';
+        if (raw === 'FF' || raw === '2' || raw === 'FINISH_TO_FINISH') return 'FF';
+        if (raw === 'SF' || raw === '3' || raw === 'START_TO_FINISH') return 'UNKNOWN';
+
+        return 'UNKNOWN';
+      }
+
+      function relationTypeToDhtmlxType(relationType) {
+        if (relationType === 'SS') return '1';
+        if (relationType === 'FF') return '2';
+        if (relationType === 'SF') return '3';
+        return '0';
+      }
+
+      function formatLag(value) {
+        if (value === undefined || value === null || value === '') return '';
+        const lag = Number(value);
+        if (isNaN(lag) || lag === 0) return '';
+        return (lag > 0 ? '+' : '') + lag + 'd';
+      }
+
+      function formatRelationType(relationType) {
+        return relationType === 'UNKNOWN' ? 'Không xác định' : relationType;
+      }
+
+      function inferProjectName(value) {
+        const text = String(value || '').trim();
+        const normalized = normalizeText(text);
+
+        if (normalized.indexOf('nam cam') !== -1) return 'Nam Cấm';
+        if (normalized.indexOf('hung loc') !== -1) return 'Hưng Lộc';
+
+        return text
+          .replace(/\b(qltd|quan ly tien do|tien do|gantt|template)\b/ig, '')
+          .replace(/[_-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      function updateStatusChips(tasks) {
+        const counts = (tasks || []).reduce(function(acc, task) {
+          const status = task.scheduleStatus || task.progressStatus || 'UNKNOWN';
+          if (status === 'OVERDUE' || status === 'PAUSED_OVERDUE') acc.overdue++;
+          if (status === 'IN_PROGRESS_ON_TIME') acc.doing++;
+          if (status === 'DONE_ON_TIME' || status === 'DONE_LATE') acc.done++;
+          if (status === 'PAUSED_ON_TIME' || status === 'PAUSED_OVERDUE') acc.paused++;
+          if (status === 'UNKNOWN') acc.unknown++;
+          return acc;
+        }, { overdue: 0, doing: 0, done: 0, paused: 0, unknown: 0 });
+
+        chipOverdueEl.textContent = counts.overdue;
+        chipDoingEl.textContent = counts.doing;
+        chipDoneEl.textContent = counts.done;
+        chipPausedEl.textContent = counts.paused;
+        chipUnknownEl.textContent = counts.unknown;
+      }
+
+      function gridEllipsis(value, extraClass) {
+        const text = value || '—';
+        const className = extraClass ? 'grid-ellipsis ' + extraClass : 'grid-ellipsis';
+        return '<span class="' + className + '" title="' + escapeAttribute(text) + '">' + escapeHtml(text) + '</span>';
+      }
+
+      function detailRow(label, value) {
+        return [
+          '<div class="detail-label">' + escapeHtml(label) + '</div>',
+          '<div class="detail-value">' + escapeHtml(value || '—') + '</div>'
+        ].join('');
+      }
+
+      function detailWide(label, value) {
+        return [
+          '<div class="detail-wide">',
+          '<div class="detail-label">' + escapeHtml(label) + '</div>',
+          '<div class="detail-value">' + escapeHtml(value || '—') + '</div>',
+          '</div>'
+        ].join('');
+      }
+
+      function getTaskDurationDays(task, start, end) {
+        const duration = Number(task && task.duration);
+        if (!isNaN(duration) && duration > 0) return duration;
+
+        const startDate = start instanceof Date ? start : parseIsoDate(task && task.start_date);
+        const endDate = end instanceof Date ? end : parseIsoDate(task && task.end_date);
+        if (!startDate || !endDate) return 0;
+
+        return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
+      }
+
+      function formatDateDisplay(value) {
+        const date = value instanceof Date ? value : parseIsoDate(value);
+        if (!date) return '';
+
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const yyyy = date.getFullYear();
+
+        return dateFormatSelect.value === 'dd/MM' ? dd + '/' + mm : dd + '/' + mm + '/' + yyyy;
+      }
+
+      function formatDuration(value) {
+        const duration = Number(value);
+        return !isNaN(duration) && duration > 0 ? String(Math.round(duration)) : '—';
+      }
+
+      function formatGridDate(value) {
+        const date = value instanceof Date ? value : parseIsoDate(value);
+        if (!date) return '—';
+
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const yy = String(date.getFullYear()).slice(-2);
+        return dd + '/' + mm + '/' + yy;
+      }
+
+      function formatSideDateShort(value) {
+        const date = value instanceof Date ? value : parseIsoDate(value);
+        if (!date) return '';
+
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        return dd + '/' + mm;
+      }
+
+      function shouldShowSideDate(task) {
+        if (!showDateLabels || !task) return false;
+        if (task.$no_bar) return false;
+        if (gantt.config.types && task.type === gantt.config.types.project) return false;
+        return true;
+      }
+
+      function installQltdSideDateTemplates() {
+        if (!window.gantt || !gantt.templates) return;
+
+        gantt.templates.leftside_text = function(start, end, task) {
+          if (!shouldShowSideDate(task)) return '';
+          return formatSideDateShort(task.start_date || start);
+        };
+
+        gantt.templates.rightside_text = function(start, end, task) {
+          if (!shouldShowSideDate(task)) return '';
+          return formatSideDateShort(task.end_date || end);
+        };
+      }
+
+      function formatWeekNumberOnly(date) {
+        const week = gantt.date && typeof gantt.date.getWeek === 'function' ?
+          gantt.date.getWeek(date) :
+          getIsoWeekNumber(date);
+        return String(week).padStart(2, '0');
+      }
+
+      function getIsoWeekNumber(date) {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+      }
+
+      function formatDateTimeDisplay(value) {
+        const date = value instanceof Date ? value : parseIsoDate(value);
+        if (!date) return '--';
+
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const yyyy = date.getFullYear();
+        const hh = String(date.getHours()).padStart(2, '0');
+        const min = String(date.getMinutes()).padStart(2, '0');
+        return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min;
+      }
+
+      function parseIsoDate(value) {
+        if (!value) return null;
+        if (value instanceof Date && !isNaN(value.getTime())) return value;
+
+        const parts = String(value).split('-');
+        if (parts.length !== 3) return null;
+
+        const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return isNaN(date.getTime()) ? null : date;
+      }
+
+      function normalizeText(value) {
+        return String(value || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/đ/g, 'd');
+      }
+
+      function syncViewButtons() {
+        viewButtons.forEach(function(button) {
+          button.classList.toggle('active', button.dataset.view === currentView);
+        });
+      }
+
+      function showState(message) {
+        stateEl.textContent = message;
+        stateEl.classList.add('visible');
+        stateEl.classList.remove('error');
+      }
+
+      function hideState() {
+        stateEl.textContent = '';
+        stateEl.classList.remove('visible', 'error');
+      }
+
+      function showError(error) {
+        const message = error && error.message ? error.message : String(error || 'Không tải được dữ liệu.');
+        stateEl.textContent = message;
+        stateEl.classList.add('visible', 'error');
+      }
+
+      function escapeHtml(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function escapeAttribute(value) {
+        return escapeHtml(value).replace(/\n/g, ' ');
+      }
+
+      function wait(ms) {
+        return new Promise(function(resolve) {
+          setTimeout(resolve, ms);
+        });
+      }
+
+      function updatePdfHeader() {
+        const title = projectTitleEl.textContent || 'Bảng tiến độ dự án';
+        const sourceName = sheetNameEl.textContent || 'Tien_do_tong_hop';
+        pdfTitle.textContent = title;
+        pdfMeta.textContent = 'Nguồn: ' + sourceName +
+          ' | Ngày xuất: ' + formatDateTimeDisplay(new Date()) +
+          ' | Hiển thị: ' + getPresentationFilterLabel();
+      }
+
+      function setPdfStatus(message, isError) {
+        pdfStatus.textContent = message || '';
+        pdfStatus.classList.toggle('error', Boolean(isError));
+      }
+
+      function sanitizeFileName(name) {
+        const safe = String(name || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/đ/g, 'd')
+          .replace(/Đ/g, 'D')
+          .replace(/[^\w\-]+/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_+|_+$/g, '');
+        return safe || 'Tien_do_Gantt';
+      }
+
+      function formatPdfStamp(date) {
+        const value = date instanceof Date && !isNaN(date.getTime()) ? date : new Date();
+        const yyyy = value.getFullYear();
+        const mm = String(value.getMonth() + 1).padStart(2, '0');
+        const dd = String(value.getDate()).padStart(2, '0');
+        const hh = String(value.getHours()).padStart(2, '0');
+        const min = String(value.getMinutes()).padStart(2, '0');
+        return String(yyyy) + mm + dd + '_' + hh + min;
+      }
+
+      function getPdfProjectName() {
+        const rawTitle = projectTitleEl ? projectTitleEl.textContent : '';
+        const titleProject = String(rawTitle || '').replace(/^Bảng tiến độ dự án\s*/i, '').trim();
+        return String(currentProjectName || titleProject || 'Du_an').trim();
+      }
+
+      function getPdfFileName() {
+        const project = sanitizeFileName(getPdfProjectName());
+        return sanitizeFileName('Tien_do_Gantt_' + project + '_' + formatPdfStamp(new Date())) + '.pdf';
+      }
+
+      function nextFrame() {
+        return new Promise(function(resolve) {
+          requestAnimationFrame(function() {
+            requestAnimationFrame(resolve);
+          });
+        });
+      }
+
+      function getVisibleTasksForExport() {
+        const tasks = [];
+        gantt.eachTask(function(task) {
+          if (!task || task.$no_bar || !task.start_date || !task.end_date) return;
+          if (typeof gantt.isTaskVisible === 'function' && !gantt.isTaskVisible(task.id)) return;
+          tasks.push(task);
+        });
+        return tasks;
+      }
+
+      function getExportDateRange() {
+        const tasks = getVisibleTasksForExport();
+        let minDate = null;
+        let maxDate = null;
+
+        tasks.forEach(function(task) {
+          const start = task.start_date instanceof Date ? task.start_date : parseIsoDate(task.start_date);
+          const end = task.end_date instanceof Date ? task.end_date : parseIsoDate(task.end_date);
+          if (!start || !end) return;
+          if (!minDate || start < minDate) minDate = start;
+          if (!maxDate || end > maxDate) maxDate = end;
+        });
+
+        if (!minDate || !maxDate) {
+          const state = gantt.getState ? gantt.getState() : {};
+          minDate = state.min_date || new Date();
+          maxDate = state.max_date || gantt.date.add(minDate, 1, 'month');
+        }
+
+        return {
+          start: gantt.date.add(minDate, -7, 'day'),
+          end: gantt.date.add(maxDate, 7, 'day')
+        };
+      }
+
+      function getFullExportSize(range) {
+        const tasks = getVisibleTasksForExport();
+        const rowHeight = Number(gantt.config.row_height || 36);
+        const gridWidth = Number(gantt.config.grid_width || 560);
+        let timelineWidthByDate = 0;
+
+        if (range && range.end && typeof gantt.posFromDate === 'function') {
+          try {
+            timelineWidthByDate = Math.ceil(gantt.posFromDate(range.end));
+          } catch (error) {
+            timelineWidthByDate = 0;
+          }
+        }
+
+        const taskAreaWidth = Math.max(
+          timelineWidthByDate,
+          gantt.$task_data ? gantt.$task_data.scrollWidth : 0,
+          gantt.$task ? gantt.$task.scrollWidth : 0,
+          gantt.$root ? gantt.$root.scrollWidth : 0,
+          1200
+        );
+        const headerHeight = Math.max(96, Number(gantt.config.scale_height || 54) + 42);
+
+        return {
+          width: Math.max(Math.ceil(gridWidth + taskAreaWidth + 120), 1200),
+          height: Math.max(Math.ceil(headerHeight + tasks.length * rowHeight + 100), 700)
+        };
+      }
+
+      async function prepareGanttForPdfCapture() {
+        const ganttEl = document.getElementById('gantt_here');
+        const contentEl = document.querySelector('.content');
+        const cardEl = document.querySelector('.gantt-card');
+        const rootEl = gantt.$root || document.querySelector('.gantt_container') || ganttEl;
+        const captureEl = document.querySelector('.content') || rootEl;
+        const range = getExportDateRange();
+        const prev = {
+          smartRendering: gantt.config.smart_rendering,
+          autosize: gantt.config.autosize,
+          fitTasks: gantt.config.fit_tasks,
+          autofit: gantt.config.autofit,
+          startDate: gantt.config.start_date,
+          endDate: gantt.config.end_date,
+          scroll: gantt.getScrollState ? gantt.getScrollState() : null,
+          cssWidth: document.documentElement.style.getPropertyValue('--pdf-gantt-width'),
+          cssHeight: document.documentElement.style.getPropertyValue('--pdf-gantt-height'),
+          bodyOverflow: document.body.style.overflow,
+          contentWidth: contentEl ? contentEl.style.width : '',
+          contentHeight: contentEl ? contentEl.style.height : '',
+          contentMinWidth: contentEl ? contentEl.style.minWidth : '',
+          contentMinHeight: contentEl ? contentEl.style.minHeight : '',
+          contentOverflow: contentEl ? contentEl.style.overflow : '',
+          cardWidth: cardEl ? cardEl.style.width : '',
+          cardHeight: cardEl ? cardEl.style.height : '',
+          cardMinWidth: cardEl ? cardEl.style.minWidth : '',
+          cardMinHeight: cardEl ? cardEl.style.minHeight : '',
+          cardOverflow: cardEl ? cardEl.style.overflow : '',
+          ganttWidth: ganttEl.style.width,
+          ganttHeight: ganttEl.style.height,
+          ganttMinWidth: ganttEl.style.minWidth,
+          ganttMinHeight: ganttEl.style.minHeight,
+          rootWidth: rootEl ? rootEl.style.width : '',
+          rootHeight: rootEl ? rootEl.style.height : '',
+          rootOverflow: rootEl ? rootEl.style.overflow : '',
+          captureWidth: captureEl ? captureEl.style.width : '',
+          captureHeight: captureEl ? captureEl.style.height : '',
+          captureOverflow: captureEl ? captureEl.style.overflow : ''
+        };
+
+        installQltdSideDateTemplates();
+        gantt.config.start_date = range.start;
+        gantt.config.end_date = range.end;
+        gantt.config.smart_rendering = false;
+        gantt.config.fit_tasks = false;
+        gantt.config.autofit = false;
+        gantt.config.autosize = 'xy';
+        document.body.classList.add('pdf-capture-mode');
+        document.body.style.overflow = 'visible';
+
+        if (gantt.scrollTo) gantt.scrollTo(0, 0);
+        gantt.render();
+        await nextFrame();
+
+        const full = getFullExportSize(range);
+        document.documentElement.style.setProperty('--pdf-gantt-width', full.width + 'px');
+        document.documentElement.style.setProperty('--pdf-gantt-height', full.height + 'px');
+
+        [contentEl, cardEl, ganttEl, rootEl, captureEl].forEach(function(el) {
+          if (!el) return;
+          el.style.width = full.width + 'px';
+          el.style.minWidth = full.width + 'px';
+          el.style.height = full.height + 'px';
+          el.style.minHeight = full.height + 'px';
+          el.style.overflow = 'visible';
+        });
+
+        if (typeof gantt.setSizes === 'function') gantt.setSizes();
+        gantt.render();
+        await nextFrame();
+
+        return {
+          prev: prev,
+          captureEl: captureEl,
+          width: Math.max(full.width, captureEl ? captureEl.scrollWidth : 0),
+          height: Math.max(full.height, captureEl ? captureEl.scrollHeight : 0)
+        };
+      }
+
+      async function restoreGanttAfterPdfCapture(ctx) {
+        if (!ctx || !ctx.prev) return;
+
+        const ganttEl = document.getElementById('gantt_here');
+        const contentEl = document.querySelector('.content');
+        const cardEl = document.querySelector('.gantt-card');
+        const rootEl = gantt.$root || document.querySelector('.gantt_container') || ganttEl;
+        const captureEl = ctx.captureEl || document.querySelector('.content') || rootEl;
+        const prev = ctx.prev;
+
+        document.body.classList.remove('pdf-capture-mode');
+        document.body.style.overflow = prev.bodyOverflow || '';
+        document.documentElement.style.setProperty('--pdf-gantt-width', prev.cssWidth || '');
+        if (!prev.cssWidth) document.documentElement.style.removeProperty('--pdf-gantt-width');
+        document.documentElement.style.setProperty('--pdf-gantt-height', prev.cssHeight || '');
+        if (!prev.cssHeight) document.documentElement.style.removeProperty('--pdf-gantt-height');
+
+        function restoreElement(el, width, height, minWidth, minHeight, overflow) {
+          if (!el) return;
+          el.style.width = width || '';
+          el.style.height = height || '';
+          el.style.minWidth = minWidth || '';
+          el.style.minHeight = minHeight || '';
+          el.style.overflow = overflow || '';
+        }
+
+        restoreElement(contentEl, prev.contentWidth, prev.contentHeight, prev.contentMinWidth, prev.contentMinHeight, prev.contentOverflow);
+        restoreElement(cardEl, prev.cardWidth, prev.cardHeight, prev.cardMinWidth, prev.cardMinHeight, prev.cardOverflow);
+        restoreElement(ganttEl, prev.ganttWidth, prev.ganttHeight, prev.ganttMinWidth, prev.ganttMinHeight, '');
+        restoreElement(rootEl, prev.rootWidth, prev.rootHeight, '', '', prev.rootOverflow);
+        if (captureEl !== contentEl && captureEl !== cardEl && captureEl !== ganttEl && captureEl !== rootEl) {
+          restoreElement(captureEl, prev.captureWidth, prev.captureHeight, '', '', prev.captureOverflow);
+        }
+
+        gantt.config.start_date = prev.startDate;
+        gantt.config.end_date = prev.endDate;
+        gantt.config.smart_rendering = prev.smartRendering;
+        gantt.config.autosize = prev.autosize;
+        gantt.config.fit_tasks = prev.fitTasks;
+        gantt.config.autofit = prev.autofit;
+        installQltdSideDateTemplates();
+
+        gantt.render();
+        await nextFrame();
+        if (gantt.scrollTo && prev.scroll) {
+          gantt.scrollTo(prev.scroll.x || 0, prev.scroll.y || 0);
+        }
+        if (typeof gantt.setSizes === 'function') gantt.setSizes();
+      }
+
+      function addCanvasPagesToPdf(pdf, canvas) {
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const pageCanvasHeight = Math.max(1, Math.floor((pageHeight / pageWidth) * canvas.width));
+        let sourceY = 0;
+
+        while (sourceY < canvas.height) {
+          const sliceHeight = Math.min(pageCanvasHeight, canvas.height - sourceY);
+          const pageCanvas = document.createElement('canvas');
+          pageCanvas.width = canvas.width;
+          pageCanvas.height = sliceHeight;
+
+          const ctx = pageCanvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          ctx.drawImage(canvas, 0, sourceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+
+          const pageImgData = pageCanvas.toDataURL('image/png');
+          const pageImgHeight = (sliceHeight * pageWidth) / canvas.width;
+          if (sourceY > 0) pdf.addPage();
+          pdf.addImage(pageImgData, 'PNG', 0, 0, pageWidth, pageImgHeight);
+
+          sourceY += sliceHeight;
+        }
+      }
+
+      async function exportGanttToPdfSnapshot() {
+        if (!window.gantt) return;
+        if (!window.html2canvas || !window.jspdf || !window.jspdf.jsPDF) {
+          setPdfStatus('Không tải được thư viện xuất PDF. Vui lòng kiểm tra kết nối mạng.', true);
+          return;
+        }
+
+        let captureState = null;
+        let warningTimer = null;
+        exportPdfButton.disabled = true;
+        setPdfStatus('Đang tạo PDF từ DHTMLX...');
+
+        try {
+          warningTimer = setTimeout(function() {
+            setPdfStatus('Đang tạo PDF, vui lòng chờ thêm...');
+          }, 30000);
+
+          updatePdfHeader();
+          captureState = await prepareGanttForPdfCapture();
+          const captureEl = captureState.captureEl;
+          if (!captureEl) {
+            throw new Error('Không tìm thấy vùng Gantt để xuất PDF.');
+          }
+          const width = Math.max(captureState.width, captureEl.scrollWidth, captureEl.clientWidth);
+          const height = Math.max(captureState.height, captureEl.scrollHeight, captureEl.clientHeight);
+          const pixelArea = width * height;
+          const scale = pixelArea > 12000000 ? 1 : 2;
+          const canvas = await window.html2canvas(captureEl, {
+            backgroundColor: '#ffffff',
+            scale: scale,
+            useCORS: true,
+            logging: false,
+            windowWidth: width,
+            windowHeight: height,
+            width: width,
+            height: height,
+            scrollX: 0,
+            scrollY: 0
+          });
+
+          const pdf = new window.jspdf.jsPDF({
+            orientation: 'landscape',
+            unit: 'mm',
+            format: 'a3'
+          });
+          addCanvasPagesToPdf(pdf, canvas);
+          pdf.save(getPdfFileName());
+          setPdfStatus('Đã tạo PDF.');
+        } catch (error) {
+          console.error(error);
+          setPdfStatus('Không tạo được PDF. Vui lòng thử chọn zoom Month/Quarter hoặc giảm số dòng hiển thị.', true);
+        } finally {
+          if (warningTimer) clearTimeout(warningTimer);
+          if (captureState) await restoreGanttAfterPdfCapture(captureState);
+          exportPdfButton.disabled = false;
+          setTimeout(function() {
+            if (!pdfStatus.classList.contains('error')) setPdfStatus('');
+          }, 3500);
+        }
+      }
+
+      viewButtons.forEach(function(button) {
+        button.addEventListener('click', function() {
+          setScale(button.dataset.view);
+        });
+      });
+      dateFormatSelect.addEventListener('change', function() {
+        configureColumns();
+        gantt.render();
+      });
+      ownerFilter.addEventListener('change', applyFilters);
+      executionStatusFilter.addEventListener('change', applyFilters);
+      scheduleStatusFilter.addEventListener('change', applyFilters);
+      presentationFilter.addEventListener('change', applyFilters);
+      searchInput.addEventListener('input', applyFilters);
+      mainMilestoneModeButton.addEventListener('click', function() {
+        isMainMilestoneSelectMode = !isMainMilestoneSelectMode;
+        configureColumns();
+        updateMainMilestoneUi();
+        applyFilters();
+      });
+      resetMainMilestonesButton.addEventListener('click', clearMainMilestones);
+      linksToggleButton.addEventListener('click', function() {
+        showLinks = !showLinks;
+        gantt.config.show_links = showLinks;
+        linksToggleButton.classList.toggle('active', showLinks);
+        linkLegend.classList.toggle('is-muted', !showLinks);
+        applyFilters();
+      });
+      dateLabelsToggleButton.addEventListener('click', function() {
+        showDateLabels = !showDateLabels;
+        dateLabelsToggleButton.classList.toggle('active', showDateLabels);
+        installQltdSideDateTemplates();
+        gantt.render();
+      });
+      exportPdfButton.addEventListener('click', exportGanttToPdfSnapshot);
+      reloadButton.addEventListener('click', loadData);
+
+      if (initGantt()) {
+        configureColumns();
+        setScale(currentView);
+        loadData();
+      }
+    </script>
+  </body>
+</html>
