@@ -577,8 +577,7 @@ function qltdPbDetailRenderForm(context) {
         </div>
 
         <div class="pb-detail-field span-2">
-          <label for="pbDetailOwnerSearch">Người chủ trì</label>
-          <input id="pbDetailOwnerSearch" type="search" placeholder="Tìm theo tên hoặc vị trí" ${assigneeDisabled ? 'disabled' : ''}>
+          <label for="pbDetailOwner">Người chủ trì</label>
           <select id="pbDetailOwner" name="owner" ${assigneeDisabled ? 'disabled' : ''}>
             <option value="">Chưa phân công</option>${currentOwnerOption}${ownerOptions}
           </select>
@@ -966,15 +965,6 @@ function qltdPbDetailHandleChange(event) {
   if (budgetField) budgetField.classList.toggle('hidden', !event.target.checked);
 }
 
-function qltdPbDetailHandleInput(event) {
-  if (event.target?.id !== 'pbDetailOwnerSearch') return;
-  const query = qltdPbDetailNormalize(event.target.value);
-  document.querySelectorAll('#pbDetailOwner option').forEach((option, index) => {
-    if (index === 0) return;
-    option.hidden = !!query && !qltdPbDetailNormalize(option.textContent).includes(query);
-  });
-}
-
 function qltdPbDetailHandleDeptPlanRendered(event) {
   const detail = event.detail || {};
   qltdPbDetailState.contextMeta = {
@@ -1025,7 +1015,6 @@ function qltdPbDetailHandleDeptPlanRendered(event) {
 function qltdPbDetailBoot() {
   qltdPbDetailEnsureStyles();
   document.addEventListener('qltd:dept-plan-rendered', qltdPbDetailHandleDeptPlanRendered);
-  document.addEventListener('input', qltdPbDetailHandleInput);
   console.info(`[QLTD] PB_DETAIL UI loaded: ${QLTD_PB_DETAIL_UI_VERSION}`);
 }
 
