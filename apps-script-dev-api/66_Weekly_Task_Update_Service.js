@@ -2085,7 +2085,7 @@ function qltdWeeklyTaskUpdatesValidateMasterStatusTransition_(validation, curren
     return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'COMPLETED_STATUS_ADMIN_REQUIRED', 'Only Admin/PMO can move a completed MASTER back to another status.', scope.meta, scope.warnings) };
   }
   const allowed = {
-    chuabatdau: { danglam: true, tamdung: true },
+    chuabatdau: { danglam: true, tamdung: true, hoanthanh: true },
     danglam: { tamdung: true, hoanthanh: true },
     tamdung: { danglam: true, hoanthanh: true }
   };
