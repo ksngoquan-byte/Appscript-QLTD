@@ -86,6 +86,11 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
     return { allowed: true, response: null };
   }
 
+  delete payload._qltdPermissionSource;
+  delete payload._qltdPermissionCode;
+  delete payload._qltdActorHomeDeptCode;
+  delete payload._qltdActorDisplayName;
+
   const identity = qltdFirebaseResolveIdentity_(payload, true);
   if (!identity.success) {
     return { allowed: false, response: identity };
@@ -121,7 +126,7 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
   payload.actorEmail = user.email;
 
   if (role === 'ADMIN' || role === 'PMO') {
-    return { allowed: true, response: null, user: user };
+    return { allowed: true, response: null, user: user, permissionSource: 'ADMIN_SCOPE' };
   }
 
   const actorMasterDeptCode = qltdMasterDeptCanonicalCode_(user.deptCode);
@@ -134,7 +139,16 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
     };
   }
 
-  const routeResult = qltdDeptScopeResolveProjectDeptForActor_(payload, actorMasterDeptCode);
+  if (!targetDept) {
+    return {
+      allowed: false,
+      response: qltdUsersBuildAuthError_('DEPT_CODE_REQUIRED', 'Thieu ma phong/ban dich.', {
+        action: action
+      })
+    };
+  }
+
+  const routeResult = qltdDeptScopeResolveProjectDeptForTarget_(payload, targetDept);
   if (!routeResult.success) {
     return {
       allowed: false,
@@ -143,18 +157,39 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
   }
 
   const projectDept = routeResult.dept;
-  const targetMasterDept = qltdMasterDeptCanonicalCode_(targetDept);
-  const targetRoutingDept = qltdDeptScopeNormalizeCode_(targetDept);
-  if (
-    targetDept &&
-    targetMasterDept !== actorMasterDeptCode &&
-    targetRoutingDept !== qltdDeptScopeNormalizeCode_(projectDept.deptCode) &&
-    targetRoutingDept !== qltdDeptScopeNormalizeCode_(projectDept.projectUnitCode)
-  ) {
+  const projectCode = routeResult.projectCode;
+  const permissionDecision = qltdResolveDeptProgressPermission_(
+    user,
+    projectCode,
+    projectDept.deptCode,
+    projectDept,
+    action
+  );
+  if (!permissionDecision.allowed) {
     const isPbDetailWrite = action === 'work_createdetailtask' || action === 'work_updatedetailtask';
+    const errorCode = qltdUserProjectDeptAccessActionAllowed_(action)
+      ? 'PROJECT_DEPT_UPDATE_FORBIDDEN'
+      : (isPbDetailWrite ? 'ACCESS_DENIED' : 'DEPT_SCOPE_DENIED');
+    if (qltdUserProjectDeptAccessActionAllowed_(action)) {
+      qltdUserProjectDeptAccessLog_({
+        action: action,
+        email: user.email,
+        displayName: user.displayName,
+        projectCode: projectCode,
+        deptCode: projectDept.deptCode,
+        taskOrReportId: qltdDeptScopeTaskOrReportId_(payload),
+        periodCode: payload.weekCode || payload.periodCode || '',
+        permissionCode: QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.UPDATE_PROGRESS,
+        permissionSource: 'DELEGATED_ACCESS',
+        homeDeptCode: user.deptCode,
+        actingForDept: projectDept.deptCode,
+        result: 'DENIED',
+        error: errorCode
+      });
+    }
     return {
       allowed: false,
-      response: qltdUsersBuildAuthError_(isPbDetailWrite ? 'ACCESS_DENIED' : 'DEPT_SCOPE_DENIED', 'Ban chi duoc lap va cap nhat du lieu thuoc phong/ban cua minh.', {
+      response: qltdUsersBuildAuthError_(errorCode, 'Ban khong co quyen cap nhat tien do cho phong/ban nay trong du an da chon.', {
         action: action,
         userDeptCode: user.deptCode,
         actorMasterDeptCode: actorMasterDeptCode,
@@ -163,10 +198,110 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
     };
   }
 
-  payload.actorMasterDeptCode = actorMasterDeptCode;
-  payload.targetProjectDeptCode = projectDept.deptCode;
+  const fieldError = qltdUserProjectDeptAccessValidateDelegatedPayload_(action, payload, permissionDecision);
+  if (fieldError) {
+    qltdUserProjectDeptAccessLog_({
+      action: action,
+      email: user.email,
+      displayName: user.displayName,
+      projectCode: projectCode,
+      deptCode: projectDept.deptCode,
+      taskOrReportId: qltdDeptScopeTaskOrReportId_(payload),
+      periodCode: payload.weekCode || payload.periodCode || '',
+      permissionCode: permissionDecision.permissionCode,
+      permissionSource: permissionDecision.source,
+      homeDeptCode: user.deptCode,
+      actingForDept: projectDept.deptCode,
+      result: 'DENIED',
+      error: fieldError.code + ':' + fieldError.forbiddenFields.join(',')
+    });
+    return {
+      allowed: false,
+      response: qltdUsersBuildAuthError_(fieldError.code, fieldError.message, {
+        action: action,
+        forbiddenFields: fieldError.forbiddenFields
+      })
+    };
+  }
+
+  payload._qltdPermissionSource = permissionDecision.source;
+  payload._qltdPermissionCode = permissionDecision.permissionCode;
+  payload._qltdActorHomeDeptCode = user.deptCode;
+  payload._qltdActorDisplayName = user.displayName;
   qltdDeptScopeForcePayloadDept_(payload, projectDept.deptCode, projectDept.deptName);
-  return { allowed: true, response: null, user: user };
+  return {
+    allowed: true,
+    response: null,
+    user: user,
+    projectCode: projectCode,
+    dept: projectDept,
+    permissionSource: permissionDecision.source,
+    permissionCode: permissionDecision.permissionCode
+  };
+}
+
+function qltdDeptScopeResolveProjectDeptForTarget_(payload, targetDeptCode) {
+  const projectCode = qltdBudgetNormalizeCode_(qltdDeptScopeReadRawPayloadProject_(payload));
+  if (!projectCode) {
+    return {
+      success: false,
+      response: qltdUsersBuildAuthError_('PROJECT_CODE_REQUIRED', 'Thieu ma du an.')
+    };
+  }
+  const deptsResult = qltdBudgetReadProjectDepts_();
+  if (deptsResult.error) {
+    return {
+      success: false,
+      response: qltdUsersBuildAuthError_('PROJECT_DEPTS_UNAVAILABLE', 'Khong doc duoc Project_Depts.', {
+        upstreamErrors: deptsResult.error.errors || []
+      })
+    };
+  }
+  const projectDepts = deptsResult.departments.filter(function(dept) {
+    return dept.projectCode === projectCode && dept.status === 'ACTIVE';
+  });
+  const dept = qltdBudgetFindProjectDept_(projectDepts, targetDeptCode);
+  if (!dept) {
+    return {
+      success: false,
+      response: qltdUsersBuildAuthError_('PROJECT_DEPT_NOT_ASSIGNED', 'Phong/ban khong ton tai hoac khong ACTIVE trong du an.', {
+        projectCode: projectCode,
+        requestedDeptCode: targetDeptCode
+      })
+    };
+  }
+  return { success: true, projectCode: projectCode, dept: dept };
+}
+
+function qltdDeptScopeTaskOrReportId_(payload) {
+  return String(payload && (
+    payload.masterTaskCode || payload.detailTaskId || payload.itemId || payload.taskId ||
+    payload.reportId || payload.updateId || payload.uid
+  ) || '').trim();
+}
+
+function qltdDeptScopeFinalizeWrite_(scopeResult, action, payload, result) {
+  if (scopeResult && scopeResult.permissionSource === 'DELEGATED_ACCESS') {
+    const error = result && result.errors && result.errors[0]
+      ? result.errors[0].code || result.errors[0].message
+      : result && (result.errorCode || result.message) || '';
+    qltdUserProjectDeptAccessLog_({
+      action: action,
+      email: scopeResult.user && scopeResult.user.email,
+      displayName: scopeResult.user && scopeResult.user.displayName,
+      projectCode: scopeResult.projectCode,
+      deptCode: scopeResult.dept && scopeResult.dept.deptCode,
+      taskOrReportId: qltdDeptScopeTaskOrReportId_(payload),
+      periodCode: payload && (payload.weekCode || payload.periodCode) || '',
+      permissionCode: scopeResult.permissionCode,
+      permissionSource: scopeResult.permissionSource,
+      homeDeptCode: scopeResult.user && scopeResult.user.deptCode,
+      actingForDept: scopeResult.dept && scopeResult.dept.deptCode,
+      result: result && result.success !== false ? 'SUCCESS' : 'FAILED',
+      error: error
+    });
+  }
+  return result;
 }
 
 function qltdDeptScopeResolveProjectDeptForActor_(payload, actorMasterDeptCode) {

@@ -306,7 +306,7 @@ function qltdDevApiHandlePost_(e) {
   }
 
   if (action === 'work_updatetask') {
-    return qltdDevApiJson_(qltdWorkUpdateTask_(payload));
+    return qltdDevApiJson_(qltdDeptScopeFinalizeWrite_(scopeResult, action, payload, qltdWorkUpdateTask_(payload)));
   }
 
   if (action === 'work_createdetailtask') {
@@ -314,11 +314,11 @@ function qltdDevApiHandlePost_(e) {
   }
 
   if (action === 'work_updatedetailtask') {
-    return qltdDevApiJson_(qltdWorkUpdateDetailTask_(payload));
+    return qltdDevApiJson_(qltdDeptScopeFinalizeWrite_(scopeResult, action, payload, qltdWorkUpdateDetailTask_(payload)));
   }
 
   if (action === 'weekly_taskupdates_save') {
-    return qltdDevApiJson_(qltdWeeklyTaskUpdatesSave_(payload));
+    return qltdDevApiJson_(qltdDeptScopeFinalizeWrite_(scopeResult, action, payload, qltdWeeklyTaskUpdatesSave_(payload)));
   }
 
   if (action === 'weekly_taskupdates_setup') {
@@ -334,11 +334,11 @@ function qltdDevApiHandlePost_(e) {
   }
 
   if (action === 'weekly_savedraft') {
-    return qltdDevApiJson_(qltdWeeklySaveDraft_(payload));
+    return qltdDevApiJson_(qltdDeptScopeFinalizeWrite_(scopeResult, action, payload, qltdWeeklySaveDraft_(payload)));
   }
 
   if (action === 'weekly_submit') {
-    return qltdDevApiJson_(qltdWeeklySubmit_(payload));
+    return qltdDevApiJson_(qltdDeptScopeFinalizeWrite_(scopeResult, action, payload, qltdWeeklySubmit_(payload)));
   }
 
   if (action === 'weekly_review') {

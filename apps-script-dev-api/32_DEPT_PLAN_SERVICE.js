@@ -52,7 +52,7 @@ function qltdDeptPlanListForProject_(projectCode, actorUser, actorEmail, request
   const allowedMappedDepts = isAdminScope
     ? mappedDepts
     : mappedDepts.filter(function(dept) {
-      return qltdWorkCanReadDept_(actorUser, dept.deptCode, dept);
+      return qltdCanReadProjectDept_(actorUser, project.projectCode, dept.deptCode, dept);
     });
 
   if (!isAdminScope && !allowedMappedDepts.length) {
@@ -106,6 +106,16 @@ function qltdDeptPlanListForProject_(projectCode, actorUser, actorEmail, request
       deptPlan.deptName = dept.deptName || deptPlan.deptCode;
       deptPlan.projectUnitCode = dept.projectUnitCode || '';
       deptPlan.projectUnitCodeRaw = dept.projectUnitCodeRaw || deptPlan.projectUnitCode;
+      const readPermission = qltdResolveDeptReadPermission_(
+        actorUser,
+        project.projectCode,
+        dept.deptCode,
+        dept
+      );
+      deptPlan.permissionSource = readPermission.source;
+      deptPlan.permissionCode = readPermission.permissionCode;
+      deptPlan.canUpdateProgress = readPermission.source === 'DELEGATED_ACCESS' ||
+        qltdCanUpdateDeptProgress_(actorUser, project.projectCode, dept.deptCode, dept, 'work_updatetask');
       qltdDeptPlanEnrichWithMasterContext_(
         deptPlan,
         masterContextResult.byCode,

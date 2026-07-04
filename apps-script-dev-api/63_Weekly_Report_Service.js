@@ -177,7 +177,7 @@ function qltdWeeklyGetDeptReports_(params) {
     filters.projectCode = contextResult.projectCode;
     filters.deptCode = contextResult.deptCode;
     scopeWarnings = contextResult.warnings || [];
-    if (!qltdWorkCanReadDept_(auth.user, contextResult.deptCode, contextResult.dept)) {
+    if (!qltdCanReadProjectDept_(auth.user, contextResult.projectCode, contextResult.deptCode, contextResult.dept)) {
       return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'Bạn không được cấp quyền truy cập vào dữ liệu phòng/ban này.', {
         email: auth.email,
         role: role,
@@ -241,6 +241,36 @@ function qltdWeeklyValidateWriteScope_(action, payload, auth, allowViewer) {
   });
   if (contextResult.error) return contextResult;
 
+  const progressPermission = qltdResolveDeptProgressPermission_(
+    auth.user,
+    contextResult.projectCode,
+    contextResult.deptCode,
+    contextResult.dept,
+    action
+  );
+  if (!progressPermission.allowed) {
+    return {
+      error: qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'PROJECT_DEPT_UPDATE_FORBIDDEN', 'User cannot prepare or submit a weekly report for this project department.', {
+        email: auth.email,
+        projectCode: contextResult.projectCode,
+        deptCode: contextResult.deptCode,
+        weekCode: weekCode
+      }, contextResult.warnings)
+    };
+  }
+  const delegatedFieldError = qltdUserProjectDeptAccessValidateDelegatedPayload_(action, payload, progressPermission);
+  if (delegatedFieldError) {
+    return {
+      error: qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, delegatedFieldError.code, delegatedFieldError.message, {
+        email: auth.email,
+        projectCode: contextResult.projectCode,
+        deptCode: contextResult.deptCode,
+        weekCode: weekCode,
+        forbiddenFields: delegatedFieldError.forbiddenFields
+      }, contextResult.warnings)
+    };
+  }
+
   const targetEmail = qltdWorkNormalizeEmail_(payload.userEmail || auth.email);
   const targetUser = qltdWorkFindActiveUserByEmail_(targetEmail);
   const meta = {
@@ -261,12 +291,12 @@ function qltdWeeklyValidateWriteScope_(action, payload, auth, allowViewer) {
       error: qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'User can only write own weekly reports.', meta, contextResult.warnings)
     };
   }
-  if (!qltdWorkIsAdminScope_(auth.user) && !qltdWorkSameDept_(auth.user, contextResult.deptCode, contextResult.dept)) {
+  if (!qltdWorkIsAdminScope_(auth.user) && progressPermission.source !== 'DELEGATED_ACCESS' && !qltdWorkSameDept_(auth.user, contextResult.deptCode, contextResult.dept)) {
     return {
       error: qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'User can only write weekly reports for own department.', meta, contextResult.warnings)
     };
   }
-  if (!qltdWorkSameDept_(targetUser, contextResult.deptCode, contextResult.dept)) {
+  if (progressPermission.source !== 'DELEGATED_ACCESS' && !qltdWorkSameDept_(targetUser, contextResult.deptCode, contextResult.dept)) {
     return {
       error: qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'USER_DEPT_MISMATCH', 'Report user DeptCode does not match report DeptCode.', meta, contextResult.warnings)
     };
@@ -280,6 +310,9 @@ function qltdWeeklyValidateWriteScope_(action, payload, auth, allowViewer) {
     userEmail: targetEmail,
     user: targetUser,
     weekCode: weekCode,
+    permissionSource: progressPermission.source,
+    permissionCode: progressPermission.permissionCode,
+    actingForDept: contextResult.deptCode,
     warnings: contextResult.warnings || [],
     error: null
   };
@@ -348,6 +381,10 @@ function qltdWeeklyBuildReportRowObject_(payload, scope, base, status, now) {
     Recommendation: qltdWeeklyPickPayload_(payload, 'recommendation', base.Recommendation),
     TaskCodes: qltdWeeklyNormalizeTaskCodes_(qltdWeeklyPickPayload_(payload, 'taskCodes', base.TaskCodes)),
     Status: status,
+    PreparedBy: scope.userEmail,
+    SubmittedBy: status === 'SUBMITTED' ? scope.userEmail : String(base.SubmittedBy || ''),
+    ActingForDept: scope.actingForDept || scope.deptCode,
+    PermissionSource: scope.permissionSource || 'HOME_DEPT',
     UpdatedAt: now,
     CreatedAt: String(base.CreatedAt || '').trim() || now
   });
@@ -454,7 +491,11 @@ function qltdWeeklyNormalizeReportObject_(object) {
     reviewedAt: String(object.ReviewedAt || ''),
     reviewNote: String(object.ReviewNote || ''),
     updatedAt: String(object.UpdatedAt || ''),
-    createdAt: String(object.CreatedAt || '')
+    createdAt: String(object.CreatedAt || ''),
+    preparedBy: qltdWorkNormalizeEmail_(object.PreparedBy || object.UserEmail),
+    submittedBy: qltdWorkNormalizeEmail_(object.SubmittedBy || (qltdWorkNormalizeReportStatus_(object.Status) === 'SUBMITTED' ? object.UserEmail : '')),
+    actingForDept: qltdWorkNormalizeCode_(object.ActingForDept || object.DeptCode),
+    permissionSource: String(object.PermissionSource || '').trim().toUpperCase()
   };
 }
 
@@ -476,7 +517,11 @@ function qltdWeeklyPublicReport_(report) {
     reviewedAt: report.reviewedAt,
     reviewNote: report.reviewNote,
     updatedAt: report.updatedAt,
-    createdAt: report.createdAt
+    createdAt: report.createdAt,
+    preparedBy: report.preparedBy,
+    submittedBy: report.submittedBy,
+    actingForDept: report.actingForDept,
+    permissionSource: report.permissionSource
   };
 }
 

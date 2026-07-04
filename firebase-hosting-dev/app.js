@@ -3308,7 +3308,7 @@ function getBackendErrorMessage(payload, fallback) {
 }
 
 function isDeptAccessDenied(payload) {
-  return ['ACCESS_DENIED', 'PERMISSION_DENIED', 'DEPT_SCOPE_DENIED', 'PROJECT_DEPT_NOT_ASSIGNED'].includes(getBackendErrorCode(payload));
+  return ['ACCESS_DENIED', 'PERMISSION_DENIED', 'DEPT_SCOPE_DENIED', 'PROJECT_DEPT_NOT_ASSIGNED', 'PROJECT_DEPT_UPDATE_FORBIDDEN', 'DELEGATED_PROGRESS_FIELDS_FORBIDDEN'].includes(getBackendErrorCode(payload));
 }
 
 function resetDeptScopedSelectionState() {
@@ -3496,7 +3496,10 @@ function dispatchDeptPlanRendered(payload, dept, master) {
       deptCode: dept?.deptCode || dept?.sheetName || '',
       masterTaskCode: master?.masterCode || '',
       masterWbs: getDeptPlanMasterWbs(master),
-      masterTaskName: master?.taskName || ''
+      masterTaskName: master?.taskName || '',
+      permissionSource: dept?.permissionSource || '',
+      permissionCode: dept?.permissionCode || '',
+      canUpdateProgress: !!dept?.canUpdateProgress
     }
   }));
 }
@@ -3680,11 +3683,16 @@ function renderWeeklyUpdatePanel(payload, dept, master, week, weekPeriods = []) 
           <label for="weeklyNextPlanInput">Kế hoạch tuần sau</label>
           <textarea id="weeklyNextPlanInput" placeholder="Nêu việc trọng tâm tuần sau...">${escapeHtml(draft.nextPlan || '')}</textarea>
         </div>
+        <div class="weekly-update-field">
+          <label for="weeklyRecommendationInput">Kiến nghị</label>
+          <textarea id="weeklyRecommendationInput" placeholder="Nêu kiến nghị cần xử lý nếu có...">${escapeHtml(draft.recommendation || '')}</textarea>
+        </div>
       </div>
 
       <div class="weekly-update-actions">
-        <button id="saveWeeklyDraftButton" type="button" class="weekly-update-button">Lưu nháp trên giao diện</button>
-        <span id="weeklyDraftStatus" class="weekly-update-note">Chưa ghi Google Sheet. Bước này chỉ kiểm tra UX và cấu trúc dữ liệu.</span>
+        <button id="saveWeeklyDraftButton" type="button" class="weekly-update-button">Lưu nháp báo cáo</button>
+        <button id="submitWeeklyReportButton" type="button" class="weekly-update-button">Gửi báo cáo</button>
+        <span id="weeklyDraftStatus" class="weekly-update-note">Báo cáo chưa được lưu.</span>
       </div>
     </section>
   `;
@@ -3702,7 +3710,8 @@ function captureWeeklyDraft() {
     result: document.getElementById('weeklyResultInput')?.value || '',
     percent: document.getElementById('weeklyPercentInput')?.value || '',
     issue: document.getElementById('weeklyIssueInput')?.value || '',
-    nextPlan: document.getElementById('weeklyNextPlanInput')?.value || ''
+    nextPlan: document.getElementById('weeklyNextPlanInput')?.value || '',
+    recommendation: document.getElementById('weeklyRecommendationInput')?.value || ''
   };
 }
 
@@ -3756,29 +3765,58 @@ function bindWeeklyUpdateControls() {
     };
   }
 
-  const saveButton = document.getElementById('saveWeeklyDraftButton');
-  if (saveButton) {
-    saveButton.onclick = () => {
+  const saveWeeklyReport = async (action) => {
       const payload = qltdDeptPlanPayload || {};
       const departments = payload.departments || [];
       const dept = departments.find((item) => (item.deptCode || item.sheetName) === qltdSelectedDeptCode) || departments[0] || {};
       const deptCode = dept.deptCode || dept.sheetName || '';
       const draftKey = getWeeklyDraftKey(payload.projectCode, deptCode, qltdSelectedMasterCode, qltdSelectedWeekId);
-
-      qltdWeeklyDrafts[draftKey] = {
+      const draft = {
         result: document.getElementById('weeklyResultInput')?.value || '',
         percent: document.getElementById('weeklyPercentInput')?.value || '',
         issue: document.getElementById('weeklyIssueInput')?.value || '',
         nextPlan: document.getElementById('weeklyNextPlanInput')?.value || '',
+        recommendation: document.getElementById('weeklyRecommendationInput')?.value || '',
         savedAt: new Date().toISOString()
       };
-
+      qltdWeeklyDrafts[draftKey] = draft;
       const draftStatus = document.getElementById('weeklyDraftStatus');
-      if (draftStatus) {
-        draftStatus.textContent = `Đã lưu nháp trên giao diện lúc ${new Date().toLocaleTimeString('vi-VN')}. Chưa ghi Google Sheet.`;
+      const delegatedProgress = dept.permissionSource === 'DELEGATED_ACCESS';
+      const request = {
+        action,
+        email: currentUserProfile?.email || '',
+        userEmail: currentUserProfile?.email || '',
+        projectCode: payload.projectCode || '',
+        deptCode,
+        weekCode: qltdSelectedWeekId,
+        thisWeekResult: draft.result,
+        issue: draft.issue,
+        recommendation: draft.recommendation,
+        taskCodes: qltdSelectedMasterCode || ''
+      };
+      if (!delegatedProgress) request.nextWeekPlan = draft.nextPlan;
+      if (draftStatus) draftStatus.textContent = action === 'weekly_submit' ? 'Đang gửi báo cáo...' : 'Đang lưu nháp...';
+      try {
+        const result = await postBackendJson(request);
+        if (!result.success) {
+          const backendError = new Error(getBackendErrorMessage(result, 'Không lưu được báo cáo tuần.'));
+          backendError.backendResult = result;
+          throw backendError;
+        }
+        const report = result.data?.report || result.report || {};
+        if (draftStatus) {
+          draftStatus.textContent = action === 'weekly_submit'
+            ? `Đã gửi báo cáo lúc ${new Date().toLocaleTimeString('vi-VN')} bởi ${report.submittedBy || currentUserProfile?.email || ''}.`
+            : `Đã lưu nháp lúc ${new Date().toLocaleTimeString('vi-VN')} bởi ${report.preparedBy || currentUserProfile?.email || ''}.`;
+        }
+      } catch (error) {
+        if (draftStatus) draftStatus.textContent = error.message || 'Không lưu được báo cáo tuần.';
       }
-    };
-  }
+  };
+  const saveButton = document.getElementById('saveWeeklyDraftButton');
+  if (saveButton) saveButton.onclick = () => saveWeeklyReport('weekly_savedraft');
+  const submitButton = document.getElementById('submitWeeklyReportButton');
+  if (submitButton) submitButton.onclick = () => saveWeeklyReport('weekly_submit');
 }
 
 function getWeeklyTaskCacheKey(projectCode, deptCode, weekCode) {
@@ -4776,7 +4814,7 @@ function renderWeeklySelectedForm(selected, saved) {
     <section class="weekly-form-section weekly-result-section"><div class="weekly-form-section-title"><span>KẾT QUẢ THỰC HIỆN TRONG TUẦN</span></div><div class="weekly-update-field"><label for="weeklyTaskResult">Kết quả thực hiện trong tuần</label><textarea id="weeklyTaskResult" placeholder="Nêu kết quả đã hoàn thành, sản phẩm đầu ra, mốc đã chốt...">${escapeHtml(saved?.thisWeekResult || '')}</textarea></div></section>
     <section class="weekly-form-section"><div class="weekly-form-section-title"><span>TÌNH TRẠNG CÔNG VIỆC</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskProgress">Mức hoàn thành đến hết tuần (%)</label><input id="weeklyTaskProgress" type="number" min="0" max="100" step="1" value="${escapeHtml(progressValue)}"></div><div class="weekly-update-field"><label for="weeklyTaskStatus">Trạng thái công việc</label>${renderWeeklyStatusSelect(statusValue)}</div>${renderWeeklyActualDateLifecycle(selected, saved, progressValue, statusValue)}</div></section>
     <section class="weekly-form-section weekly-issue-section"><div class="weekly-form-section-title"><span>VƯỚNG MẮC VÀ XỬ LÝ</span></div><div class="weekly-update-grid"><div class="weekly-update-field"><label for="weeklyTaskIssue">Vướng mắc/Rủi ro</label><textarea id="weeklyTaskIssue" placeholder="Nêu vướng mắc, nguyên nhân, tác động nếu có...">${escapeHtml(saved?.issue || '')}</textarea></div><div class="weekly-update-field"><label for="weeklyTaskRecommendation">Giải pháp/Đề xuất</label><textarea id="weeklyTaskRecommendation" placeholder="Nêu hướng xử lý, người/phòng cần phối hợp, đề xuất quyết định...">${escapeHtml(saved?.recommendation || '')}</textarea></div></div></section>
-    ${renderWeeklyBudgetBlock(selected, saved)}</section>`;
+    ${qltdWeeklyTaskView.capabilities?.canWriteBudget === false ? '' : renderWeeklyBudgetBlock(selected, saved)}</section>`;
 }
 
 function renderWeeklySaveActions(selected, capabilities = {}) {
@@ -5589,7 +5627,10 @@ async function saveWeeklyTaskUpdate() {
   if (validation.error) { if (status) status.textContent = validation.error; return; }
   const projectCode = payload.projectCode;
   const deptCode = dept.deptCode || dept.sheetName || '';
-  const budgetPayload = buildWeeklyBudgetUpdates(projectCode, deptCode, qltdSelectedWeekId, item);
+  const delegatedProgress = qltdWeeklyTaskView.capabilities?.permissionSource === 'DELEGATED_ACCESS' || dept.permissionSource === 'DELEGATED_ACCESS';
+  const budgetPayload = delegatedProgress
+    ? { updates: [] }
+    : buildWeeklyBudgetUpdates(projectCode, deptCode, qltdSelectedWeekId, item);
   if (budgetPayload.error) { if (status) status.textContent = budgetPayload.error; return; }
   const reporterProposal = normalizeRoleKey(qltdWeeklyTaskView.capabilities?.role || currentUserProfile?.role) === 'REPORTER' && item.itemType === 'PB_DETAIL';
   if (reporterProposal) budgetPayload.updates = [];
@@ -5597,7 +5638,12 @@ async function saveWeeklyTaskUpdate() {
   const currentEffectiveState = getWeeklyEffectiveTaskState(item, currentUpdate);
   const progressEnd = validation.progressEnd; let confirmProgressDecrease = false;
   if (progressEnd < Number(currentEffectiveState.progress || 0)) { confirmProgressDecrease = window.confirm(`Tiến độ mới ${progressEnd}% thấp hơn tiến độ hiện tại ${currentEffectiveState.progress}%. Bạn có xác nhận?`); if (!confirmProgressDecrease) return; }
-  const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode, deptCode, weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: validation.status || '', actualStart: validation.dates.actualStart || '', actualFinish: validation.dates.actualFinish || '', actualStartEdit: validation.dates.actualStartEdit || '', actualFinishEdit: validation.dates.actualFinishEdit || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', budgetThisWeek: document.getElementById('weeklyTaskBudget')?.value || '', budgetNote: document.getElementById('weeklyTaskBudgetNote')?.value || '', confirmProgressDecrease, budgetUpdates: budgetPayload.updates, requestId: getWeeklySaveRequestId(), expectedApprovalStatus: reporterProposal ? 'PENDING' : '' };
+  const body = { action: 'weekly_taskupdates_save', email: currentUserProfile?.email || '', projectCode, deptCode, weekCode: qltdSelectedWeekId, itemType: item.itemType, itemId: item.itemId, thisWeekResult: document.getElementById('weeklyTaskResult')?.value || '', progressEnd, taskStatus: validation.status || '', actualStart: validation.dates.actualStart || '', actualFinish: validation.dates.actualFinish || '', actualStartEdit: validation.dates.actualStartEdit || '', actualFinishEdit: validation.dates.actualFinishEdit || '', issue: document.getElementById('weeklyTaskIssue')?.value || '', recommendation: document.getElementById('weeklyTaskRecommendation')?.value || '', confirmProgressDecrease, requestId: getWeeklySaveRequestId(), expectedApprovalStatus: reporterProposal ? 'PENDING' : '' };
+  if (!delegatedProgress) {
+    body.budgetThisWeek = document.getElementById('weeklyTaskBudget')?.value || '';
+    body.budgetNote = document.getElementById('weeklyTaskBudgetNote')?.value || '';
+    body.budgetUpdates = budgetPayload.updates;
+  }
   if (button) { button.disabled = true; button.dataset.saving = '1'; button.textContent = reporterProposal ? 'Đang gửi...' : 'Đang lưu...'; }
   try {
     const result = await postBackendJson(body);

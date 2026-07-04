@@ -48,3 +48,11 @@ Cấu hình phát hành nội bộ này phải dùng Apps Script DEV Script ID `
 > **Cảnh báo bắt buộc:** luôn kiểm tra `.clasp.json` ngay trước mọi lệnh `clasp push`. Không chạy `clasp push` nếu Script ID hoặc `rootDir` không khớp; không đổi Script ID để rollback và không push nhầm code Apps Script từ các file legacy ở root.
 
 Repository phải được giữ ở chế độ **Private**. Mã nguồn và tài liệu thuộc phạm vi nội bộ Entiz.
+
+## Ủy quyền cập nhật tiến độ theo dự án/phòng ban
+
+Backend hỗ trợ quyền bổ sung `UPDATE_PROGRESS` theo khóa `Email + ProjectCode + DeptCode` qua sheet cấu hình đề xuất `User_Project_Dept_Access`. Quyền này cộng thêm vào quyền phòng ban gốc, không thay đổi `Users.DeptCode`, không cấp quyền quản trị, duyệt báo cáo, WBS, kế hoạch, baseline hoặc ngân sách.
+
+Nếu sheet chưa tồn tại hoặc sai header, quyền phòng ban gốc tiếp tục hoạt động và mọi delegated access đều bị từ chối. Xem quy trình cấu hình, whitelist, rollback và test tại `docs/USER_PROJECT_DEPT_ACCESS_V1.md`.
+
+Commit triển khai chỉ chứa code kiểm tra schema và dry-run. Không tự tạo sheet, không ghi dòng ủy quyền và không apply migration Central Data.

@@ -67,7 +67,13 @@ const scopeContext = vm.createContext({
   qltdUsersNormalizeRole_: (value) => String(value || '').trim().toUpperCase(),
   qltdMasterDeptCanonicalCode_: (value) => String(value || '').trim().toUpperCase(),
   qltdDeptScopeFindPayloadDept_: (payload) => String(payload?.deptCode || '').trim().toUpperCase(),
-  qltdDeptScopeResolveProjectDeptForActor_: () => ({ success: true, dept: { deptCode: 'D1', deptName: 'Dept 1', projectUnitCode: 'UNIT_D1' } }),
+  qltdDeptScopeResolveProjectDeptForTarget_: (payload, targetDept) => ({ success: true, projectCode: payload.projectCode, dept: { deptCode: targetDept, deptName: `Dept ${targetDept}`, projectUnitCode: `UNIT_${targetDept}` } }),
+  qltdResolveDeptProgressPermission_: (user, projectCode, deptCode, _dept, action) => ({ allowed: user.deptCode === deptCode, source: user.deptCode === deptCode ? 'HOME_DEPT' : '', permissionCode: '', projectCode, deptCode, action }),
+  qltdUserProjectDeptAccessActionAllowed_: (action) => ['work_updatetask', 'work_updatedetailtask', 'weekly_taskupdates_save', 'weekly_savedraft', 'weekly_submit'].includes(String(action).toLowerCase()),
+  qltdUserProjectDeptAccessValidateDelegatedPayload_: () => null,
+  qltdUserProjectDeptAccessLog_: () => ({}),
+  qltdDeptScopeTaskOrReportId_: () => '',
+  QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION: { UPDATE_PROGRESS: 'UPDATE_PROGRESS' },
   qltdDeptScopeNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
   qltdDeptScopeReadRawPayloadDept_: (payload) => String(payload?.deptCode || ''),
   qltdDeptScopeForcePayloadDept_: (payload, deptCode, deptName) => {
@@ -83,13 +89,13 @@ vm.runInContext(`${actionRulesSource}\n${extractFunction(scopeSource, 'qltdDeptS
 
 for (const action of ['work_createdetailtask', 'work_updatedetailtask']) {
   scopedUser = { email: 'reporter@example.com', role: 'REPORTER', status: 'ACTIVE', deptCode: 'D1' };
-  const reporterPayload = { action, idToken: 'valid', email: 'spoofed@example.com', actorEmail: 'spoofed@example.com', role: 'EDITOR', deptCode: 'D1' };
+  const reporterPayload = { action, idToken: 'valid', email: 'spoofed@example.com', actorEmail: 'spoofed@example.com', role: 'EDITOR', projectCode: 'P1', deptCode: 'D1' };
   const reporterResult = scopeContext.qltdDeptScopeAuthorizeWrite_(reporterPayload, action);
   assert.equal(reporterResult.allowed, false);
   assert.equal(reporterResult.response.errorCode, 'ACCESS_DENIED');
 
   scopedUser = { email: 'editor@example.com', role: 'EDITOR', status: 'ACTIVE', deptCode: 'D1' };
-  const editorPayload = { action, idToken: 'valid', email: 'spoofed@example.com', actorEmail: 'spoofed@example.com', role: 'REPORTER', deptCode: 'D1', detailTask: { deptCode: 'D2' } };
+  const editorPayload = { action, idToken: 'valid', email: 'spoofed@example.com', actorEmail: 'spoofed@example.com', role: 'REPORTER', projectCode: 'P1', deptCode: 'D1', detailTask: { deptCode: 'D2' } };
   const editorResult = scopeContext.qltdDeptScopeAuthorizeWrite_(editorPayload, action);
   assert.equal(editorResult.allowed, true);
   assert.equal(editorPayload.email, 'editor@example.com');
@@ -97,10 +103,10 @@ for (const action of ['work_createdetailtask', 'work_updatedetailtask']) {
   assert.equal(editorPayload.deptCode, 'D1');
   assert.equal(editorPayload.detailTask.deptCode, 'D1');
 
-  const otherDeptPayload = { action, idToken: 'valid', deptCode: 'D2' };
+  const otherDeptPayload = { action, idToken: 'valid', projectCode: 'P1', deptCode: 'D2' };
   const otherDeptResult = scopeContext.qltdDeptScopeAuthorizeWrite_(otherDeptPayload, action);
   assert.equal(otherDeptResult.allowed, false);
-  assert.equal(otherDeptResult.response.errorCode, 'ACCESS_DENIED');
+  assert.equal(otherDeptResult.response.errorCode, action === 'work_updatedetailtask' ? 'PROJECT_DEPT_UPDATE_FORBIDDEN' : 'ACCESS_DENIED');
 }
 
 const innerWriteContext = vm.createContext({
@@ -110,6 +116,8 @@ const innerWriteContext = vm.createContext({
   qltdWorkAuthUser_: (_email, _action, _source, _meta) => ({ user: innerWriteContext.currentUser, error: null }),
   qltdPbDetailResolveContext_: () => ({ deptCode: 'D1', dept: { masterDeptCode: 'D1' }, meta: {}, warnings: [], error: null }),
   qltdWorkCanManageDept_: (user, deptCode) => ['ADMIN', 'PMO'].includes(user.role) || (user.role === 'EDITOR' && user.deptCode === deptCode),
+  qltdResolveDeptProgressPermission_: (user, projectCode, deptCode) => ({ allowed: user.deptCode === deptCode, source: user.deptCode === deptCode ? 'HOME_DEPT' : '', projectCode, deptCode }),
+  qltdUserProjectDeptAccessValidateDelegatedPayload_: () => null,
   qltdWorkError_: (_source, _action, code) => ({ success: false, errors: [{ code }] }),
   qltdPbDetailBuildSheetContext_: () => ({ warnings: [], error: null }),
   qltdBudgetSafeErrorMessage_: (error) => String(error?.message || error),
@@ -132,7 +140,7 @@ let pbCanWrite = false;
 const pbRenderContext = vm.createContext({
   qltdPbDetailState: { masterTask: null, detailTasks: [{ detailTaskId: 'DT-1', taskName: 'Task' }], listExpanded: false, loading: false, message: '', messageType: 'info' },
   qltdPbDetailEnsurePanel: () => pbPanel,
-  qltdPbDetailGetContext: () => ({ canWrite: pbCanWrite, deptCode: 'D1', masterWbs: 'I.1', masterTaskName: 'Master' }),
+  qltdPbDetailGetContext: () => ({ canWrite: pbCanWrite, canCreate: pbCanWrite, deptCode: 'D1', masterWbs: 'I.1', masterTaskName: 'Master' }),
   qltdPbDetailTodayIso: () => '2026-07-02',
   qltdPbDetailBuildListView: (tasks) => ({ visible: tasks, total: tasks.length, remaining: 0 }),
   qltdPbDetailIsOverdue: () => false,
@@ -169,6 +177,9 @@ const planContext = vm.createContext({
   qltdMasterDeptCanonicalCode_: (value) => String(value || '').trim().toUpperCase(),
   qltdWorkIsAdminScope_: permissionContext.qltdWorkIsAdminScope_,
   qltdWorkCanReadDept_: permissionContext.qltdWorkCanReadDept_,
+  qltdCanReadProjectDept_: (user, _projectCode, deptCode, dept) => permissionContext.qltdWorkCanReadDept_(user, deptCode, dept),
+  qltdResolveDeptReadPermission_: (user, _projectCode, deptCode, dept) => ({ allowed: permissionContext.qltdWorkCanReadDept_(user, deptCode, dept), source: permissionContext.qltdWorkIsAdminScope_(user) ? 'ADMIN_SCOPE' : 'HOME_DEPT', permissionCode: '' }),
+  qltdCanUpdateDeptProgress_: (user, _projectCode, deptCode, dept) => permissionContext.qltdWorkCanReadDept_(user, deptCode, dept),
   qltdWorkError_: (source, action, code, message, meta) => ({
     success: false,
     apiStatus: 'ERROR',
@@ -239,6 +250,7 @@ const workTaskContext = vm.createContext({
   qltdBudgetReadProjectDepts_: () => ({ departments: mappedDepts, warnings: [], error: null }),
   qltdBudgetFindProjectDept_: (departments, code) => departments.find((dept) => dept.deptCode === code),
   qltdWorkCanReadDept_: permissionContext.qltdWorkCanReadDept_,
+  qltdCanReadProjectDept_: (user, _projectCode, deptCode, dept) => permissionContext.qltdWorkCanReadDept_(user, deptCode, dept),
   qltdWorkError_: planContext.qltdWorkError_
 });
 vm.runInContext(extractFunction(workTaskSource, 'qltdWorkGetMyTasks_'), workTaskContext);
@@ -264,6 +276,7 @@ const weeklyContext = vm.createContext({
   qltdWorkNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
   qltdWorkResolveProjectDept_: () => ({ projectCode: 'P1', deptCode: 'C', dept: deptC, warnings: [], error: null }),
   qltdWorkCanReadDept_: permissionContext.qltdWorkCanReadDept_,
+  qltdCanReadProjectDept_: (user, _projectCode, deptCode, dept) => permissionContext.qltdWorkCanReadDept_(user, deptCode, dept),
   qltdWorkError_: planContext.qltdWorkError_
 });
 vm.runInContext(extractFunction(weeklySource, 'qltdWeeklyTaskUpdatesResolveScope_'), weeklyContext);

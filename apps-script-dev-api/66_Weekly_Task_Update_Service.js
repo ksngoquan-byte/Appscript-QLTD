@@ -466,6 +466,22 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
   if (auth.error) return auth.error;
   const scope = qltdWeeklyTaskUpdatesResolveScope_(action, payload || {}, auth);
   if (scope.error) return scope.error;
+  const progressPermission = qltdResolveDeptProgressPermission_(
+    auth.user,
+    scope.projectCode,
+    scope.deptCode,
+    scope.dept,
+    action
+  );
+  if (!progressPermission.allowed) {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'PROJECT_DEPT_UPDATE_FORBIDDEN', 'User cannot update progress for this project department.', scope.meta, scope.warnings);
+  }
+  const delegatedFieldError = qltdUserProjectDeptAccessValidateDelegatedPayload_(action, payload || {}, progressPermission);
+  if (delegatedFieldError) {
+    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, delegatedFieldError.code, delegatedFieldError.message, Object.assign({}, scope.meta, {
+      forbiddenFields: delegatedFieldError.forbiddenFields
+    }), scope.warnings);
+  }
   const validation = qltdWeeklyTaskUpdatesValidatePayload_(payload || {}, scope);
   if (validation.error) return validation.error;
   const role = qltdWorkNormalizeRole_(auth.user && auth.user.role);
@@ -670,7 +686,17 @@ function qltdWorkListWeeklyItems_(params) {
   if (masterRead.error) return masterRead.error;
   const officialMasters = qltdWeeklyTaskUpdatesReadOfficialMasters_(scope, masterRead.tasks, action);
   if (officialMasters.error) return officialMasters.error;
-  const budgetContext = qltdWeeklyTaskUpdatesReadBudgetContext_(scope);
+  const progressPermission = qltdResolveDeptProgressPermission_(
+    auth.user,
+    scope.projectCode,
+    scope.deptCode,
+    scope.dept,
+    'weekly_taskupdates_save'
+  );
+  const canDelegatedUpdate = progressPermission.source === 'DELEGATED_ACCESS';
+  const budgetContext = canDelegatedUpdate
+    ? { taskLinkedByMaster: {}, standaloneItems: [], warnings: [] }
+    : qltdWeeklyTaskUpdatesReadBudgetContext_(scope);
   const detailContext = qltdPbDetailBuildSheetContext_(action, Object.assign({}, scope, { meta: scope.meta }));
   const detailsByMaster = {};
   const incompleteDetailsByMaster = {};
@@ -693,7 +719,7 @@ function qltdWorkListWeeklyItems_(params) {
     return item;
   });
   const role = qltdWorkNormalizeRole_(auth.user && auth.user.role);
-  const canManage = qltdWorkCanWriteTask_(auth.user, scope.deptCode, scope.dept);
+  const canManage = qltdWorkCanWriteTask_(auth.user, scope.deptCode, scope.dept) || canDelegatedUpdate;
   let items = masterItems.concat(detailItems).filter(function(item) { return item.eligible; });
   items.forEach(function(item) {
     item.canUpdate = canManage || (
@@ -721,9 +747,12 @@ function qltdWorkListWeeklyItems_(params) {
     capabilities: {
       canUpdate: canManage || role === 'REPORTER',
       canReviewWeekly: qltdWorkCanReviewWeekly_(auth.user, scope.deptCode, scope.dept),
-      role: qltdWorkNormalizeRole_(auth.user && auth.user.role)
+      role: qltdWorkNormalizeRole_(auth.user && auth.user.role),
+      permissionSource: progressPermission.source,
+      permissionCode: progressPermission.permissionCode,
+      canWriteBudget: !canDelegatedUpdate && role !== 'REPORTER'
     },
-    standaloneBudgetItems: budgetContext.standaloneItems || []
+    standaloneBudgetItems: canDelegatedUpdate ? [] : (budgetContext.standaloneItems || [])
   }, scope.warnings.concat(officialMasters.warnings || []).concat(budgetContext.warnings || []).concat(detailContext.error ? [qltdWorkWarning_('PB_DETAIL_UNAVAILABLE', 'PB_DETAIL items could not be loaded.')] : []), scope.meta);
 }
 
@@ -928,7 +957,7 @@ function qltdWeeklyTaskUpdatesResolveScope_(action, input, auth) {
     }
     return { error: resolved.error };
   }
-  if (!qltdWorkCanReadDept_(auth.user, resolved.deptCode, resolved.dept)) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Bạn không được cấp quyền truy cập vào dữ liệu phòng/ban này.', { email: auth.email, deptCode: resolved.deptCode }, resolved.warnings) };
+  if (!qltdCanReadProjectDept_(auth.user, resolved.projectCode, resolved.deptCode, resolved.dept)) return { error: qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Bạn không được cấp quyền truy cập vào dữ liệu phòng/ban này.', { email: auth.email, projectCode: resolved.projectCode, deptCode: resolved.deptCode }, resolved.warnings) };
   return Object.assign({}, resolved, {
     weekCode: weekCode,
     warnings: resolved.warnings || [],

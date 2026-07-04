@@ -56,7 +56,7 @@ function qltdWorkGetDetailTasks_(params) {
     }
     return context.error;
   }
-  if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept)) {
+  if (!qltdCanReadProjectDept_(auth.user, context.projectCode, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', context.meta, context.warnings);
   }
 
@@ -207,8 +207,23 @@ function qltdPbDetailWriteWithLock_(action, payload, handler) {
 
   const context = qltdPbDetailResolveContext_(action, payload || {}, meta, auth.user);
   if (context.error) return context.error;
-  if (!qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept)) {
+  const progressPermission = qltdResolveDeptProgressPermission_(
+    auth.user,
+    context.projectCode,
+    context.deptCode,
+    context.dept,
+    action
+  );
+  const canManage = qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept);
+  const canDelegatedUpdate = action === 'work_updateDetailTask' && progressPermission.source === 'DELEGATED_ACCESS';
+  if (!canManage && !canDelegatedUpdate) {
     return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'User cannot manage this dept.', context.meta, context.warnings);
+  }
+  const delegatedFieldError = qltdUserProjectDeptAccessValidateDelegatedPayload_(action, payload, progressPermission);
+  if (delegatedFieldError) {
+    return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, delegatedFieldError.code, delegatedFieldError.message, Object.assign({}, context.meta, {
+      forbiddenFields: delegatedFieldError.forbiddenFields
+    }), context.warnings);
   }
 
   const lock = LockService.getScriptLock();
@@ -528,6 +543,7 @@ function qltdPbDetailValidateAllowedPayloadFields_(payload, action, context, war
   const allowedContext = action === 'work_createDetailTask'
     ? ['action', 'email', 'actorEmail', 'idToken', 'projectCode', 'deptCode', 'masterTaskCode']
     : ['action', 'email', 'actorEmail', 'idToken', 'projectCode', 'deptCode', 'detailTaskId'];
+  allowedContext.push('_qltdPermissionSource', '_qltdPermissionCode', '_qltdActorHomeDeptCode', '_qltdActorDisplayName');
   const allowed = {};
   allowedContext.concat(QLTD_PB_DETAIL_EDITABLE_FIELDS).forEach(function(field) {
     allowed[field] = true;
@@ -769,7 +785,7 @@ function qltdWorkAuditDetailTaskParentFinish_(params) {
     }
     return context.error;
   }
-  if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept)) {
+  if (!qltdCanReadProjectDept_(auth.user, context.projectCode, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', context.meta, context.warnings);
   }
   const sheetContext = qltdPbDetailBuildSheetContext_(action, context);

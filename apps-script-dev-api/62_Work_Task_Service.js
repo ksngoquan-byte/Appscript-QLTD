@@ -57,7 +57,7 @@ function qltdWorkGetMyTasks_(params) {
       return dept.projectCode === filterProjectCode && dept.status === 'ACTIVE';
     });
     const filteredDept = qltdBudgetFindProjectDept_(filteredProjectDepts, filterDeptCode);
-    if (!filteredDept || !qltdWorkCanReadDept_(auth.user, filteredDept.deptCode, filteredDept)) {
+    if (!filteredDept || !qltdCanReadProjectDept_(auth.user, filterProjectCode, filteredDept.deptCode, filteredDept)) {
       return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', meta, warnings);
     }
   }
@@ -78,7 +78,7 @@ function qltdWorkGetMyTasks_(params) {
 
     const projectDepts = deptsResult.departments.filter(function(dept) {
       if (dept.projectCode !== project.projectCode || dept.status !== 'ACTIVE') return false;
-      if (!qltdWorkCanReadDept_(auth.user, dept.deptCode, dept)) return false;
+      if (!qltdCanReadProjectDept_(auth.user, project.projectCode, dept.deptCode, dept)) return false;
       if (
         filterDeptCode &&
         qltdWorkNormalizeCode_(dept.deptCode) !== filterDeptCode &&
@@ -144,7 +144,7 @@ function qltdWorkGetDeptTasks_(params) {
 
   const context = qltdWorkBuildDeptContext_(contextResult.project, contextResult.dept, contextResult.requestedDeptCode, contextResult.warnings || []);
   const role = qltdWorkNormalizeRole_(auth.user.role);
-  if (!qltdWorkCanReadDept_(auth.user, context.deptCode, context.dept)) {
+  if (!qltdCanReadProjectDept_(auth.user, context.projectCode, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, 'ACCESS_DENIED', 'Bạn không có quyền truy cập dữ liệu của phòng/ban này.', {
       email: auth.email,
       projectCode: context.projectCode,
@@ -349,7 +349,29 @@ function qltdWorkUpdateTask_(payload) {
     if (targetResult.error) return targetResult.error;
     qltdWorkAttachTaskAssignees_(targetResult.task, context.deptCode, targetResult.warnings);
 
-    const isManager = qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept);
+    const progressPermission = qltdResolveDeptProgressPermission_(
+      auth.user,
+      context.projectCode,
+      context.deptCode,
+      context.dept,
+      'work_updatetask'
+    );
+    const delegatedFieldError = qltdUserProjectDeptAccessValidateDelegatedPayload_(
+      'work_updatetask',
+      payload || {},
+      progressPermission
+    );
+    if (delegatedFieldError) {
+      return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, delegatedFieldError.code, delegatedFieldError.message, {
+        email: auth.email,
+        projectCode: context.projectCode,
+        deptCode: context.deptCode,
+        masterTaskCode: taskCode,
+        forbiddenFields: delegatedFieldError.forbiddenFields
+      }, targetResult.warnings);
+    }
+    const isManager = qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept) ||
+      progressPermission.source === 'DELEGATED_ACCESS';
     const isOwner = qltdWorkUserMatchesAssignees_(auth.email, targetResult.task.ownerResolution);
     const isCoordinator = qltdWorkUserMatchesAssignees_(auth.email, targetResult.task.coordinatorResolution);
     if (!isManager && !isOwner && !isCoordinator) {
@@ -701,6 +723,8 @@ function qltdWorkNormalizeTaskUpdatePayload_(payload) {
   const metaFields = {
     action: true,
     email: true,
+    actorEmail: true,
+    idToken: true,
     projectCode: true,
     deptCode: true,
     masterTaskCode: true,
@@ -708,7 +732,11 @@ function qltdWorkNormalizeTaskUpdatePayload_(payload) {
     confirm: true,
     updates: true,
     noteMode: true,
-    replaceNote: true
+    replaceNote: true,
+    _qltdPermissionSource: true,
+    _qltdPermissionCode: true,
+    _qltdActorHomeDeptCode: true,
+    _qltdActorDisplayName: true
   };
   const aliases = {
     status: 'status',
