@@ -417,6 +417,7 @@ function qltdDevApiProfile_(params) {
     deptName: user.deptName,
     empCode: user.empCode || '',
     permissions: qltdPermissionsForRole_(user.role),
+    delegatedScopes: qltdUserProjectDeptAccessResolveAllEffectiveScopes_(user.email),
     apiStatus: 'CONNECTED',
     source: QLTD_DEV_API_SOURCE
   });

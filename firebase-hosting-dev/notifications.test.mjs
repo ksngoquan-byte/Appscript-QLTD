@@ -88,6 +88,9 @@ const context = {
   qltdUsersIsValidRole_: (value) => ['ADMIN', 'PMO', 'EDITOR', 'REPORTER', 'VIEWER'].includes(String(value || '').toUpperCase()),
   qltdWorkListUsers_: () => users.map((user) => ({ ...user })),
   qltdUsersGetByEmail_: (email) => users.find((user) => user.email === String(email || '').toLowerCase()) || null,
+  qltdCanManageProjectDept_: (user, _projectCode, deptCode) =>
+    user?.role === 'EDITOR' &&
+    String(user?.deptCode || '').toUpperCase() === String(deptCode || '').toUpperCase(),
   qltdWorkAuthUser_: () => {
     const user = users.find((candidate) => candidate.email === authEmail);
     return user && user.status === 'ACTIVE'

@@ -76,7 +76,7 @@ function qltdWeeklyReview_(payload) {
 
   const resolvedDeptCode = contextResult.deptCode;
   meta.deptCode = resolvedDeptCode;
-  if (!qltdWorkCanReviewWeekly_(auth.user, resolvedDeptCode, contextResult.dept)) {
+  if (!qltdCanManageProjectDept_(auth.user, projectCode, resolvedDeptCode, contextResult.dept)) {
     return qltdWorkError_(QLTD_WEEKLY_REPORT_SOURCE, action, 'ACCESS_DENIED', 'User cannot review weekly reports for this department.', Object.assign({
       role: auth.user.role
     }, meta), contextResult.warnings || []);

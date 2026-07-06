@@ -766,6 +766,15 @@ function qltdBudgetReadAllowedDeptCodes_(user, email, departments, projectCode) 
       allowed[dept.deptCode] = true;
     }
   });
+  qltdUserProjectDeptAccessResolveEffectiveScopes_(
+    email,
+    QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.DEPT_MANAGER
+  ).forEach(function(scope) {
+    if (projectCode !== 'ALL' && scope.projectCode !== projectCode) return;
+    if (qltdBudgetReadDeptExists_(departments, scope.projectCode, scope.deptCode)) {
+      allowed[scope.deptCode] = true;
+    }
+  });
   return allowed;
 }
 
@@ -824,6 +833,12 @@ function qltdBudgetReadProjectsForBudgetUser_(user, departments) {
     ) {
       allowed[dept.projectCode] = true;
     }
+  });
+  qltdUserProjectDeptAccessResolveEffectiveScopes_(
+    user && user.email,
+    QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.DEPT_MANAGER
+  ).forEach(function(scope) {
+    allowed[scope.projectCode] = true;
   });
 
   return activeProjects.filter(function(project) {

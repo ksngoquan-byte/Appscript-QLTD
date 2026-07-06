@@ -63,6 +63,7 @@ function qltdDevApiBootstrap_(params) {
       deptCode: user.deptCode,
       deptName: user.deptName,
       permissions: qltdPermissionsForRole_(user.role),
+      delegatedScopes: qltdUserProjectDeptAccessResolveAllEffectiveScopes_(user.email),
       apiStatus: 'CONNECTED',
       source: QLTD_DEV_API_SOURCE
     },

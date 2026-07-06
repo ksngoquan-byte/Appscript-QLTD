@@ -111,21 +111,19 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
   }
 
   const role = qltdUsersNormalizeRole_(user.role);
-  if (allowedRoles.indexOf(role) === -1) {
-    const isPbDetailWrite = action === 'work_createdetailtask' || action === 'work_updatedetailtask';
-    return {
-      allowed: false,
-      response: qltdUsersBuildAuthError_(isPbDetailWrite ? 'ACCESS_DENIED' : 'ROLE_SCOPE_DENIED', 'Vai tro hien tai khong duoc phep thuc hien thao tac nay.', {
-        action: action,
-        role: role
-      })
-    };
-  }
-
   payload.email = user.email;
   payload.actorEmail = user.email;
 
   if (role === 'ADMIN' || role === 'PMO') {
+    if (allowedRoles.indexOf(role) === -1) {
+      return {
+        allowed: false,
+        response: qltdUsersBuildAuthError_('ROLE_SCOPE_DENIED', 'Vai tro hien tai khong duoc phep thuc hien thao tac nay.', {
+          action: action,
+          role: role
+        })
+      };
+    }
     return { allowed: true, response: null, user: user, permissionSource: 'ADMIN_SCOPE' };
   }
 
@@ -165,6 +163,17 @@ function qltdDeptScopeAuthorizeWrite_(payload, actionValue) {
     projectDept,
     action
   );
+  const delegatedManager = qltdUserProjectDeptAccessDecisionIsDeptManager_(permissionDecision);
+  if (allowedRoles.indexOf(role) === -1 && !delegatedManager) {
+    const isPbDetailWrite = action === 'work_createdetailtask' || action === 'work_updatedetailtask';
+    return {
+      allowed: false,
+      response: qltdUsersBuildAuthError_(isPbDetailWrite ? 'ACCESS_DENIED' : 'ROLE_SCOPE_DENIED', 'Vai tro hien tai khong duoc phep thuc hien thao tac nay.', {
+        action: action,
+        role: role
+      })
+    };
+  }
   if (!permissionDecision.allowed) {
     const isPbDetailWrite = action === 'work_createdetailtask' || action === 'work_updatedetailtask';
     const errorCode = qltdUserProjectDeptAccessActionAllowed_(action)

@@ -8,6 +8,7 @@ const scopeSource = fs.readFileSync(new URL('../apps-script-dev-api/37_SELF_REGI
 const taskSource = fs.readFileSync(new URL('../apps-script-dev-api/62_Work_Task_Service.js', import.meta.url), 'utf8');
 const detailSource = fs.readFileSync(new URL('../apps-script-dev-api/64_PB_Detail_Task_Service.js', import.meta.url), 'utf8');
 const weeklyTaskSource = fs.readFileSync(new URL('../apps-script-dev-api/66_Weekly_Task_Update_Service.js', import.meta.url), 'utf8');
+const budgetDashboardSource = fs.readFileSync(new URL('../apps-script-dev-api/54_Budget_Dashboard_Service.js', import.meta.url), 'utf8');
 
 function extractFunction(source, name) {
   const matches = Array.from(source.matchAll(new RegExp(`(?:^|\\n)(?:async )?function ${name}\\(`, 'g')));
@@ -50,6 +51,18 @@ const context = vm.createContext({
   qltdUsersNormalizeRole_: (value) => String(value || '').trim().toUpperCase(),
   qltdWorkIsAdminScope_: (user) => ['ADMIN', 'PMO'].includes(String(user?.role || '').toUpperCase()),
   qltdWorkSameDept_: (user, deptCode, dept) => String(user?.deptCode || '').toUpperCase() === String(dept?.masterDeptCode || deptCode || '').toUpperCase(),
+  qltdWorkCanReadDept_: (user, deptCode, dept) => String(user?.deptCode || '').toUpperCase() === String(dept?.masterDeptCode || deptCode || '').toUpperCase(),
+  QLTD_DEPT_SCOPE_ACTION_RULES: {
+    work_assigntask: ['ADMIN', 'PMO', 'EDITOR'],
+    work_updatetask: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
+    work_createdetailtask: ['ADMIN', 'PMO', 'EDITOR'],
+    work_updatedetailtask: ['ADMIN', 'PMO', 'EDITOR'],
+    weekly_taskupdates_save: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
+    weekly_pbdetailapproval_review: ['EDITOR'],
+    weekly_savedraft: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
+    weekly_submit: ['ADMIN', 'PMO', 'EDITOR', 'REPORTER'],
+    weekly_review: ['ADMIN', 'PMO', 'EDITOR']
+  },
   Utilities: { getUuid: () => 'UUID-1' }
 });
 vm.runInContext(accessSource, context);
@@ -96,6 +109,40 @@ for (const field of ['taskName', 'planStart', 'planFinish', 'owner', 'coordinato
 const validWeekly = { action: 'weekly_taskupdates_save', email: thi.email, idToken: 'token', projectCode: '37-5.HL1', deptCode: 'BQLDA', weekCode: 'WEEK-2026-06-29', itemType: 'MASTER', itemId: 'TASK-1', thisWeekResult: 'Đạt', progressEnd: 55, taskStatus: 'Đang làm', actualStart: '2026-07-01', actualFinish: '', issue: 'Vướng', recommendation: 'Kiến nghị', requestId: 'REQ-1' };
 assert.equal(context.qltdUserProjectDeptAccessValidateDelegatedPayload_('weekly_taskupdates_save', validWeekly, { ...delegated, source: 'DELEGATED_ACCESS' }), null);
 assert.equal(context.qltdUserProjectDeptAccessValidateDelegatedPayload_('weekly_taskupdates_save', { ...validWeekly, budgetUpdates: [] }, { ...delegated, source: 'DELEGATED_ACCESS' }).code, 'DELEGATED_PROGRESS_FIELDS_FORBIDDEN');
+
+const delegatedManagerUser = { email: 'manager.delegate@example.com', displayName: 'Delegated manager', role: 'REPORTER', status: 'ACTIVE', deptCode: 'KINHDOANH' };
+setAccessRows([accessRow({
+  email: delegatedManagerUser.email,
+  permissionCode: 'DEPT_MANAGER'
+})]);
+const directManager = context.qltdResolveDeptManagerPermission_(thi, '37-5.HL1', 'KSXD', kyThuat);
+const delegatedManager = context.qltdResolveDeptManagerPermission_(delegatedManagerUser, '37-5.HL1', 'BQLDA', bqlda);
+assert.equal(directManager.allowed, true);
+assert.equal(directManager.source, 'HOME_DEPT');
+assert.equal(delegatedManager.allowed, true);
+assert.equal(delegatedManager.permissionCode, 'DEPT_MANAGER');
+for (const action of ['work_assigntask', 'work_updatetask', 'work_createdetailtask', 'work_updatedetailtask', 'weekly_taskupdates_save', 'weekly_savedraft', 'weekly_submit', 'weekly_review', 'weekly_pbdetailapproval_review']) {
+  const decision = context.qltdResolveDeptProgressPermission_(delegatedManagerUser, '37-5.HL1', 'BQLDA', bqlda, action);
+  assert.equal(decision.allowed, true, action);
+  assert.equal(decision.permissionCode, 'DEPT_MANAGER', action);
+}
+assert.equal(context.qltdResolveDeptProgressPermission_(delegatedManagerUser, 'OTHER', 'BQLDA', bqlda, 'weekly_taskupdates_save').allowed, false);
+assert.equal(context.qltdResolveDeptProgressPermission_(delegatedManagerUser, '37-5.HL1', 'PTDA', { ...bqlda, deptCode: 'PTDA' }, 'weekly_taskupdates_save').allowed, false);
+assert.equal(context.qltdResolveDeptReadPermission_(delegatedManagerUser, '37-5.HL1', 'BQLDA', bqlda).allowed, true);
+assert.equal(context.qltdResolveDeptReadPermission_(delegatedManagerUser, '37-5.HL1', 'PTDA', { ...bqlda, deptCode: 'PTDA' }).allowed, false);
+assert.equal(context.qltdUserProjectDeptAccessValidateDelegatedPayload_(
+  'weekly_taskupdates_save',
+  { ...validWeekly, budgetUpdates: [{ amount: 1 }], owner: 'new-owner@example.com' },
+  delegatedManager
+), null);
+
+setAccessRows([accessRow()]);
+assert.equal(context.qltdResolveDeptProgressPermission_(thi, '37-5.HL1', 'BQLDA', bqlda, 'weekly_review').allowed, false);
+assert.equal(context.qltdUserProjectDeptAccessValidateDelegatedPayload_(
+  'weekly_taskupdates_save',
+  { ...validWeekly, budgetUpdates: [] },
+  delegated
+).code, 'DELEGATED_PROGRESS_FIELDS_FORBIDDEN');
 
 Object.assign(context, {
   QLTD_WEEKLY_REPORT_SOURCE: 'weekly_report_mvp_v1',
@@ -146,7 +193,34 @@ assert.match(scopeSource, /qltdFirebaseResolveIdentity_\(payload, true\)/);
 assert.match(scopeSource, /payload\.email = user\.email/);
 assert.match(taskSource, /qltdUserProjectDeptAccessValidateDelegatedPayload_/);
 assert.match(detailSource, /canDelegatedUpdate/);
-assert.match(weeklyTaskSource, /canWriteBudget: !canDelegatedUpdate/);
+assert.match(weeklyTaskSource, /canWriteBudget: !restrictedDelegatedUpdate/);
+assert.match(weeklyTaskSource, /qltdUserProjectDeptAccessDecisionIsDeptManager_\(progressPermission\)/);
 assert.doesNotMatch(accessSource, /insertSheet|appendRow|\.setValues|\.setValue/);
+
+const budgetPermissionContext = vm.createContext({
+  QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION: { DEPT_MANAGER: 'DEPT_MANAGER' },
+  qltdBudgetNormalizeCode_: (value) => String(value || '').trim().toUpperCase(),
+  qltdMasterDeptCanonicalCode_: (value) => String(value || '').trim().toUpperCase(),
+  qltdUserProjectDeptAccessResolveEffectiveScopes_: (_email, permissionCode) => permissionCode === 'DEPT_MANAGER'
+    ? [{ projectCode: '37-5.HL', deptCode: 'KINHDOANH' }]
+    : []
+});
+vm.runInContext([
+  extractFunction(budgetDashboardSource, 'qltdBudgetReadDeptExists_'),
+  extractFunction(budgetDashboardSource, 'qltdBudgetReadAllowedDeptCodes_')
+].join('\n'), budgetPermissionContext);
+const budgetDepartments = [
+  { projectCode: '37-5.HL', deptCode: 'KINHDOANH', masterDeptCode: 'KINHDOANH' },
+  { projectCode: '37-5.HL', deptCode: 'PTDA', masterDeptCode: 'PTDA' },
+  { projectCode: '24-1.ĐB', deptCode: 'KINHDOANH', masterDeptCode: 'KINHDOANH' }
+];
+const budgetAllowed = budgetPermissionContext.qltdBudgetReadAllowedDeptCodes_(
+  { ...delegatedManagerUser, deptCode: 'OTHER' },
+  delegatedManagerUser.email,
+  budgetDepartments,
+  '37-5.HL'
+);
+assert.equal(budgetAllowed.KINHDOANH, true);
+assert.equal(budgetAllowed.PTDA, undefined);
 
 console.log('Delegated project/department UPDATE_PROGRESS tests: PASS');

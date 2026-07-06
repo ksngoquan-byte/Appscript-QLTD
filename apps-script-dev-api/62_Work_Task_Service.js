@@ -204,7 +204,7 @@ function qltdWorkAssignTask_(payload) {
   if (contextResult.error) return contextResult.error;
 
   const context = qltdWorkBuildDeptContext_(contextResult.project, contextResult.dept, contextResult.requestedDeptCode, contextResult.warnings || []);
-  if (!qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept)) {
+  if (!qltdCanManageProjectDept_(auth.user, context.projectCode, context.deptCode, context.dept)) {
     return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, 'ACCESS_DENIED', 'User cannot assign tasks in this department.', {
       email: auth.email,
       projectCode: context.projectCode,
@@ -323,7 +323,13 @@ function qltdWorkUpdateTask_(payload) {
 
   const context = qltdWorkBuildDeptContext_(contextResult.project, contextResult.dept, contextResult.requestedDeptCode, contextResult.warnings || []);
   const role = qltdWorkNormalizeRole_(auth.user.role);
-  if (role === 'VIEWER') {
+  const managerPermission = qltdResolveDeptManagerPermission_(
+    auth.user,
+    context.projectCode,
+    context.deptCode,
+    context.dept
+  );
+  if (role === 'VIEWER' && !qltdUserProjectDeptAccessDecisionIsDeptManager_(managerPermission)) {
     return qltdWorkError_(QLTD_WORK_TASK_SOURCE, action, 'ACCESS_DENIED', 'Viewer cannot update tasks.', {
       email: auth.email,
       projectCode: context.projectCode,
@@ -370,7 +376,7 @@ function qltdWorkUpdateTask_(payload) {
         forbiddenFields: delegatedFieldError.forbiddenFields
       }, targetResult.warnings);
     }
-    const isManager = qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept) ||
+    const isManager = qltdCanManageProjectDept_(auth.user, context.projectCode, context.deptCode, context.dept) ||
       progressPermission.source === 'DELEGATED_ACCESS';
     const isOwner = qltdWorkUserMatchesAssignees_(auth.email, targetResult.task.ownerResolution);
     const isCoordinator = qltdWorkUserMatchesAssignees_(auth.email, targetResult.task.coordinatorResolution);

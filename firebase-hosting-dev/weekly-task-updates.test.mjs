@@ -22,6 +22,7 @@ let failAggregateBudgetItemCode = '';
 let failNextApprovalReviewWrite = false;
 let authRole = 'ADMIN';
 let authEmail = 'user@example.com';
+let delegatedManagerMode = false;
 let notificationFailureMode = false;
 const officialDetailWrites = [];
 const detailDtos = [
@@ -61,10 +62,20 @@ const context = {
   getCurrentSpreadsheet_: () => ({ getSheetByName: () => mockSheet }),
   qltdWorkAuthUser_: () => ({ email: authEmail, user: { role: authRole, deptCode: 'PTDA' } }),
   qltdWorkNormalizeRole_: (value) => String(value || '').trim().toUpperCase(),
-  qltdWorkResolveProjectDept_: () => ({ projectCode: 'P1', deptCode: 'PTDA', project: { projectCode: 'P1' }, dept: { deptCode: 'PTDA' }, requestedDeptCode: 'PTDA', warnings: [] }),
+  qltdWorkResolveProjectDept_: (_action, payload = {}) => {
+    const projectCode = String(payload.projectCode || 'P1').toUpperCase();
+    const deptCode = String(payload.deptCode || 'PTDA').toUpperCase();
+    return { projectCode, deptCode, project: { projectCode }, dept: { deptCode }, requestedDeptCode: deptCode, warnings: [] };
+  },
   qltdWorkCanReadDept_: () => true,
   qltdCanReadProjectDept_: () => true,
-  qltdResolveDeptProgressPermission_: () => ({ allowed: true, source: 'HOME_DEPT', permissionCode: '' }),
+  qltdResolveDeptProgressPermission_: () => delegatedManagerMode
+    ? { allowed: true, source: 'DELEGATED_ACCESS', permissionCode: 'DEPT_MANAGER' }
+    : { allowed: true, source: 'HOME_DEPT', permissionCode: '' },
+  qltdResolveDeptManagerPermission_: () => delegatedManagerMode
+    ? { allowed: true, source: 'DELEGATED_ACCESS', permissionCode: 'DEPT_MANAGER' }
+    : { allowed: false, source: '', permissionCode: '' },
+  qltdUserProjectDeptAccessDecisionIsDeptManager_: (decision) => decision?.permissionCode === 'DEPT_MANAGER',
   qltdUserProjectDeptAccessValidateDelegatedPayload_: () => null,
   qltdWorkNowIso_: () => '2026-06-20T00:00:00.000Z',
   qltdWorkOk_: (_source, _action, data, warnings) => ({ success: true, ...data, warnings }),
@@ -95,6 +106,13 @@ const context = {
   qltdWorkIsAdminScope_: (user) => ['ADMIN', 'PMO'].includes(String(user?.role || '').toUpperCase()),
   qltdMasterDeptCanonicalCode_: (value) => String(value || '').trim().toUpperCase(),
   qltdWorkSameDept_: (user, deptCode) => String(user?.deptCode || '').toUpperCase() === String(deptCode || '').toUpperCase(),
+  QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION: { DEPT_MANAGER: 'DEPT_MANAGER', UPDATE_PROGRESS: 'UPDATE_PROGRESS' },
+  qltdUserProjectDeptAccessResolveEffectiveScopes_: () => delegatedManagerMode
+    ? [{ projectCode: 'P1', deptCode: 'PTDA', permissionCode: 'DEPT_MANAGER' }]
+    : [],
+  qltdCanManageProjectDept_: (user, _projectCode, deptCode) => (delegatedManagerMode && String(deptCode || '').toUpperCase() === 'PTDA') ||
+    ['ADMIN', 'PMO'].includes(String(user?.role || '').toUpperCase()) ||
+    (String(user?.role || '').toUpperCase() === 'EDITOR' && String(user?.deptCode || '').toUpperCase() === String(deptCode || '').toUpperCase()),
   qltdWorkResolveAssignees_: (value) => {
     const match = String(value || '').match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
     return { ok: !!match, users: match ? [{ email: match[0].toLowerCase() }] : [], unresolved: match ? [] : [value] };
@@ -360,7 +378,7 @@ assert.equal(buildItem('MASTER', 'CV-1', base, '2026-06-08', '2026-06-14', 'khô
 assert.equal(buildItem('PB_DETAIL', 'DT-COORD', { ...base, coordinatorText: 'user@example.com; other@example.com' }, '2026-06-08', '2026-06-14', '').coordinator, 'user@example.com; other@example.com');
 assert.match(source, /capabilities:\s*\{/);
 assert.match(source, /canUpdate:\s*canManage \|\| role === 'REPORTER'/);
-assert.match(source, /canReviewWeekly:\s*qltdWorkCanReviewWeekly_/);
+assert.match(source, /canReviewWeekly:\s*qltdCanManageProjectDept_/);
 const weeklySaveSource = source.slice(source.indexOf('function qltdWeeklyTaskUpdatesSave_'), source.indexOf('function qltdWorkListWeeklyItems_'));
 assert.ok(weeklySaveSource.indexOf('.setValues([') < weeklySaveSource.indexOf('qltdNotificationsTryCreatePendingNoLock_'));
 
@@ -763,6 +781,13 @@ const pendingList = getPbApprovals({ projectCode: 'P1', status: 'PENDING' });
 assert.equal(pendingList.success, true);
 assert.equal(pendingList.count, 1);
 assert.equal(pendingList.approvals[0].officialProgress, 10);
+authRole = 'REPORTER';
+authEmail = 'manager.delegate@example.com';
+delegatedManagerMode = true;
+const delegatedManagerPendingList = getPbApprovals({ projectCode: 'P1', status: 'PENDING' });
+assert.equal(delegatedManagerPendingList.success, true);
+assert.equal(delegatedManagerPendingList.count, 1);
+delegatedManagerMode = false;
 authRole = 'ADMIN';
 assert.equal(getPbApprovals({ projectCode: 'P1', status: 'PENDING' }).code, 'ACCESS_DENIED');
 authRole = 'EDITOR';
@@ -787,8 +812,9 @@ assert.notEqual(resubmitted.update.updateId, reporterPending.update.updateId);
 assert.equal(sheetRows.find((row) => row[0] === reporterPending.update.updateId)[17], 'REJECTED');
 assert.equal(sheetRows.find((row) => row[0] === resubmitted.update.updateId)[17], 'PENDING');
 
-authRole = 'EDITOR';
-authEmail = 'editor@example.com';
+authRole = 'REPORTER';
+authEmail = 'manager.delegate@example.com';
+delegatedManagerMode = true;
 const missingRejectReason = reviewPb({ email: authEmail, updateId: resubmitted.update.updateId, approvalStatus: 'REJECTED' });
 assert.equal(missingRejectReason.code, 'REVIEW_REASON_REQUIRED');
 const approvedPb = reviewPb({ email: authEmail, updateId: resubmitted.update.updateId, approvalStatus: 'APPROVED' });
@@ -798,10 +824,26 @@ assert.equal(officialDetailWrites.at(-1).detailTaskId, 'DT-REPORTER');
 assert.equal(officialDetailWrites.at(-1).progress, 45);
 assert.equal(notificationFinalizeCalls.at(-1).approvalStatus, 'APPROVED');
 assert.equal(reviewPb({ email: authEmail, updateId: resubmitted.update.updateId, approvalStatus: 'APPROVED' }).code, 'APPROVAL_NOT_PENDING');
+delegatedManagerMode = false;
+authRole = 'EDITOR';
+authEmail = 'editor@example.com';
 const directEditor = save({ ...reporterBase, email: authEmail, itemId: 'DT-EDITOR', progressEnd: 30, thisWeekResult: 'Editor direct' });
 assert.equal(directEditor.success, true);
 assert.equal(directEditor.update.approvalStatus, '');
 assert.equal(detailSyncCalls.at(-1).detailTaskId, 'DT-EDITOR');
+
+authRole = 'REPORTER';
+authEmail = 'manager.delegate@example.com';
+delegatedManagerMode = true;
+const delegatedManagerSave = save({ ...reporterBase, email: authEmail, itemId: 'DT-EDITOR', progressEnd: 35, thisWeekResult: 'Delegated manager direct save' });
+assert.equal(delegatedManagerSave.success, true);
+assert.equal(delegatedManagerSave.update.approvalStatus, '');
+assert.equal(detailSyncCalls.at(-1).detailTaskId, 'DT-EDITOR');
+authRole = 'VIEWER';
+const delegatedViewerManagerSave = save({ ...reporterBase, email: authEmail, itemId: 'DT-EDITOR', progressEnd: 40, thisWeekResult: 'Delegated manager with viewer base role' });
+assert.equal(delegatedViewerManagerSave.success, true);
+assert.equal(delegatedViewerManagerSave.update.approvalStatus, '');
+delegatedManagerMode = false;
 
 notificationFailureMode = true;
 authRole = 'REPORTER';

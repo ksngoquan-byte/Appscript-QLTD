@@ -139,12 +139,19 @@ function qltdWeeklyTaskUpdatesGet_(params) {
   const itemType = qltdWeeklyTaskUpdatesNormalizeType_(params.itemType);
   const itemId = String(params.itemId || '').trim();
   const role = qltdWorkNormalizeRole_(auth.user && auth.user.role);
+  const managerPermission = qltdResolveDeptManagerPermission_(
+    auth.user,
+    scope.projectCode,
+    scope.deptCode,
+    scope.dept
+  );
+  const delegatedDeptManager = qltdUserProjectDeptAccessDecisionIsDeptManager_(managerPermission);
   const updates = read.updates.filter(function(update) {
     const inScope = update.projectCode === scope.projectCode && update.deptCode === scope.deptCode &&
       update.weekCode === scope.weekCode && (!itemType || update.itemType === itemType) &&
       (!itemId || update.itemId === itemId);
     if (!inScope) return false;
-    return role !== 'REPORTER' || update.itemType !== 'PB_DETAIL' || update.updatedBy === auth.email;
+    return delegatedDeptManager || role !== 'REPORTER' || update.itemType !== 'PB_DETAIL' || update.updatedBy === auth.email;
   });
   updates.forEach(function(update) {
     update.budgetCumulative = read.updates.filter(function(candidate) {
@@ -199,7 +206,12 @@ function qltdWeeklyPbDetailApprovalsGet_(params) {
   const action = 'weekly_pbdetailapprovals_get';
   const auth = qltdWorkAuthUser_(params && params.email, action, QLTD_WEEKLY_TASK_UPDATE_SOURCE);
   if (auth.error) return auth.error;
-  if (qltdWorkNormalizeRole_(auth.user && auth.user.role) !== 'EDITOR') {
+  const directEditor = qltdWorkNormalizeRole_(auth.user && auth.user.role) === 'EDITOR';
+  const delegatedManagerScopes = qltdUserProjectDeptAccessResolveEffectiveScopes_(
+    auth.email,
+    QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.DEPT_MANAGER
+  );
+  if (!directEditor && !delegatedManagerScopes.length) {
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Only same-department Editors can review PB_DETAIL updates.', { email: auth.email });
   }
   const read = qltdWeeklyTaskUpdatesRead_();
@@ -210,8 +222,7 @@ function qltdWeeklyPbDetailApprovalsGet_(params) {
   const candidates = read.updates.filter(function(update) {
     return update.itemType === 'PB_DETAIL' &&
       update.approvalStatus === status &&
-      (!projectCode || update.projectCode === projectCode) &&
-      qltdMasterDeptCanonicalCode_(update.deptCode) === qltdMasterDeptCanonicalCode_(auth.user.deptCode);
+      (!projectCode || update.projectCode === projectCode);
   });
   const detailCache = {};
   const approvals = [];
@@ -223,7 +234,7 @@ function qltdWeeklyPbDetailApprovalsGet_(params) {
         actorUser: auth.user,
         meta: { email: auth.email, projectCode: update.projectCode, deptCode: update.deptCode }
       });
-      if (resolved.error || !qltdWorkSameDept_(auth.user, resolved.deptCode, resolved.dept)) {
+      if (resolved.error || !qltdCanManageProjectDept_(auth.user, resolved.projectCode, resolved.deptCode, resolved.dept)) {
         detailCache[cacheKey] = null;
       } else {
         const context = Object.assign({}, resolved, {
@@ -369,9 +380,6 @@ function qltdWeeklyPbDetailApprovalReview_(payload) {
   const action = 'weekly_pbdetailapproval_review';
   const auth = qltdWorkAuthUser_(payload && payload.email, action, QLTD_WEEKLY_TASK_UPDATE_SOURCE);
   if (auth.error) return auth.error;
-  if (qltdWorkNormalizeRole_(auth.user && auth.user.role) !== 'EDITOR') {
-    return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Only same-department Editors can review PB_DETAIL updates.', { email: auth.email });
-  }
   const updateId = String(payload && payload.updateId || '').trim();
   const nextStatus = qltdWeeklyTaskUpdatesNormalizeApprovalStatus_(payload && (payload.approvalStatus || payload.status));
   const reason = String(payload && (payload.reviewReason || payload.reason) || '').trim();
@@ -404,7 +412,7 @@ function qltdWeeklyPbDetailApprovalReview_(payload) {
     }
     const scope = qltdWeeklyTaskUpdatesResolveScope_(action, target, auth);
     if (scope.error) return scope.error;
-    if (!qltdWorkSameDept_(auth.user, scope.deptCode, scope.dept)) {
+    if (!qltdCanManageProjectDept_(auth.user, scope.projectCode, scope.deptCode, scope.dept)) {
       return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Editor cannot review another department.', scope.meta, scope.warnings);
     }
 
@@ -485,11 +493,12 @@ function qltdWeeklyTaskUpdatesSave_(payload) {
   const validation = qltdWeeklyTaskUpdatesValidatePayload_(payload || {}, scope);
   if (validation.error) return validation.error;
   const role = qltdWorkNormalizeRole_(auth.user && auth.user.role);
-  const reporterProposal = role === 'REPORTER';
+  const delegatedDeptManager = qltdUserProjectDeptAccessDecisionIsDeptManager_(progressPermission);
+  const reporterProposal = role === 'REPORTER' && !delegatedDeptManager;
   if (reporterProposal && validation.itemType !== 'PB_DETAIL') {
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'REPORTER_PB_DETAIL_ONLY', 'Reporter can only submit assigned PB_DETAIL updates.', scope.meta, scope.warnings);
   }
-  if (role === 'VIEWER') {
+  if (role === 'VIEWER' && !delegatedDeptManager) {
     return qltdWorkError_(QLTD_WEEKLY_TASK_UPDATE_SOURCE, action, 'ACCESS_DENIED', 'Viewer cannot submit weekly updates.', scope.meta, scope.warnings);
   }
   const currentItem = qltdWeeklyTaskUpdatesFindCurrentItem_(validation.itemType, validation.itemId, scope, action);
@@ -693,8 +702,9 @@ function qltdWorkListWeeklyItems_(params) {
     scope.dept,
     'weekly_taskupdates_save'
   );
-  const canDelegatedUpdate = progressPermission.source === 'DELEGATED_ACCESS';
-  const budgetContext = canDelegatedUpdate
+  const delegatedDeptManager = qltdUserProjectDeptAccessDecisionIsDeptManager_(progressPermission);
+  const restrictedDelegatedUpdate = progressPermission.source === 'DELEGATED_ACCESS' && !delegatedDeptManager;
+  const budgetContext = restrictedDelegatedUpdate
     ? { taskLinkedByMaster: {}, standaloneItems: [], warnings: [] }
     : qltdWeeklyTaskUpdatesReadBudgetContext_(scope);
   const detailContext = qltdPbDetailBuildSheetContext_(action, Object.assign({}, scope, { meta: scope.meta }));
@@ -719,7 +729,8 @@ function qltdWorkListWeeklyItems_(params) {
     return item;
   });
   const role = qltdWorkNormalizeRole_(auth.user && auth.user.role);
-  const canManage = qltdWorkCanWriteTask_(auth.user, scope.deptCode, scope.dept) || canDelegatedUpdate;
+  const canManage = qltdCanManageProjectDept_(auth.user, scope.projectCode, scope.deptCode, scope.dept) ||
+    progressPermission.source === 'DELEGATED_ACCESS';
   let items = masterItems.concat(detailItems).filter(function(item) { return item.eligible; });
   items.forEach(function(item) {
     item.canUpdate = canManage || (
@@ -746,13 +757,13 @@ function qltdWorkListWeeklyItems_(params) {
     summary: summary,
     capabilities: {
       canUpdate: canManage || role === 'REPORTER',
-      canReviewWeekly: qltdWorkCanReviewWeekly_(auth.user, scope.deptCode, scope.dept),
+      canReviewWeekly: qltdCanManageProjectDept_(auth.user, scope.projectCode, scope.deptCode, scope.dept),
       role: qltdWorkNormalizeRole_(auth.user && auth.user.role),
       permissionSource: progressPermission.source,
       permissionCode: progressPermission.permissionCode,
-      canWriteBudget: !canDelegatedUpdate && role !== 'REPORTER'
+      canWriteBudget: !restrictedDelegatedUpdate && (role !== 'REPORTER' || delegatedDeptManager)
     },
-    standaloneBudgetItems: canDelegatedUpdate ? [] : (budgetContext.standaloneItems || [])
+    standaloneBudgetItems: restrictedDelegatedUpdate ? [] : (budgetContext.standaloneItems || [])
   }, scope.warnings.concat(officialMasters.warnings || []).concat(budgetContext.warnings || []).concat(detailContext.error ? [qltdWorkWarning_('PB_DETAIL_UNAVAILABLE', 'PB_DETAIL items could not be loaded.')] : []), scope.meta);
 }
 
@@ -797,6 +808,8 @@ function qltdWeeklyTaskUpdatesBuildOfficialMasterDto_(official, deptTask) {
     masterTaskCode: String(deptTask.masterTaskCode || official.code || official.id || '').trim(),
     wbs: String(official.wbs || deptTask.wbs || '').trim(),
     taskName: String(official.text || deptTask.taskName || '').trim(),
+    zone: String(official.congViecZone || '').trim(),
+    hangMuc: String(official.congViecHangMuc || '').trim(),
     rowType: deptTask.rowType || 'MASTER',
     planStart: qltdBudgetFormatDate_(official.baselineStart || official.startPlan || official.start_date || deptTask.planStart),
     planFinish: qltdBudgetFormatDate_(official.baselineEnd || official.endPlan || official.end_date || official.deadline || deptTask.planFinish),
@@ -1990,7 +2003,7 @@ function qltdWeeklyTaskUpdatesNormalize_(object, rowNumber) {
 function qltdWeeklyTaskUpdatesBuildItem_(type, id, source, weekStart, weekEnd, search, hasDetails) {
   const progress = Number(source.progress || 0); const planStart = qltdBudgetFormatDate_(source.planStart); const planFinish = qltdBudgetFormatDate_(source.planFinish);
   const actualStart = qltdBudgetFormatDate_(source.actualStart); const actualFinish = qltdBudgetFormatDate_(source.actualFinish);
-  const text = [source.wbs, source.taskName, id].join(' ').toLowerCase(); const query = String(search || '').trim().toLowerCase();
+  const text = [source.wbs, source.taskName, source.zone, source.hangMuc, id].join(' ').toLowerCase(); const query = String(search || '').trim().toLowerCase();
   const officialComplete = qltdWeeklyTaskUpdatesIsOfficialComplete_(source);
   let reason = '';
   if (officialComplete && actualFinish && actualFinish >= weekStart && actualFinish <= weekEnd) reason = 'COMPLETED_THIS_WEEK';
@@ -2002,7 +2015,7 @@ function qltdWeeklyTaskUpdatesBuildItem_(type, id, source, weekStart, weekEnd, s
   return {
     itemType: type, itemId: id, masterTaskCode: type === 'MASTER' ? id : source.masterTaskCode,
     detailTaskId: type === 'PB_DETAIL' ? id : '', parentMasterTaskCode: type === 'PB_DETAIL' ? source.masterTaskCode : '',
-    wbs: source.wbs || '', taskName: source.taskName || '', planStart: planStart, planFinish: planFinish,
+    wbs: source.wbs || '', taskName: source.taskName || '', zone: source.zone || '', hangMuc: source.hangMuc || '', planStart: planStart, planFinish: planFinish,
     actualStart: actualStart, actualFinish: actualFinish, progress: officialComplete ? Math.max(progress, 100) : progress, status: officialComplete ? 'Hoàn thành' : (source.status || ''),
     owner: source.owner || source.ownerText || '', coordinator: source.coordinator || source.coordinatorText || '', plannedBudget: Number(source.budgetPlan || source.plannedBudget || 0),
     actualBudget: Number(source.budgetActual || source.actualBudget || 0), hasBudget: (source.taskLinkedBudgetItems || []).length > 0 || Number(source.budgetPlan || source.plannedBudget || 0) > 0 || Number(source.budgetActual || source.actualBudget || 0) > 0,

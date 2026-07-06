@@ -1,6 +1,7 @@
 const QLTD_USER_PROJECT_DEPT_ACCESS_SHEET = 'User_Project_Dept_Access';
 const QLTD_USER_PROJECT_DEPT_ACCESS_SPREADSHEET_ID = '1ZAZwSjGOvKEp8iLCqLsEiJyJSFBR-jeru0RL25Q4xMM';
 const QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION = {
+  DEPT_MANAGER: 'DEPT_MANAGER',
   UPDATE_PROGRESS: 'UPDATE_PROGRESS'
 };
 const QLTD_USER_PROJECT_DEPT_ACCESS_HEADERS = [
@@ -23,7 +24,7 @@ const QLTD_USER_PROJECT_DEPT_ACCESS_DELEGATED_ACTIONS = {
   weekly_submit: true
 };
 const QLTD_USER_PROJECT_DEPT_ACCESS_CACHE_SECONDS = 60;
-const QLTD_USER_PROJECT_DEPT_ACCESS_CACHE_VERSION = 'v1';
+const QLTD_USER_PROJECT_DEPT_ACCESS_CACHE_VERSION = 'v2';
 
 function qltdUserProjectDeptAccessCheckSchema_() {
   const spreadsheet = getCurrentSpreadsheet_();
@@ -271,8 +272,66 @@ function qltdUserProjectDeptAccessResolveEffectiveScopes_(email, permissionCode,
   });
 }
 
+function qltdUserProjectDeptAccessResolveAllEffectiveScopes_(email, nowValue) {
+  return qltdUserProjectDeptAccessListByEmail_(email).records.filter(function(record) {
+    return qltdUserProjectDeptAccessIsActive_(record, nowValue);
+  }).map(function(record) {
+    return {
+      projectCode: record.projectCode,
+      deptCode: record.deptCode,
+      permissionCode: record.permissionCode,
+      permissionSource: 'DELEGATED_ACCESS'
+    };
+  });
+}
+
 function qltdUserProjectDeptAccessActionAllowed_(action) {
   return !!QLTD_USER_PROJECT_DEPT_ACCESS_DELEGATED_ACTIONS[String(action || '').trim().toLowerCase()];
+}
+
+function qltdUserProjectDeptAccessDeptManagerActionAllowed_(action) {
+  const normalizedAction = String(action || '').trim().toLowerCase();
+  const rules = typeof QLTD_DEPT_SCOPE_ACTION_RULES !== 'undefined'
+    ? QLTD_DEPT_SCOPE_ACTION_RULES[normalizedAction]
+    : null;
+  return Array.isArray(rules) && rules.indexOf('EDITOR') !== -1;
+}
+
+function qltdUserProjectDeptAccessDecisionIsDeptManager_(decision) {
+  return !!decision &&
+    decision.allowed === true &&
+    decision.source === 'DELEGATED_ACCESS' &&
+    decision.permissionCode === QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.DEPT_MANAGER;
+}
+
+function qltdResolveDeptManagerPermission_(user, projectCode, deptCode, dept) {
+  const normalizedProject = qltdUserProjectDeptAccessNormalizeProjectCode_(projectCode);
+  const normalizedDept = qltdUserProjectDeptAccessNormalizeDeptCode_(dept && dept.deptCode || deptCode);
+  const role = qltdUsersNormalizeRole_(user && user.role);
+  if (!user || user.status !== 'ACTIVE' || !normalizedProject || !normalizedDept) {
+    return { allowed: false, source: '', permissionCode: '', projectCode: normalizedProject, deptCode: normalizedDept };
+  }
+  if (role === 'EDITOR' && qltdWorkSameDept_(user, normalizedDept, dept)) {
+    return { allowed: true, source: 'HOME_DEPT', permissionCode: '', projectCode: normalizedProject, deptCode: normalizedDept };
+  }
+  const delegated = qltdUserProjectDeptAccessHasPermission_(
+    user.email,
+    normalizedProject,
+    normalizedDept,
+    QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.DEPT_MANAGER
+  );
+  return {
+    allowed: delegated,
+    source: delegated ? 'DELEGATED_ACCESS' : '',
+    permissionCode: delegated ? QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.DEPT_MANAGER : '',
+    projectCode: normalizedProject,
+    deptCode: normalizedDept
+  };
+}
+
+function qltdCanManageProjectDept_(user, projectCode, deptCode, dept) {
+  if (qltdWorkIsAdminScope_(user)) return true;
+  return qltdResolveDeptManagerPermission_(user, projectCode, deptCode, dept).allowed;
 }
 
 function qltdResolveDeptProgressPermission_(user, projectCode, deptCode, dept, action) {
@@ -287,6 +346,10 @@ function qltdResolveDeptProgressPermission_(user, projectCode, deptCode, dept, a
   }
   if (qltdWorkSameDept_(user, normalizedDept, dept)) {
     return { allowed: true, source: 'HOME_DEPT', permissionCode: '', projectCode: normalizedProject, deptCode: normalizedDept };
+  }
+  const managerDecision = qltdResolveDeptManagerPermission_(user, normalizedProject, normalizedDept, dept);
+  if (managerDecision.allowed && qltdUserProjectDeptAccessDeptManagerActionAllowed_(action)) {
+    return managerDecision;
   }
   if (!qltdUserProjectDeptAccessActionAllowed_(action)) {
     return { allowed: false, source: '', permissionCode: '', projectCode: normalizedProject, deptCode: normalizedDept };
@@ -326,16 +389,18 @@ function qltdResolveDeptReadPermission_(user, projectCode, deptCode, dept) {
       deptCode: normalizedDept
     };
   }
-  const delegated = qltdUserProjectDeptAccessHasPermission_(
+  const managerDecision = qltdResolveDeptManagerPermission_(user, normalizedProject, normalizedDept, dept);
+  if (managerDecision.allowed) return managerDecision;
+  const delegatedProgress = qltdUserProjectDeptAccessHasPermission_(
     user && user.email,
     normalizedProject,
     normalizedDept,
     QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.UPDATE_PROGRESS
   );
   return {
-    allowed: delegated,
-    source: delegated ? 'DELEGATED_ACCESS' : '',
-    permissionCode: delegated ? QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.UPDATE_PROGRESS : '',
+    allowed: delegatedProgress,
+    source: delegatedProgress ? 'DELEGATED_ACCESS' : '',
+    permissionCode: delegatedProgress ? QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.UPDATE_PROGRESS : '',
     projectCode: normalizedProject,
     deptCode: normalizedDept
   };
@@ -343,6 +408,7 @@ function qltdResolveDeptReadPermission_(user, projectCode, deptCode, dept) {
 
 function qltdUserProjectDeptAccessValidateDelegatedPayload_(action, payload, decision) {
   if (!decision || decision.source !== 'DELEGATED_ACCESS') return null;
+  if (decision.permissionCode === QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.DEPT_MANAGER) return null;
   const normalizedAction = String(action || '').trim().toLowerCase();
   const commonMeta = {
     action: true, email: true, actorEmail: true, idToken: true,

@@ -13,6 +13,7 @@ const QLTD_GANTT_HEADER_ALIASES = {
   code: ['ma_cong_viec', 'ma_cv', 'macv', 'code', 'mastercode', 'master_code', 'ma_cong_viec_mau', 'task_code'],
   wbs: ['wbs', 'stt', 'ma_wbs', 'cap_wbs', 'wbs_code'],
   text: ['cong_viec_pham_vi', 'cong_viec', 'ten_cong_viec', 'noi_dung_cong_viec', 'pham_vi_cong_viec', 'noi_dung', 'task', 'task_name', 'ten_task', 'name', 'text', 'muc_tieu', 'ten_muc_tieu', 'hang_muc'],
+  zone: ['zone'],
   hangMuc: ['hang_muc', 'hangmuc'],
   parent: ['parent', 'parent_id', 'parentid', 'ma_cha', 'uid_cha', 'cong_viec_cha', 'parent_uid'],
   owner: ['chu_tri', 'phong_ban_chu_tri', 'don_vi_chu_tri', 'owner', 'department', 'dept', 'deptcode', 'bo_phan', 'phong_ban'],
@@ -435,8 +436,8 @@ function qltdGanttBuildTasks_(values, detected, warnings, sourceSheetName) {
     const isMilestone = qltdGanttIsMilestone_(qltdGanttCell_(row, headerIndex, 'milestone'), startIso, endIso);
     const parent = String(qltdGanttCell_(row, headerIndex, 'parent') || '0').trim() || '0';
     const raw = qltdGanttBuildRawRow_(values[detected.rowIndex], row);
-    const hangMuc = qltdGanttNormalizeHangMucFromColF_(
-      String(sourceSheetName || '').trim() === 'Cong_viec' ? row[5] : qltdGanttCell_(row, headerIndex, 'hangMuc'));
+    const zone = String(qltdGanttCell_(row, headerIndex, 'zone') || '').trim();
+    const hangMuc = String(qltdGanttCell_(row, headerIndex, 'hangMuc') || '').trim();
     const predecessor = qltdGanttCell_(row, headerIndex, 'predecessor');
 
     if (!text) warnings.push({ type: 'MISSING_TASK_TEXT_USING_ID', rowNumber: rowIndex + 1, id: id });
@@ -455,6 +456,9 @@ function qltdGanttBuildTasks_(values, detected, warnings, sourceSheetName) {
       open: true,
       type: isMilestone ? 'milestone' : 'task',
       wbs: String(qltdGanttCell_(row, headerIndex, 'wbs') || '').trim(),
+      congViecZone: zone,
+      congViecHangMuc: hangMuc,
+      zone: zone,
       hangMuc: hangMuc,
       owner: String(qltdGanttCell_(row, headerIndex, 'owner') || '').trim(),
       status: qltdGanttNormalizeStatusLabel_(status, progress),
@@ -508,10 +512,6 @@ function qltdGanttBuildRawRow_(headers, row) {
     raw[key] = value instanceof Date ? qltdGanttToIsoDate_(value) : value;
   });
   return raw;
-}
-
-function qltdGanttNormalizeHangMucFromColF_(value) {
-  return value === null || value === undefined ? '' : String(value).trim();
 }
 
 function qltdGanttBuildLinks_(tasks, warnings) {

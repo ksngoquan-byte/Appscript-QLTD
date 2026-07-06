@@ -214,8 +214,10 @@ function qltdPbDetailWriteWithLock_(action, payload, handler) {
     context.dept,
     action
   );
-  const canManage = qltdWorkCanManageDept_(auth.user, context.deptCode, context.dept);
-  const canDelegatedUpdate = action === 'work_updateDetailTask' && progressPermission.source === 'DELEGATED_ACCESS';
+  const canManage = qltdCanManageProjectDept_(auth.user, context.projectCode, context.deptCode, context.dept);
+  const canDelegatedUpdate = action === 'work_updateDetailTask' &&
+    progressPermission.source === 'DELEGATED_ACCESS' &&
+    progressPermission.permissionCode === QLTD_USER_PROJECT_DEPT_ACCESS_PERMISSION.UPDATE_PROGRESS;
   if (!canManage && !canDelegatedUpdate) {
     return qltdWorkError_(QLTD_PB_DETAIL_TASK_SOURCE, action, 'ACCESS_DENIED', 'User cannot manage this dept.', context.meta, context.warnings);
   }

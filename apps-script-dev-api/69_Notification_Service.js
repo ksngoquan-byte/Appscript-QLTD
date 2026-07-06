@@ -198,8 +198,8 @@ function qltdNotificationsTryCreatePendingNoLock_(update) {
     const users = qltdWorkListUsers_().filter(function(user) {
       if (user.status !== 'ACTIVE') return false;
       if (type === QLTD_NOTIFICATIONS_TYPES.PB_DETAIL_PENDING) {
-        return user.email !== update.updatedBy && user.role === 'EDITOR' &&
-          qltdMasterDeptCanonicalCode_(user.deptCode) === qltdMasterDeptCanonicalCode_(update.deptCode);
+        return user.email !== update.updatedBy &&
+          qltdCanManageProjectDept_(user, update.projectCode, update.deptCode, null);
       }
       return user.role === 'ADMIN' || user.role === 'PMO';
     });
