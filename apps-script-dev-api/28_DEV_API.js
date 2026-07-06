@@ -19,6 +19,7 @@ const QLTD_DEV_DEPT_READ_ACTIONS = {
 function qltdDevApiHandleGet(e) {
   const params = e && e.parameter ? e.parameter : {};
   const action = String(params.action || '').trim().toLowerCase();
+  if (typeof qltdPerfStartRequest_ === 'function') qltdPerfStartRequest_(action, params);
 
   if (action === 'health') {
     return qltdDevApiJson_({
@@ -171,6 +172,10 @@ function qltdDevApiHandleGet(e) {
     return qltdDevApiGanttData_(params);
   }
 
+  if (action === 'dashboardsummary') {
+    return qltdDevApiDashboardSummary_(params);
+  }
+
   if (action === 'getmainmilestones') {
     return qltdDevApiJson_(qltdMainMilestonesGet_(params.projectCode, params.email));
   }
@@ -243,6 +248,7 @@ function qltdDevApiHandlePost_(e) {
 
   const payload = parseResult.payload;
   const action = String(payload.action || '').trim().toLowerCase();
+  if (typeof qltdPerfStartRequest_ === 'function') qltdPerfStartRequest_(action, payload);
 
   if (action === 'profile') {
     return qltdDevApiProfile_(payload);
@@ -421,8 +427,11 @@ function qltdDevApiNormalizeEmail_(emailValue) {
 }
 
 function qltdDevApiJson_(payload) {
+  const serialized = typeof qltdPerfFinalizeJson_ === 'function'
+    ? qltdPerfFinalizeJson_(payload)
+    : JSON.stringify(payload);
   return ContentService
-    .createTextOutput(JSON.stringify(payload))
+    .createTextOutput(serialized)
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -495,6 +504,23 @@ function qltdDevApiGanttData_(params) {
   const result = qltdGanttGetDataForProject_(projectCode);
   if (result && result.success !== false) {
     const milestones = qltdMainMilestonesGet_(projectCode, 'gantt-data@authenticated.local', true);
+    result.mainMilestoneSource = 'GOOGLE_SHEET';
+    result.mainMilestoneIds = milestones.ids || [];
+    result.mainMilestoneCodes = milestones.codes || [];
+  }
+  return qltdDevApiJson_(result);
+}
+
+function qltdDevApiDashboardSummary_(params) {
+  const projectCode = params && params.projectCode;
+  const forceRefresh = String(params && (params.forceRefresh || params.bypassCache) || '').trim() === '1' ||
+    String(params && (params.forceRefresh || params.bypassCache) || '').trim().toLowerCase() === 'true';
+  if (forceRefresh && typeof qltdGanttInvalidateCache_ === 'function') {
+    qltdGanttInvalidateCache_(projectCode);
+  }
+  const result = qltdDashboardGetSummaryForProject_(projectCode);
+  if (result && result.success !== false) {
+    const milestones = qltdMainMilestonesGet_(projectCode, 'dashboard-summary@authenticated.local', true);
     result.mainMilestoneSource = 'GOOGLE_SHEET';
     result.mainMilestoneIds = milestones.ids || [];
     result.mainMilestoneCodes = milestones.codes || [];
