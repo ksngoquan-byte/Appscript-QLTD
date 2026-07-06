@@ -388,8 +388,10 @@ function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, 
       return;
     }
 
-    master.ownZone = official.congViecZone || '';
-    master.ownHangMuc = official.congViecHangMuc || '';
+    master.congViecZone = official.congViecZone || '';
+    master.congViecHangMuc = official.congViecHangMuc || '';
+    master.ownZone = master.congViecZone;
+    master.ownHangMuc = master.congViecHangMuc;
     master.taskName = official.taskName || '';
     master.contextZone = official.contextZone || official.zone || '';
     master.contextHangMuc = official.contextHangMuc || official.hangMuc || '';
@@ -405,8 +407,10 @@ function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, 
       : [];
 
     (master.details || []).forEach(function(detail) {
-      detail.ownZone = String(detail.ownZone || '').trim();
-      detail.ownHangMuc = String(detail.ownHangMuc || '').trim();
+      detail.congViecZone = master.congViecZone;
+      detail.congViecHangMuc = master.congViecHangMuc;
+      detail.ownZone = master.ownZone;
+      detail.ownHangMuc = master.ownHangMuc;
       detail.contextZone = master.contextZone;
       detail.contextHangMuc = master.contextHangMuc;
       detail.zone = master.zone;

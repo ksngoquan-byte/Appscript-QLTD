@@ -711,9 +711,15 @@ function qltdWorkListWeeklyItems_(params) {
   const detailsByMaster = {};
   const incompleteDetailsByMaster = {};
   const detailItems = [];
+  const officialMasterByCode = {};
+  officialMasters.tasks.forEach(function(task) {
+    officialMasterByCode[qltdWeeklyTaskUpdatesNormalizeTaskCode_(task.masterTaskCode)] = task;
+  });
   if (!detailContext.error) {
     detailContext.dataRows.filter(function(row) { return row.rowType === QLTD_PB_DETAIL_ROW_TYPE_DETAIL; }).forEach(function(row) {
       const dto = qltdPbDetailBuildDetailDto_(row, detailContext.columns);
+      const officialMaster = officialMasterByCode[qltdWeeklyTaskUpdatesNormalizeTaskCode_(dto.masterTaskCode)] || {};
+      qltdWeeklyTaskUpdatesApplyMasterExactRowContext_(dto, officialMaster);
       qltdWeeklyTaskUpdatesAttachBudgetContext_(dto, budgetContext, dto.masterTaskCode);
       detailsByMaster[dto.masterTaskCode] = (detailsByMaster[dto.masterTaskCode] || 0) + 1;
       if (Number(dto.progress || 0) < 100 && !qltdWeeklyTaskUpdatesIsOfficialComplete_(dto)) {
@@ -813,6 +819,8 @@ function qltdWeeklyTaskUpdatesBuildOfficialMasterDto_(official, deptTask) {
     masterTaskCode: String(deptTask.masterTaskCode || official.code || official.id || '').trim(),
     wbs: String(official.wbs || deptTask.wbs || '').trim(),
     taskName: String(official.taskName || '').trim(),
+    congViecZone: String(official.congViecZone || '').trim(),
+    congViecHangMuc: String(official.congViecHangMuc || '').trim(),
     ownZone: String(official.congViecZone || '').trim(),
     ownHangMuc: String(official.congViecHangMuc || '').trim(),
     zone: String(official.congViecZone || '').trim(),
@@ -830,6 +838,16 @@ function qltdWeeklyTaskUpdatesBuildOfficialMasterDto_(official, deptTask) {
     coordinatorText: deptTask.coordinatorText || '',
     officialSource: 'GANTT_CONG_VIEC'
   };
+}
+
+function qltdWeeklyTaskUpdatesApplyMasterExactRowContext_(target, officialMaster) {
+  const dto = target || {};
+  const official = officialMaster || {};
+  dto.congViecZone = String(official.congViecZone || official.ownZone || '').trim();
+  dto.congViecHangMuc = String(official.congViecHangMuc || official.ownHangMuc || '').trim();
+  dto.ownZone = dto.congViecZone;
+  dto.ownHangMuc = dto.congViecHangMuc;
+  return dto;
 }
 
 function qltdWeeklyTaskUpdatesBuildApprovalDto_(update, projectCache) {

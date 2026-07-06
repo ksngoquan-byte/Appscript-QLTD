@@ -2,7 +2,7 @@ const QLTD_GANTT_DATA_SOURCE = 'gantt_data_service';
 const QLTD_GANTT_FALLBACK_SHEETS = ['Cong_viec', 'Tien_do_tong_hop'];
 const QLTD_GANTT_HEADER_SCAN_ROWS = 12;
 const QLTD_GANTT_MAX_SCAN_ROWS = 50000;
-const QLTD_GANTT_CACHE_VERSION = 'v3-exact-row-context';
+const QLTD_GANTT_CACHE_VERSION = 'v4-hangmuc-display-dashboard';
 const QLTD_GANTT_CACHE_TTL_SECONDS = 120;
 const QLTD_GANTT_CACHE_CHUNK_CHARS = 25000;
 const QLTD_GANTT_CACHE_MAX_CHUNKS = 60;
@@ -14,7 +14,7 @@ const QLTD_GANTT_HEADER_ALIASES = {
   wbs: ['wbs', 'stt', 'ma_wbs', 'cap_wbs', 'wbs_code'],
   text: ['cong_viec_pham_vi', 'cong_viec', 'ten_cong_viec', 'noi_dung_cong_viec', 'pham_vi_cong_viec', 'noi_dung', 'task', 'task_name', 'ten_task', 'name', 'text', 'muc_tieu', 'ten_muc_tieu'],
   zone: ['zone'],
-  hangMuc: ['hang_muc', 'hangmuc'],
+  hangMuc: ['hang_muc_tang', 'hang_muc', 'hangmuc'],
   parent: ['parent', 'parent_id', 'parentid', 'ma_cha', 'uid_cha', 'cong_viec_cha', 'parent_uid'],
   owner: ['chu_tri', 'phong_ban_chu_tri', 'don_vi_chu_tri', 'owner', 'department', 'dept', 'deptcode', 'bo_phan', 'phong_ban'],
   status: ['trang_thai', 'status', 'tinh_trang', 'trang_thai_thuc_hien'],
@@ -402,6 +402,15 @@ function qltdGanttCell_(row, headerIndex, group) {
   return columnIndex >= 0 ? row[columnIndex] : '';
 }
 
+function qltdGanttExactRowFields_(row, headerIndex, sourceSheetName) {
+  const isCongViec = qltdGanttNormalizeKey_(sourceSheetName) === 'congviec';
+  return {
+    zone: String(isCongViec ? row[2] : qltdGanttCell_(row, headerIndex, 'zone') || '').trim(),
+    hangMuc: String(isCongViec ? row[5] : qltdGanttCell_(row, headerIndex, 'hangMuc') || '').trim(),
+    taskName: String(isCongViec ? row[7] : qltdGanttCell_(row, headerIndex, 'text') || '').trim()
+  };
+}
+
 function qltdGanttBuildTasks_(values, detected, warnings, sourceSheetName) {
   const tasks = [];
   const duplicateIds = {};
@@ -411,7 +420,8 @@ function qltdGanttBuildTasks_(values, detected, warnings, sourceSheetName) {
   for (let rowIndex = detected.rowIndex + 1; rowIndex < values.length; rowIndex += 1) {
     const row = values[rowIndex];
     let id = String(qltdGanttCell_(row, headerIndex, 'id') || '').trim();
-    const text = String(qltdGanttCell_(row, headerIndex, 'text') || '').trim();
+    const exactRow = qltdGanttExactRowFields_(row, headerIndex, sourceSheetName);
+    const text = exactRow.taskName;
     const hasAnyValue = row.some(function(value) { return String(value || '').trim() !== ''; });
 
     if (!hasAnyValue || (!id && !text)) continue;
@@ -436,8 +446,8 @@ function qltdGanttBuildTasks_(values, detected, warnings, sourceSheetName) {
     const isMilestone = qltdGanttIsMilestone_(qltdGanttCell_(row, headerIndex, 'milestone'), startIso, endIso);
     const parent = String(qltdGanttCell_(row, headerIndex, 'parent') || '0').trim() || '0';
     const raw = qltdGanttBuildRawRow_(values[detected.rowIndex], row);
-    const zone = String(qltdGanttCell_(row, headerIndex, 'zone') || '').trim();
-    const hangMuc = String(qltdGanttCell_(row, headerIndex, 'hangMuc') || '').trim();
+    const zone = exactRow.zone;
+    const hangMuc = exactRow.hangMuc;
     const predecessor = qltdGanttCell_(row, headerIndex, 'predecessor');
 
     if (!text) warnings.push({ type: 'MISSING_TASK_TEXT_USING_ID', rowNumber: rowIndex + 1, id: id });
@@ -712,6 +722,8 @@ function qltdDashboardGetSummaryForProject_(projectCode) {
       loaiCongTrinh: task.loaiCongTrinh,
       congTrinh: task.congTrinh,
       hangMuc: task.hangMuc,
+      congViecZone: task.congViecZone,
+      congViecHangMuc: task.congViecHangMuc,
       ownHangMuc: task.ownHangMuc,
       contextHangMuc: task.contextHangMuc,
       contextPath: task.contextPath,

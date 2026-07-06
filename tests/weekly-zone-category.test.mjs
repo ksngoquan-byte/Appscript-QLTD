@@ -36,6 +36,10 @@ assert.equal(builtTasks[0].ownZone, 'Zone 1');
 assert.equal(builtTasks[0].ownHangMuc, 'LK02');
 assert.equal(builtTasks[0].taskName, 'Thi cong mong');
 
+const liveHeaders = ['Mã công việc mẫu', 'WBS', 'Zone', 'Loại công trình', 'Công trình', 'Hạng mục/Tầng', 'ID', 'Công việc / Phạm vi'];
+const liveHeaderIndex = ganttContext.qltdGanttBuildHeaderIndex_(liveHeaders);
+assert.equal(ganttContext.qltdGanttCell_(row, liveHeaderIndex, 'hangMuc'), 'LK02');
+
 const weeklyContext = vm.createContext({
   qltdBudgetFormatDate_: (value) => String(value || '').slice(0, 10),
   qltdWeeklyTaskUpdatesIsOfficialComplete_: () => false,
@@ -102,8 +106,18 @@ const blankExactRow = weeklyContext.qltdWeeklyTaskUpdatesBuildOfficialMasterDto_
 assert.equal(blankExactRow.ownZone, '');
 assert.equal(blankExactRow.ownHangMuc, '');
 
+const pbDetail = weeklyContext.qltdWeeklyTaskUpdatesApplyMasterExactRowContext_(
+  { detailTaskId: 'PB-1', taskName: 'Công việc chi tiết' },
+  official
+);
+assert.equal(pbDetail.ownZone, 'Zone 1');
+assert.equal(pbDetail.ownHangMuc, 'LK02');
+assert.equal(pbDetail.congViecHangMuc, 'LK02');
+
 assert.doesNotMatch(weeklySource, /hangMuc:\s*String\(official\.hangMuc/);
-assert.doesNotMatch(ganttSource, /row\[5\]/);
+assert.match(ganttSource, /isCongViec \? row\[2\]/);
+assert.match(ganttSource, /isCongViec \? row\[5\]/);
+assert.match(ganttSource, /isCongViec \? row\[7\]/);
 assert.doesNotMatch(
   ganttSource.match(/text:\s*\[[^\]]+\]/)?.[0] || '',
   /hang_muc/

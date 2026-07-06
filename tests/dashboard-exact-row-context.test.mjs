@@ -28,6 +28,8 @@ const context = vm.createContext({
       id: 'UID-1',
       text: 'Hoàn thành phần móng',
       taskName: 'Hoàn thành phần móng',
+      congViecZone: '',
+      congViecHangMuc: '',
       ownZone: '',
       ownHangMuc: '',
       contextZone: 'Zone 1',
@@ -45,6 +47,7 @@ const result = context.qltdDashboardGetSummaryForProject_('37-5.HL');
 assert.equal(result.data[0].taskName, 'Hoàn thành phần móng');
 assert.equal(result.data[0].ownZone, '');
 assert.equal(result.data[0].ownHangMuc, '');
+assert.equal(result.data[0].congViecHangMuc, '');
 assert.equal(result.data[0].contextZone, 'Zone 1');
 assert.equal(result.data[0].contextHangMuc, 'LK02');
 
