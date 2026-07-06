@@ -118,9 +118,14 @@ function qltdTaskContextResolveDataset_(tasks, options, warnings) {
     task.refId = String(task.id);
     task.sourceRow = task.rawRowNumber || '';
     task.name = name;
+    task.taskName = String(task.congViecTaskName || '').trim();
     task.parentId = String(task.parent || '0');
     task.parentWbs = ancestors.length ? ancestors[ancestors.length - 1].wbs : '';
     task.rowType = rowType;
+    task.ownZone = String(task.congViecZone || '').trim();
+    task.ownHangMuc = String(task.congViecHangMuc || '').trim();
+    task.contextZone = activeZone;
+    task.contextHangMuc = activeHangMuc;
     task.zone = activeZone;
     task.loaiCongTrinh = activeLoailCongTrinh;
     task.congTrinh = activeCongTrinh;

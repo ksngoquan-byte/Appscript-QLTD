@@ -2,7 +2,7 @@ const QLTD_GANTT_DATA_SOURCE = 'gantt_data_service';
 const QLTD_GANTT_FALLBACK_SHEETS = ['Cong_viec', 'Tien_do_tong_hop'];
 const QLTD_GANTT_HEADER_SCAN_ROWS = 12;
 const QLTD_GANTT_MAX_SCAN_ROWS = 50000;
-const QLTD_GANTT_CACHE_VERSION = 'v2';
+const QLTD_GANTT_CACHE_VERSION = 'v3-exact-row-context';
 const QLTD_GANTT_CACHE_TTL_SECONDS = 120;
 const QLTD_GANTT_CACHE_CHUNK_CHARS = 25000;
 const QLTD_GANTT_CACHE_MAX_CHUNKS = 60;
@@ -447,6 +447,8 @@ function qltdGanttBuildTasks_(values, detected, warnings, sourceSheetName) {
     tasks.push({
       id: id,
       text: text || id,
+      taskName: text,
+      congViecTaskName: text,
       code: String(qltdGanttCell_(row, headerIndex, 'code') || '').trim(),
       start_date: startIso,
       end_date: endIso,
@@ -458,6 +460,8 @@ function qltdGanttBuildTasks_(values, detected, warnings, sourceSheetName) {
       wbs: String(qltdGanttCell_(row, headerIndex, 'wbs') || '').trim(),
       congViecZone: zone,
       congViecHangMuc: hangMuc,
+      ownZone: zone,
+      ownHangMuc: hangMuc,
       zone: zone,
       hangMuc: hangMuc,
       owner: String(qltdGanttCell_(row, headerIndex, 'owner') || '').trim(),
@@ -680,6 +684,7 @@ function qltdDashboardGetSummaryForProject_(projectCode) {
     return {
       id: task.id,
       text: task.text,
+      taskName: task.taskName,
       code: task.code,
       masterTaskCode: task.masterTaskCode,
       wbs: task.wbs,
@@ -702,9 +707,13 @@ function qltdDashboardGetSummaryForProject_(projectCode) {
       deptCode: task.deptCode,
       deptName: task.deptName,
       zone: task.zone,
+      ownZone: task.ownZone,
+      contextZone: task.contextZone,
       loaiCongTrinh: task.loaiCongTrinh,
       congTrinh: task.congTrinh,
       hangMuc: task.hangMuc,
+      ownHangMuc: task.ownHangMuc,
+      contextHangMuc: task.contextHangMuc,
       contextPath: task.contextPath,
       isCategoryRow: task.isCategoryRow,
       is_milestone: task.is_milestone,

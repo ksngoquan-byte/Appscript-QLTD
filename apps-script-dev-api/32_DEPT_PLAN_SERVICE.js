@@ -363,6 +363,8 @@ function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, 
     if (!official) {
       master.ownZone = '';
       master.ownHangMuc = '';
+      master.contextZone = '';
+      master.contextHangMuc = '';
       master.zone = '';
       master.loaiCongTrinh = '';
       master.congTrinh = '';
@@ -371,6 +373,12 @@ function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, 
       master.wbsPath = '';
       master.contextPath = '';
       master.mappingWarnings = ['MASTER_TASK_NOT_FOUND'];
+      (master.details || []).forEach(function(detail) {
+        detail.ownZone = String(detail.ownZone || '').trim();
+        detail.ownHangMuc = String(detail.ownHangMuc || '').trim();
+        detail.contextZone = '';
+        detail.contextHangMuc = '';
+      });
       warnings.push({
         type: 'MASTER_TASK_NOT_FOUND',
         projectCode: projectCode,
@@ -382,6 +390,9 @@ function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, 
 
     master.ownZone = official.congViecZone || '';
     master.ownHangMuc = official.congViecHangMuc || '';
+    master.taskName = official.taskName || '';
+    master.contextZone = official.contextZone || official.zone || '';
+    master.contextHangMuc = official.contextHangMuc || official.hangMuc || '';
     master.zone = official.zone || '';
     master.loaiCongTrinh = official.loaiCongTrinh || '';
     master.congTrinh = official.congTrinh || '';
@@ -394,6 +405,10 @@ function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, 
       : [];
 
     (master.details || []).forEach(function(detail) {
+      detail.ownZone = String(detail.ownZone || '').trim();
+      detail.ownHangMuc = String(detail.ownHangMuc || '').trim();
+      detail.contextZone = master.contextZone;
+      detail.contextHangMuc = master.contextHangMuc;
       detail.zone = master.zone;
       detail.loaiCongTrinh = master.loaiCongTrinh;
       detail.congTrinh = master.congTrinh;

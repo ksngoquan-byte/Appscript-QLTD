@@ -20,6 +20,10 @@ context.qltdDeptPlanEnrichWithMasterContext_(deptPlan, {
   'CV-010': {
     congViecZone: 'Zone 1',
     congViecHangMuc: 'LK02',
+    text: 'Hoàn thành phần móng',
+    taskName: 'Hoàn thành phần móng',
+    contextZone: 'Inherited Zone',
+    contextHangMuc: 'Inherited LK 05',
     zone: 'Zone 1',
     hangMuc: 'Inherited LK 05',
     wbs: 'II.3.2',
@@ -33,6 +37,11 @@ assert.equal(deptPlan.masters[0].zone, 'Zone 1');
 assert.equal(deptPlan.masters[0].hangMuc, 'Inherited LK 05');
 assert.equal(deptPlan.masters[0].ownZone, 'Zone 1');
 assert.equal(deptPlan.masters[0].ownHangMuc, 'LK02');
+assert.equal(deptPlan.masters[0].taskName, 'Hoàn thành phần móng');
+assert.equal(deptPlan.masters[0].contextZone, 'Inherited Zone');
+assert.equal(deptPlan.masters[0].contextHangMuc, 'Inherited LK 05');
+assert.equal(deptPlan.masters[0].details[0].ownZone, '');
+assert.equal(deptPlan.masters[0].details[0].ownHangMuc, '');
 assert.equal(deptPlan.masters[0].details[0].contextPath, deptPlan.masters[0].contextPath);
 assert.equal(deptPlan.masters[1].mappingWarnings.join(','), 'MASTER_TASK_NOT_FOUND');
 assert.equal(warnings.length, 1);

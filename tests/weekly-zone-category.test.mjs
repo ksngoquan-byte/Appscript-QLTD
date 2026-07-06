@@ -32,6 +32,9 @@ assert.equal(builtTasks[0].id, 'UID-1');
 assert.equal(builtTasks[0].text, 'Thi cong mong');
 assert.equal(builtTasks[0].congViecZone, 'Zone 1');
 assert.equal(builtTasks[0].congViecHangMuc, 'LK02');
+assert.equal(builtTasks[0].ownZone, 'Zone 1');
+assert.equal(builtTasks[0].ownHangMuc, 'LK02');
+assert.equal(builtTasks[0].taskName, 'Thi cong mong');
 
 const weeklyContext = vm.createContext({
   qltdBudgetFormatDate_: (value) => String(value || '').slice(0, 10),
@@ -45,6 +48,7 @@ const official = {
   code: 'CV-1',
   wbs: '1.2',
   text: 'Thi cong mong',
+  taskName: 'Thi cong mong',
   congViecZone: 'Zone 1',
   congViecHangMuc: 'LK02',
   zone: 'Inherited Zone',
@@ -60,6 +64,9 @@ const dto = weeklyContext.qltdWeeklyTaskUpdatesBuildOfficialMasterDto_(official,
 });
 assert.equal(dto.zone, 'Zone 1');
 assert.equal(dto.hangMuc, 'LK02');
+assert.equal(dto.ownZone, 'Zone 1');
+assert.equal(dto.ownHangMuc, 'LK02');
+assert.equal(dto.taskName, 'Thi cong mong');
 assert.equal(dto.masterTaskCode, 'CV-1');
 assert.equal(dto.wbs, '1.2');
 
@@ -73,6 +80,8 @@ const item = weeklyContext.qltdWeeklyTaskUpdatesBuildItem_(
 );
 assert.equal(item.zone, 'Zone 1');
 assert.equal(item.hangMuc, 'LK02');
+assert.equal(item.ownZone, 'Zone 1');
+assert.equal(item.ownHangMuc, 'LK02');
 assert.equal(item.itemId, 'CV-1');
 assert.equal(item.masterTaskCode, 'CV-1');
 assert.equal(item.wbs, '1.2');
@@ -83,6 +92,15 @@ const blankCategory = weeklyContext.qltdWeeklyTaskUpdatesBuildOfficialMasterDto_
   { masterTaskCode: 'CV-1', hangMuc: 'Must not inherit' }
 );
 assert.equal(blankCategory.hangMuc, '');
+assert.equal(blankCategory.ownHangMuc, '');
+assert.equal(blankCategory.taskName, 'Thi cong mong');
+
+const blankExactRow = weeklyContext.qltdWeeklyTaskUpdatesBuildOfficialMasterDto_(
+  { ...official, congViecZone: '', congViecHangMuc: '', zone: 'Parent Zone', hangMuc: 'Parent LK02' },
+  { masterTaskCode: 'CV-1', zone: 'Dept Zone', hangMuc: 'Dept LK02' }
+);
+assert.equal(blankExactRow.ownZone, '');
+assert.equal(blankExactRow.ownHangMuc, '');
 
 assert.doesNotMatch(weeklySource, /hangMuc:\s*String\(official\.hangMuc/);
 assert.doesNotMatch(ganttSource, /row\[5\]/);

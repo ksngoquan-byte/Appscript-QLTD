@@ -23,6 +23,7 @@ function row(id, wbs, text, start = '', end = '', extra = {}) {
     code: `CV-${String(id).padStart(3, '0')}`,
     wbs,
     text,
+    congViecTaskName: text,
     start_date: start,
     end_date: end,
     baselineStart: start,
@@ -33,18 +34,20 @@ function row(id, wbs, text, start = '', end = '', extra = {}) {
     wbsLevel: wbs ? wbs.split('.').length : 999,
     predecessorRaw: extra.predecessorRaw || '',
     rawRowNumber: Number(id) + 4,
+    congViecZone: String(extra.ownZone || ''),
+    congViecHangMuc: String(extra.ownHangMuc || ''),
     raw: extra.raw || {}
   };
 }
 
 const tasks = [
-  row(1, '', 'Zone 1'),
-  row(2, 'II', 'LK 05'),
+  row(1, '', 'Zone 1', '', '', { ownZone: 'Zone 1', raw: { ZONE: 'Zone 1' } }),
+  row(2, 'II', 'LK 05', '', '', { ownHangMuc: 'LK 05', raw: { HANG_MUC: 'LK 05' } }),
   row(3, 'II.3', 'Tiến độ thi công', '2026-01-01', '2026-02-15', { predecessorRaw: '4SS;5FF' }),
   row(4, 'II.3.1', 'Mốc đầu', '2026-01-02', '2026-01-02', { type: 'milestone' }),
   row(5, 'II.3.2', 'Hoàn thành phần móng', '2026-01-10', '2026-02-20'),
-  row(6, '', 'Zone 2'),
-  row(7, 'III', 'LK 14'),
+  row(6, '', 'Zone 2', '', '', { ownZone: 'Zone 2', raw: { ZONE: 'Zone 2' } }),
+  row(7, 'III', 'LK 14', '', '', { ownHangMuc: 'LK 14', raw: { HANG_MUC: 'LK 14' } }),
   row(8, 'III.1', 'Task Zone 2', '2026-03-01', '2026-03-10'),
   row(9, '', 'Zone 3'),
   row(10, 'IV', 'Nhóm chưa có lịch')
@@ -62,6 +65,12 @@ assert.equal(tasks[2].parent, '2');
 assert.equal(tasks[1].parent, '1');
 assert.equal(tasks[4].zone, 'Zone 1');
 assert.equal(tasks[4].hangMuc, 'LK 05');
+assert.equal(tasks[4].ownZone, '');
+assert.equal(tasks[4].ownHangMuc, '');
+assert.equal(tasks[4].contextZone, 'Zone 1');
+assert.equal(tasks[4].contextHangMuc, 'LK 05');
+assert.equal(tasks[0].ownZone, 'Zone 1');
+assert.equal(tasks[1].ownHangMuc, 'LK 05');
 assert.equal(tasks[4].wbsPath, 'II > II.3 > II.3.2');
 assert.equal(tasks[4].contextPath, 'Zone 1 > LK 05 > Tiến độ thi công > Hoàn thành phần móng');
 assert.equal(tasks[7].zone, 'Zone 2');

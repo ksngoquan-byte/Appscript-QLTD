@@ -791,7 +791,12 @@ function qltdWeeklyTaskUpdatesReadOfficialMasters_(scope, deptMasterRows, action
       warnings.push(qltdWorkWarning_('OFFICIAL_MASTER_NOT_FOUND', 'MASTER not found in Gantt/Cong_viec payload; using dept reference fields for this item only.', {
         masterTaskCode: deptTask.masterTaskCode
       }));
-      return deptTask;
+      return Object.assign({}, deptTask, {
+        ownZone: '',
+        ownHangMuc: '',
+        zone: '',
+        hangMuc: ''
+      });
     }
     return qltdWeeklyTaskUpdatesBuildOfficialMasterDto_(official, deptTask);
   });
@@ -807,7 +812,9 @@ function qltdWeeklyTaskUpdatesBuildOfficialMasterDto_(official, deptTask) {
   return {
     masterTaskCode: String(deptTask.masterTaskCode || official.code || official.id || '').trim(),
     wbs: String(official.wbs || deptTask.wbs || '').trim(),
-    taskName: String(official.text || deptTask.taskName || '').trim(),
+    taskName: String(official.taskName || '').trim(),
+    ownZone: String(official.congViecZone || '').trim(),
+    ownHangMuc: String(official.congViecHangMuc || '').trim(),
     zone: String(official.congViecZone || '').trim(),
     hangMuc: String(official.congViecHangMuc || '').trim(),
     rowType: deptTask.rowType || 'MASTER',
@@ -847,9 +854,11 @@ function qltdWeeklyTaskUpdatesBuildApprovalDto_(update, projectCache) {
   }
   if (official) {
     dto.wbs = String(official.wbs || '').trim();
-    dto.taskName = String(official.text || '').trim();
-    dto.zone = String(official.congViecZone || '').trim();
-    dto.hangMuc = String(official.congViecHangMuc || '').trim();
+    dto.taskName = String(official.taskName || '').trim();
+    dto.ownZone = String(official.congViecZone || '').trim();
+    dto.ownHangMuc = String(official.congViecHangMuc || '').trim();
+    dto.zone = dto.ownZone;
+    dto.hangMuc = dto.ownHangMuc;
     dto.planStart = qltdBudgetFormatDate_(official.baselineStart || official.start_date || '');
     dto.planFinish = qltdBudgetFormatDate_(official.baselineEnd || official.end_date || official.deadline || '');
     dto.officialStatus = String(official.status || '').trim();
@@ -2005,7 +2014,8 @@ function qltdWeeklyTaskUpdatesNormalize_(object, rowNumber) {
 function qltdWeeklyTaskUpdatesBuildItem_(type, id, source, weekStart, weekEnd, search, hasDetails) {
   const progress = Number(source.progress || 0); const planStart = qltdBudgetFormatDate_(source.planStart); const planFinish = qltdBudgetFormatDate_(source.planFinish);
   const actualStart = qltdBudgetFormatDate_(source.actualStart); const actualFinish = qltdBudgetFormatDate_(source.actualFinish);
-  const text = [source.wbs, source.taskName, source.zone, source.hangMuc, id].join(' ').toLowerCase(); const query = String(search || '').trim().toLowerCase();
+  const ownZone = String(source.ownZone || '').trim(); const ownHangMuc = String(source.ownHangMuc || '').trim();
+  const text = [source.wbs, source.taskName, ownZone, ownHangMuc, id].join(' ').toLowerCase(); const query = String(search || '').trim().toLowerCase();
   const officialComplete = qltdWeeklyTaskUpdatesIsOfficialComplete_(source);
   let reason = '';
   if (officialComplete && actualFinish && actualFinish >= weekStart && actualFinish <= weekEnd) reason = 'COMPLETED_THIS_WEEK';
@@ -2017,7 +2027,7 @@ function qltdWeeklyTaskUpdatesBuildItem_(type, id, source, weekStart, weekEnd, s
   return {
     itemType: type, itemId: id, masterTaskCode: type === 'MASTER' ? id : source.masterTaskCode,
     detailTaskId: type === 'PB_DETAIL' ? id : '', parentMasterTaskCode: type === 'PB_DETAIL' ? source.masterTaskCode : '',
-    wbs: source.wbs || '', taskName: source.taskName || '', zone: source.zone || '', hangMuc: source.hangMuc || '', planStart: planStart, planFinish: planFinish,
+    wbs: source.wbs || '', taskName: source.taskName || '', ownZone: ownZone, ownHangMuc: ownHangMuc, zone: ownZone, hangMuc: ownHangMuc, planStart: planStart, planFinish: planFinish,
     actualStart: actualStart, actualFinish: actualFinish, progress: officialComplete ? Math.max(progress, 100) : progress, status: officialComplete ? 'Hoàn thành' : (source.status || ''),
     owner: source.owner || source.ownerText || '', coordinator: source.coordinator || source.coordinatorText || '', plannedBudget: Number(source.budgetPlan || source.plannedBudget || 0),
     actualBudget: Number(source.budgetActual || source.actualBudget || 0), hasBudget: (source.taskLinkedBudgetItems || []).length > 0 || Number(source.budgetPlan || source.plannedBudget || 0) > 0 || Number(source.budgetActual || source.actualBudget || 0) > 0,
