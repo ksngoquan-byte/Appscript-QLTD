@@ -18,8 +18,10 @@ const deptPlan = {
 const warnings = [];
 context.qltdDeptPlanEnrichWithMasterContext_(deptPlan, {
   'CV-010': {
+    congViecZone: 'Zone 1',
+    congViecHangMuc: 'LK02',
     zone: 'Zone 1',
-    hangMuc: 'LK 05',
+    hangMuc: 'Inherited LK 05',
     wbs: 'II.3.2',
     wbsPath: 'II > II.3 > II.3.2',
     contextPath: 'Zone 1 > LK 05 > Tiến độ thi công > Hoàn thành phần móng',
@@ -28,7 +30,9 @@ context.qltdDeptPlanEnrichWithMasterContext_(deptPlan, {
 }, warnings, '37-5.HL');
 
 assert.equal(deptPlan.masters[0].zone, 'Zone 1');
-assert.equal(deptPlan.masters[0].hangMuc, 'LK 05');
+assert.equal(deptPlan.masters[0].hangMuc, 'Inherited LK 05');
+assert.equal(deptPlan.masters[0].ownZone, 'Zone 1');
+assert.equal(deptPlan.masters[0].ownHangMuc, 'LK02');
 assert.equal(deptPlan.masters[0].details[0].contextPath, deptPlan.masters[0].contextPath);
 assert.equal(deptPlan.masters[1].mappingWarnings.join(','), 'MASTER_TASK_NOT_FOUND');
 assert.equal(warnings.length, 1);

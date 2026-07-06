@@ -848,6 +848,8 @@ function qltdWeeklyTaskUpdatesBuildApprovalDto_(update, projectCache) {
   if (official) {
     dto.wbs = String(official.wbs || '').trim();
     dto.taskName = String(official.text || '').trim();
+    dto.zone = String(official.congViecZone || '').trim();
+    dto.hangMuc = String(official.congViecHangMuc || '').trim();
     dto.planStart = qltdBudgetFormatDate_(official.baselineStart || official.start_date || '');
     dto.planFinish = qltdBudgetFormatDate_(official.baselineEnd || official.end_date || official.deadline || '');
     dto.officialStatus = String(official.status || '').trim();

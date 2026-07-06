@@ -12,7 +12,7 @@ const QLTD_GANTT_HEADER_ALIASES = {
   id: ['uid', 'id', 'taskid', 'task_id', 'so_tham_chieu', 'ref'],
   code: ['ma_cong_viec', 'ma_cv', 'macv', 'code', 'mastercode', 'master_code', 'ma_cong_viec_mau', 'task_code'],
   wbs: ['wbs', 'stt', 'ma_wbs', 'cap_wbs', 'wbs_code'],
-  text: ['cong_viec_pham_vi', 'cong_viec', 'ten_cong_viec', 'noi_dung_cong_viec', 'pham_vi_cong_viec', 'noi_dung', 'task', 'task_name', 'ten_task', 'name', 'text', 'muc_tieu', 'ten_muc_tieu', 'hang_muc'],
+  text: ['cong_viec_pham_vi', 'cong_viec', 'ten_cong_viec', 'noi_dung_cong_viec', 'pham_vi_cong_viec', 'noi_dung', 'task', 'task_name', 'ten_task', 'name', 'text', 'muc_tieu', 'ten_muc_tieu'],
   zone: ['zone'],
   hangMuc: ['hang_muc', 'hangmuc'],
   parent: ['parent', 'parent_id', 'parentid', 'ma_cha', 'uid_cha', 'cong_viec_cha', 'parent_uid'],

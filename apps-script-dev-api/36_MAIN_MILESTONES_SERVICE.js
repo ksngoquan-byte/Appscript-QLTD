@@ -117,6 +117,9 @@ function qltdMainMilestonesSave_(projectCode, idsValue, codesValue, email) {
 
   const ids = qltdMainMilestonesParseList_(idsValue);
   const codes = qltdMainMilestonesParseList_(codesValue);
+  if (!ids.length && !codes.length) {
+    return { success: false, message: 'EMPTY_MILESTONE_SELECTION_REQUIRES_RESET' };
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -149,9 +152,12 @@ function qltdMainMilestonesSave_(projectCode, idsValue, codesValue, email) {
   };
 }
 
-function qltdMainMilestonesReset_(projectCode, email) {
+function qltdMainMilestonesReset_(projectCode, email, confirmed) {
   const normalizedProjectCode = qltdMainMilestonesNormalizeProjectCode_(projectCode);
   if (!normalizedProjectCode) return { success: false, message: 'PROJECT_CODE_REQUIRED' };
+  if (String(confirmed || '').trim().toLowerCase() !== 'true' && String(confirmed || '').trim() !== '1') {
+    return { success: false, message: 'RESET_CONFIRMATION_REQUIRED' };
+  }
   const auth = qltdMainMilestonesGetWriter_(email);
   if (auth.error) return { success: false, message: auth.error };
 

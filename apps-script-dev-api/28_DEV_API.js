@@ -190,7 +190,7 @@ function qltdDevApiHandleGet(e) {
   }
 
   if (action === 'resetmainmilestones') {
-    return qltdDevApiJson_(qltdMainMilestonesReset_(params.projectCode, params.email));
+    return qltdDevApiJson_(qltdMainMilestonesReset_(params.projectCode, params.email, params.confirmed));
   }
 
   if (action === 'setupprojectdepts') {

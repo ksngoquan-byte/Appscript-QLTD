@@ -11,11 +11,27 @@ const ganttContext = vm.createContext({
 });
 vm.runInContext(ganttSource, ganttContext);
 
-const headers = ['UID', 'WBS', 'ZONE', 'TEN_CONG_VIEC', 'OWNER', 'HANG_MUC'];
+const headers = ['UID', 'WBS', 'ZONE', 'OWNER', 'STATUS', 'HANG_MUC', 'PARENT', 'TEN_CONG_VIEC'];
 const headerIndex = ganttContext.qltdGanttBuildHeaderIndex_(headers);
-const row = ['UID-1', '1.2', 'Zone 1', 'Thi cong mong', 'KinhDoanh', 'LK02'];
+const row = ['UID-1', '1.2', 'Zone 1', 'KinhDoanh', '', 'LK02', '0', 'Thi cong mong'];
 assert.equal(ganttContext.qltdGanttCell_(row, headerIndex, 'zone'), 'Zone 1');
 assert.equal(ganttContext.qltdGanttCell_(row, headerIndex, 'hangMuc'), 'LK02');
+assert.equal(ganttContext.qltdGanttCell_(row, headerIndex, 'text'), 'Thi cong mong');
+assert.notEqual(
+  ganttContext.qltdGanttFindAliasIndex_(headerIndex, 'text'),
+  ganttContext.qltdGanttFindAliasIndex_(headerIndex, 'hangMuc')
+);
+const builtTasks = ganttContext.qltdGanttBuildTasks_(
+  [headers, row],
+  { rowIndex: 0, headerIndex },
+  [],
+  'Cong_viec'
+);
+assert.equal(builtTasks.length, 1);
+assert.equal(builtTasks[0].id, 'UID-1');
+assert.equal(builtTasks[0].text, 'Thi cong mong');
+assert.equal(builtTasks[0].congViecZone, 'Zone 1');
+assert.equal(builtTasks[0].congViecHangMuc, 'LK02');
 
 const weeklyContext = vm.createContext({
   qltdBudgetFormatDate_: (value) => String(value || '').slice(0, 10),
@@ -70,5 +86,9 @@ assert.equal(blankCategory.hangMuc, '');
 
 assert.doesNotMatch(weeklySource, /hangMuc:\s*String\(official\.hangMuc/);
 assert.doesNotMatch(ganttSource, /row\[5\]/);
+assert.doesNotMatch(
+  ganttSource.match(/text:\s*\[[^\]]+\]/)?.[0] || '',
+  /hang_muc/
+);
 
 console.log('Weekly Cong_viec zone/category DTO tests: PASS');

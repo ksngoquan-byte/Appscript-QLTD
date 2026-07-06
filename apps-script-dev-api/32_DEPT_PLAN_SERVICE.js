@@ -361,6 +361,8 @@ function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, 
     const key = qltdDeptPlanNormalizeMasterCode_(master.masterCode);
     const official = masterByCode && masterByCode[key];
     if (!official) {
+      master.ownZone = '';
+      master.ownHangMuc = '';
       master.zone = '';
       master.loaiCongTrinh = '';
       master.congTrinh = '';
@@ -378,6 +380,8 @@ function qltdDeptPlanEnrichWithMasterContext_(deptPlan, masterByCode, warnings, 
       return;
     }
 
+    master.ownZone = official.congViecZone || '';
+    master.ownHangMuc = official.congViecHangMuc || '';
     master.zone = official.zone || '';
     master.loaiCongTrinh = official.loaiCongTrinh || '';
     master.congTrinh = official.congTrinh || '';
