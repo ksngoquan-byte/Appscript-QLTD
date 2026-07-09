@@ -5,6 +5,7 @@ const QLTD_DEV_DEPT_READ_ACTIONS = {
   work_getdepttasks: true,
   work_getdetailtasks: true,
   work_auditdetailtaskparentfinish: true,
+  work_auditallpbdetailprotections: true,
   work_listweeklyitems: true,
   work_listassignees: true,
   weekly_taskupdates_get: true,
@@ -118,6 +119,10 @@ function qltdDevApiHandleGet(e) {
 
   if (action === 'work_auditdetailtaskparentfinish') {
     return qltdDevApiJson_(qltdWorkAuditDetailTaskParentFinish_(params));
+  }
+
+  if (action === 'work_auditallpbdetailprotections') {
+    return qltdDevApiJson_(qltdPbDetailProtectionAuditAllProjects_(params));
   }
 
   if (action === 'work_listweeklyitems') {
@@ -272,6 +277,22 @@ function qltdDevApiHandlePost_(e) {
     payload.email = notificationIdentity.email;
     payload.actorEmail = notificationIdentity.email;
     return qltdDevApiJson_(qltdNotificationsMarkRead_(payload));
+  }
+
+  if (action === 'work_repairallpbdetailprotections_dryrun' ||
+      action === 'work_repairallpbdetailprotections_apply' ||
+      action === 'work_rollbackpbdetailprotections') {
+    const adminIdentity = qltdFirebaseResolveIdentity_(payload, true);
+    if (!adminIdentity.success) return qltdDevApiJson_(adminIdentity);
+    payload.email = adminIdentity.email;
+    payload.actorEmail = adminIdentity.email;
+    if (action === 'work_repairallpbdetailprotections_dryrun') {
+      return qltdDevApiJson_(qltdPbDetailProtectionRepairAllDryRun_(payload));
+    }
+    if (action === 'work_repairallpbdetailprotections_apply') {
+      return qltdDevApiJson_(qltdPbDetailProtectionRepairAllApply_(payload));
+    }
+    return qltdDevApiJson_(qltdPbDetailProtectionRollback_(payload));
   }
 
   if (action === 'recalculateprojectschedule') {
