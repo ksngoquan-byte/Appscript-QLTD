@@ -173,6 +173,7 @@ document.addEventListener('qltd:pb-detail-changed', (event) => {
   const cacheKey = [detail.projectCode || '', detail.deptCode || '', detail.masterTaskCode || ''].join('::');
   qltdDetailPopupCache.delete(cacheKey);
   invalidateWeeklyTaskCachePrefix(`${detail.projectCode || ''}::${detail.deptCode || ''}::`);
+  if (!qltdDeptPlanPayload?.success || normalizeTaskCode(qltdDeptPlanPayload.projectCode) !== normalizeTaskCode(detail.projectCode)) return;
   const dept = (qltdDeptPlanPayload?.departments || []).find((item) => (item.deptCode || item.sheetName) === detail.deptCode);
   const master = (dept?.masters || []).find((item) => item.masterCode === detail.masterTaskCode);
   if (master && Array.isArray(detail.detailTasks)) master.details = detail.detailTasks;
@@ -3444,12 +3445,23 @@ function normalizeTaskCode(value) {
   return String(value || '').trim().toUpperCase();
 }
 
-function getOfficialMasterMapFromGantt(payload = qltdGanttPayload) {
+function getDeptPlanProjectMasterKey(projectCode, masterCode) {
+  return [normalizeTaskCode(projectCode), normalizeTaskCode(masterCode)].join('::');
+}
+
+function getOfficialMasterMapFromGantt(projectCode, payload = qltdGanttPayload) {
   const map = new Map();
+  const normalizedProjectCode = normalizeTaskCode(projectCode);
+  const ganttProjectCode = normalizeTaskCode(payload?.projectCode);
+  if (!normalizedProjectCode || normalizedProjectCode !== ganttProjectCode) return map;
   (payload?.data || []).forEach((task) => {
+    const taskProjectCode = normalizeTaskCode(task?.projectCode || ganttProjectCode);
+    if (taskProjectCode !== ganttProjectCode) return;
     [task.code, task.id].forEach((value) => {
-      const key = normalizeTaskCode(value);
-      if (key && !map.has(key)) map.set(key, task);
+      const masterCode = normalizeTaskCode(value);
+      if (!masterCode) return;
+      const key = getDeptPlanProjectMasterKey(ganttProjectCode, masterCode);
+      if (!map.has(key)) map.set(key, task);
     });
   });
   return map;
@@ -3461,14 +3473,15 @@ function isOfficialMasterComplete(task) {
 }
 
 function enrichDeptPlanPayloadWithOfficialMasters(payload) {
-  if (!payload?.success || !Array.isArray(payload.departments) || !qltdGanttPayload?.data?.length) return payload;
-  const officialMap = getOfficialMasterMapFromGantt();
+  const projectCode = normalizeTaskCode(payload?.projectCode);
+  if (!payload?.success || !projectCode || !Array.isArray(payload.departments) || !qltdGanttPayload?.data?.length) return payload;
+  const officialMap = getOfficialMasterMapFromGantt(projectCode);
   return {
     ...payload,
     departments: payload.departments.map((dept) => ({
       ...dept,
       masters: (dept.masters || []).map((master) => {
-        const official = officialMap.get(normalizeTaskCode(master.masterCode));
+        const official = officialMap.get(getDeptPlanProjectMasterKey(projectCode, master.masterCode));
         if (!official) return master;
         const progress = Number(official.percent ?? Math.round(Number(official.progress || 0) * 100));
         return {
