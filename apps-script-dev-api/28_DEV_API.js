@@ -337,11 +337,15 @@ function qltdDevApiHandlePost_(e) {
   }
 
   if (action === 'work_createdetailtask') {
-    return qltdDevApiJson_(qltdWorkCreateDetailTask_(payload));
+    const detailTaskPayload = Object.assign({}, payload);
+    delete detailTaskPayload.deptName;
+    return qltdDevApiJson_(qltdWorkCreateDetailTask_(detailTaskPayload));
   }
 
   if (action === 'work_updatedetailtask') {
-    return qltdDevApiJson_(qltdDeptScopeFinalizeWrite_(scopeResult, action, payload, qltdWorkUpdateDetailTask_(payload)));
+    const detailTaskPayload = Object.assign({}, payload);
+    delete detailTaskPayload.deptName;
+    return qltdDevApiJson_(qltdDeptScopeFinalizeWrite_(scopeResult, action, detailTaskPayload, qltdWorkUpdateDetailTask_(detailTaskPayload)));
   }
 
   if (action === 'weekly_taskupdates_save') {

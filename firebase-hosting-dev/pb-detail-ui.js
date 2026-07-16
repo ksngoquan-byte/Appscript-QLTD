@@ -867,17 +867,6 @@ function qltdPbDetailReadFormPayload(context, isEdit) {
     );
   }
 
-  if (!isEdit) {
-    Object.assign(payload, {
-      status: 'Chưa bắt đầu',
-      progress: 0,
-      actualStart: '',
-      actualFinish: '',
-      budgetActual: '',
-      weight: ''
-    });
-  }
-
   return payload;
 }
 
