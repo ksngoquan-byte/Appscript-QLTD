@@ -200,6 +200,35 @@ assert.match(extractFunction(appSource, 'loadProjectsForSelector'), /fetchBacken
 assert.match(extractFunction(appSource, 'renderApp'), /showWeb07View\('dashboard'\)/);
 assert.match(extractFunction(appSource, 'renderApp'), /loadProjectsForSelector\(\)/);
 
+const renderedUserName = { textContent: '' };
+const renderAppContext = vm.createContext({
+  registrationGate: { hide() {} },
+  showOnly() {},
+  els: {
+    appShell: {},
+    userAvatar: { src: '', classList: { toggle() {} } },
+    userName: renderedUserName,
+    userEmail: { textContent: '' },
+    userRole: { textContent: '' },
+    accessStatus: { textContent: '' },
+    roleStatus: { textContent: '' }
+  },
+  formatRole: (role) => role,
+  applyPermissions() {},
+  ensureWeb07Panels() {},
+  bindWeb07Navigation() {},
+  showWeb07View() {},
+  loadProjectsForSelector: () => Promise.resolve(),
+  loadNotifications: () => Promise.resolve(),
+  setApiStatus() {}
+});
+vm.runInContext(extractFunction(appSource, 'renderApp'), renderAppContext);
+const firebaseUser = { email: 'user@example.com', displayName: 'Firebase Name', photoURL: '' };
+renderAppContext.renderApp(firebaseUser, 'EDITOR', { displayName: 'Users Sheet Name', role: 'EDITOR', apiStatus: 'CONNECTED' });
+assert.equal(renderedUserName.textContent, 'Users Sheet Name');
+renderAppContext.renderApp(firebaseUser, 'EDITOR', { displayName: '', role: 'EDITOR', apiStatus: 'CONNECTED' });
+assert.equal(renderedUserName.textContent, 'Firebase Name');
+
 const postRegistrationTrace = [];
 const registeredUser = {
   getIdToken: async (forceRefresh) => {

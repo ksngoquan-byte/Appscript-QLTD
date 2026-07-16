@@ -9850,7 +9850,7 @@ function renderApp(user, role, profile = {}) {
     els.userAvatar.classList.toggle('empty', !user.photoURL);
   }
 
-  if (els.userName) els.userName.textContent = user.displayName || 'Ng\u01b0\u1eddi d\u00f9ng QLTD';
+  if (els.userName) els.userName.textContent = effectiveProfile.displayName || user.displayName || 'Ng\u01b0\u1eddi d\u00f9ng QLTD';
   if (els.userEmail) els.userEmail.textContent = user.email || '';
   if (els.userRole) els.userRole.textContent = displayRole;
   if (els.accessStatus) els.accessStatus.textContent = '\u0110\u00e3 x\u00e1c th\u1ef1c Google';
