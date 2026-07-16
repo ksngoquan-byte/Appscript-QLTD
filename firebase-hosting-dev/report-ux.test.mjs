@@ -504,7 +504,7 @@ const objectiveRenderContext = {
   qltdSelectedWeeklyItemKey: ''
 };
 vm.createContext(objectiveRenderContext);
-vm.runInContext(`${extractFunction(app, 'canUpdateWeeklyItem')}\n${extractFunction(app, 'renderWeeklyObjectiveList')}`, objectiveRenderContext);
+vm.runInContext(`${extractFunction(app, 'canUpdateWeeklyItem')}\n${extractFunction(app, 'qltdExactRowDisplayTitle')}\n${extractFunction(app, 'qltdWeeklyDisplayTitle')}\n${extractFunction(app, 'renderWeeklyObjectiveList')}`, objectiveRenderContext);
 const readonlyObjective = objectiveRenderContext.renderWeeklyObjectiveList([{ itemType: 'MASTER', itemId: 'M1', taskName: 'Mục tiêu', progress: 20 }], [], {}, {}, false);
 assert.match(readonlyObjective, /Chỉ xem/);
 assert.doesNotMatch(readonlyObjective, /data-weekly-select/);
@@ -555,7 +555,7 @@ const weeklyExportContext = {
   formatApprovalStatus: (value, compact) => compact ? ({ PENDING: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Bị trả lại' }[value] || '') : value
 };
 vm.createContext(weeklyExportContext);
-vm.runInContext(`${weeklyExportSource}\nthis.enrichItems = qltdWeeklyEnrichExportItemsWithParentMasters; this.buildExportModel = qltdWeeklyBuildExportModel; this.styleReport = qltdWeeklyStyleReportSheet; this.naturalWbsCompare = qltdWeeklyNaturalWbsCompare; this.planGroupLabel = qltdWeeklyNextPlanGroupLabel; this.exportHeaders = QLTD_WEEKLY_EXPORT_HEADERS; this.nextExportHeaders = QLTD_WEEKLY_NEXT_EXPORT_HEADERS;`, weeklyExportContext);
+vm.runInContext(`${extractFunction(app, 'qltdExactRowDisplayTitle')}\n${extractFunction(app, 'qltdWeeklyDisplayTitle')}\n${weeklyExportSource}\nthis.enrichItems = qltdWeeklyEnrichExportItemsWithParentMasters; this.buildExportModel = qltdWeeklyBuildExportModel; this.styleReport = qltdWeeklyStyleReportSheet; this.naturalWbsCompare = qltdWeeklyNaturalWbsCompare; this.planGroupLabel = qltdWeeklyNextPlanGroupLabel; this.exportHeaders = QLTD_WEEKLY_EXPORT_HEADERS; this.nextExportHeaders = QLTD_WEEKLY_NEXT_EXPORT_HEADERS;`, weeklyExportContext);
 assert.ok(weeklyExportContext.naturalWbsCompare('V.2', 'V.10') < 0);
 assert.ok(weeklyExportContext.naturalWbsCompare('1.2', '1.11') < 0);
 const exportContext = { projectCode: 'P1', deptCode: 'D1', weekCode: 'WEEK-2026-06-22' };
@@ -571,7 +571,7 @@ const exportItems = [
   { itemType: 'PB_DETAIL', itemId: 'ORPHAN', parentMasterTaskCode: 'M404', wbs: 'V.99', taskName: 'Việc mồ côi', eligibleReason: 'OVERDUE' }
 ];
 const deptMasters = [
-  { masterCode: 'M2', officialWbs: 'V.2', taskName: 'Mục tiêu 2', planStart: '2026-06-02', planFinish: '2026-06-28', progress: 20, status: 'Đang thực hiện', owner: 'Chủ trì M2' },
+  { masterCode: 'M2', officialWbs: 'V.2', taskName: 'Mục tiêu 2', ownHangMuc: 'LK05', planStart: '2026-06-02', planFinish: '2026-06-28', progress: 20, status: 'Đang thực hiện', owner: 'Chủ trì M2' },
   { masterCode: 'M10', officialWbs: 'V.10-X', taskName: 'Không được ghi đè MASTER API' },
   { masterCode: 'M99', officialWbs: 'V.99-X', taskName: 'Không được thêm vì không có con tham chiếu' }
 ];
@@ -587,13 +587,14 @@ const originalMasters = JSON.stringify(deptMasters);
 const enrichedItems = weeklyExportContext.enrichItems(exportItems, deptMasters);
 assert.equal(enrichedItems.filter((item) => item.itemType === 'MASTER' && item.itemId === 'M2').length, 1);
 assert.equal(enrichedItems.find((item) => item.itemId === 'M2').wbs, 'V.2');
+assert.equal(enrichedItems.find((item) => item.itemId === 'M2').ownHangMuc, 'LK05');
 assert.equal(enrichedItems.find((item) => item.itemId === 'M10').taskName, 'Mục tiêu 10');
 assert.equal(enrichedItems.some((item) => item.itemId === 'M99'), false);
 const exportModel = weeklyExportContext.buildExportModel(enrichedItems, exportUpdates, exportContext, exportWeek);
 assert.deepEqual(Array.from(exportModel.rows, (row) => row.item.itemId), ['M2', 'D2A', 'D2C', 'D2B', 'M3', 'M10', 'D10', 'ORPHAN']);
 assert.equal(exportModel.rows.find((row) => row.item.itemId === 'D2A').orphan, false);
 assert.equal(exportModel.rows.find((row) => row.item.itemId === 'D2C').orphan, false);
-assert.equal(exportModel.rows[0].values[2], 'Mục tiêu 2');
+assert.equal(exportModel.rows[0].values[2], 'Mục tiêu 2 - LK 05');
 assert.equal(exportModel.rows[1].values[7], 'Bản cuối khi bằng giờ');
 assert.equal(exportModel.rows[1].values[8], 50);
 assert.equal(exportModel.rows[1].values[10], 'Vướng mới');
